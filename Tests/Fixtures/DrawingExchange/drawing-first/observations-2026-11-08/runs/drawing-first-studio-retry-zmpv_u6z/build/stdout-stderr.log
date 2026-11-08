@@ -1,0 +1,52 @@
+[0/1] Planning build
+Building for debugging...
+[0/12] Write sources
+[5/12] Write swift-version--1AB21518FC5DEDBE.txt
+[7/18] Emitting module DrawingLibraryTests
+[8/18] Compiling DrawingLibraryTests DrawingLibraryMetadataPerformanceTests.swift
+[9/23] Emitting module PortraitLibrary
+[10/23] Compiling PortraitLibrary FlowPortfolioRetention.swift
+[11/23] Compiling PortraitLibrary FlowPortfolioPhotoCollection.swift
+[12/23] Compiling PortraitLibrary FlowPortfolioStore.swift
+[13/25] Compiling DrawingLibraryTests DrawingLibraryValueFlowTests.swift
+[14/25] Compiling DrawingLibraryTests DrawingLibraryOwnershipTests.swift
+[15/25] Compiling DrawingLibraryTests DrawingLibraryIndexContextCacheTests.swift
+[16/25] Compiling DrawingLibraryTests DrawingLibraryAtomicRetentionTests.swift
+[17/25] Compiling DrawingLibraryTests DrawingLibraryDomainCommitTests.swift
+[18/25] Compiling PortraitLibrary FlowAuthoringCache.swift
+[19/25] Compiling PortraitLibrary FlowPortfolioGraph.swift
+[20/36] Compiling PortraitStudioUI PortraitStudioView.swift
+[21/36] Compiling PortraitStudioUI PortraitStudioModel.swift
+[22/36] Compiling PortraitStudioUI FlowDojoTrainingFeedback.swift
+[23/36] Compiling PortraitStudioUI FlowDojoSidebar.swift
+[24/36] Compiling PortraitStudioUI FlowDojoModel.swift
+[25/36] Compiling PortraitStudioUI FlowDojoPresentation.swift
+[26/36] Compiling PortraitStudioUI FlowDojoTraining.swift
+[27/36] Emitting module PortraitStudioUI
+[28/36] Compiling PortraitStudioUI FlowDojoView.swift
+[28/38] Write Objects.LinkFileList
+[30/38] Compiling PortraitStudio PortraitStudioApp.swift
+[31/38] Emitting module PortraitStudio
+[31/38] Write Objects.LinkFileList
+[32/38] Linking PortraitStudio
+[33/38] Applying PortraitStudio
+[34/50] Linking AdaptivePlotter
+[35/50] Applying AdaptivePlotter
+[37/53] Compiling PortraitStudioTests StudioDrawingFixture.swift
+[38/53] Compiling PortraitStudioTests PortraitStudioFaceInputTests.swift
+[39/53] Compiling PortraitStudioTests PortraitLineEditTests.swift
+[40/53] Compiling PlotterAppTests PortraitStudioNativeLayoutTests.swift
+[41/53] Compiling PlotterAppTests PortraitStudioWorkspaceLayoutTests.swift
+[42/53] Emitting module PlotterAppTests
+[43/53] Compiling PortraitStudioTests FlowPortfolioTests.swift
+[44/53] Compiling PortraitStudioTests FlowPhotoCollectionTests.swift
+[45/53] Compiling PortraitStudioTests FlowDojoTests.swift
+[46/53] Compiling PortraitStudioTests FlowDojoNavigationTests.swift
+[47/53] Compiling PortraitStudioTests FlowDojoIntegrationTests.swift
+[48/53] Compiling PortraitStudioTests FlowDojoCameraTests.swift
+[49/53] Compiling PortraitStudioTests FlowAuthoringCacheTests.swift
+[50/53] Emitting module PortraitStudioTests
+[51/53] Compiling PortraitStudioTests FlowDojoTrainingProgressTests.swift
+[51/53] Write Objects.LinkFileList
+[52/53] Linking AdaptivePlotterPackageTests
+Build complete! (28.30s)

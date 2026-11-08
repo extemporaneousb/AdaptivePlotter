@@ -42,6 +42,9 @@ public struct DrawingBounds: Hashable, Sendable {
   public let minY: Double
   public let maxX: Double
   public let maxY: Double
+  public init(minX: Double, minY: Double, maxX: Double, maxY: Double) {
+    self.minX = minX; self.minY = minY; self.maxX = maxX; self.maxY = maxY
+  }
 }
 public struct DrawingSummary: Hashable, Sendable {
   public let strokeCount: Int
@@ -147,7 +150,7 @@ public struct Drawing: Sendable {
     case .restore(let value): action = "restore"; ids = value
     case .membership(let value): action = "membership"; ids = value
     }
-    let record = try DrawingPackageCodec.encoder().encode(DrawingMembershipReceipt(action: action, strokeIDs: ids,
+    let record = try DrawingArtifactCoding.encoder().encode(DrawingMembershipReceipt(action: action, strokeIDs: ids,
       parent: parent, universe: universeRef, before: ExchangeDigest(programDigest), after: ExchangeDigest(child.contentHash)))
     let receipt = try DrawingProducerReceipt(id: "adaptiveplotter.stroke-membership", version: "1", recordJSON: record)
     return try Drawing(program: child, input: input, parent: .present(parent), producer: receipt, units: units,

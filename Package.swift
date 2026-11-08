@@ -9,6 +9,8 @@ let package = Package(
   ],
   products: [
     .library(name: "PlotterModel", targets: ["PlotterModel"]),
+    .library(name: "PortraitCore", targets: ["PortraitCore"]),
+    .library(name: "DrawingLibrary", targets: ["DrawingLibrary"]),
     .library(name: "PlotterRuntime", targets: ["PlotterRuntime"]),
     .executable(name: "AdaptivePlotter", targets: ["PlotterApp"]),
     .executable(name: "PortraitStudio", targets: ["PortraitStudio"]),
@@ -22,21 +24,25 @@ let package = Package(
     .target(name: "PlotterModel"),
     .target(name: "PortraitCore", dependencies: ["PlotterModel"]),
     .target(
+      name: "DrawingLibrary",
+      dependencies: ["PortraitCore", "PlotterModel", "CSQLite"]
+    ),
+    .target(
       name: "PortraitArtists",
       dependencies: ["PortraitCore", "PlotterModel", "PlotterRuntime"]
     ),
     .target(
       name: "PortraitLibrary",
-      dependencies: ["PortraitCore", "PortraitArtists", "PlotterModel", "PlotterRuntime", "CSQLite"]
+      dependencies: ["DrawingLibrary", "PortraitCore", "PortraitArtists", "PlotterModel", "PlotterRuntime"]
     ),
     .target(
       name: "PortraitStudioUI",
-      dependencies: ["PortraitCore", "PortraitArtists", "PortraitLibrary", "PlotterModel", "PlotterRuntime"]
+      dependencies: ["DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PlotterModel", "PlotterRuntime"]
     ),
     .executableTarget(
       name: "PortraitStudio",
       dependencies: [
-        "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime",
+        "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime",
       ]
     ),
     .target(
@@ -61,12 +67,16 @@ let package = Package(
       dependencies: [
         "EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterEpisodeRuntime", "PlotterModel",
         "PlotterRuntime", "PlotterUI", "CSQLite",
-        "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
+        "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
       ]
     ),
     .target(
       name: "PlotterTestSupport",
       dependencies: ["PlotterModel", "PlotterRuntime"]
+    ),
+    .testTarget(
+      name: "DrawingLibraryTests",
+      dependencies: ["DrawingLibrary", "PortraitCore", "PlotterModel", "CSQLite"]
     ),
     .testTarget(
       name: "EpisodeCoreTests",
@@ -101,15 +111,19 @@ let package = Package(
     ),
     .testTarget(
       name: "PortraitStudioTests",
-      dependencies: ["PortraitStudio", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime"]
+      dependencies: ["PortraitStudio", "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime"],
+      // Frozen DX01 measurements target the retired authoring ABI; retained inert.
+      exclude: ["DrawingExchangeFlowBaselineTests.swift"]
     ),
     .testTarget(
       name: "PlotterAppTests",
       dependencies: [
         "EpisodeCore", "PlotterApp", "PlotterEpisodeModel", "PlotterEpisodeRuntime",
         "PlotterRuntime", "PlotterTestSupport",
-        "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
-      ]
+        "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
+      ],
+      // Frozen DX01 driver source remains byte-identical outside active membership.
+      exclude: ["DrawingExchangeBaselineTests.swift", "DrawingExchangeDX04ProbeTests.swift", "DrawingExchangeDX04ReaderProbeTests.swift", "DrawingExchangeCounterControlsTests.swift"]
     ),
     .testTarget(
       name: "PlotterEpisodeUIActionabilityTests",

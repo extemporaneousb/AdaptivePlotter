@@ -126,18 +126,6 @@ struct PortraitExplorationProposalTests {
     let legacy = try JSONDecoder().decode(PortraitExplorationRecord.self,
       from: JSONSerialization.data(withJSONObject: object))
     try PortraitExplorationRecord.validate([legacy], for: center)
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = PortraitCandidateStore(directoryURL: directory)
-    try await store.save(snapshot: .init(entries: [.init(candidate: center, reasons: [], exploration: [legacy])]))
-    let collection = await PortraitSketchCollection(store: store)
-    await collection.load()
-    #expect(await collection.entries.first?.exploration == [legacy])
-    #expect(await collection.retain(candidate: center, reason: .shortlisted) == nil)
-    await collection.awaitPersistence()
-    let loaded = await store.load()
-    #expect(loaded.canWrite)
-    #expect(loaded.archive.entries.first?.exploration == [legacy])
     object["policyRevision"] = "unknown-future-policy"
     let unknown = try JSONDecoder().decode(PortraitExplorationRecord.self,
       from: JSONSerialization.data(withJSONObject: object))

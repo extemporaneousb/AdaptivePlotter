@@ -1,0 +1,90 @@
+{
+  "description_paths": [
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-verification2-tppri552/client-scratch/x86_64-apple-macosx/debug/description.json"
+  ],
+  "swiftModules": [
+    [
+      "C.DrawingLibrary-x86_64-apple-macosx15.0-debug.module",
+      "DrawingLibrary"
+    ],
+    [
+      "C.DrawingLibraryPublicClient-x86_64-apple-macosx15.0-debug.module",
+      "DrawingLibraryPublicClient"
+    ],
+    [
+      "C.EpisodeCore-x86_64-apple-macosx15.0-debug.module",
+      "EpisodeCore"
+    ],
+    [
+      "C.EpisodeRuntime-x86_64-apple-macosx15.0-debug.module",
+      "EpisodeRuntime"
+    ],
+    [
+      "C.PlotterApp-x86_64-apple-macosx15.0-debug.module",
+      "PlotterApp"
+    ],
+    [
+      "C.PlotterEpisodeModel-x86_64-apple-macosx15.0-debug.module",
+      "PlotterEpisodeModel"
+    ],
+    [
+      "C.PlotterEpisodeRuntime-x86_64-apple-macosx15.0-debug.module",
+      "PlotterEpisodeRuntime"
+    ],
+    [
+      "C.PlotterModel-x86_64-apple-macosx15.0-debug.module",
+      "PlotterModel"
+    ],
+    [
+      "C.PlotterRuntime-x86_64-apple-macosx15.0-debug.module",
+      "PlotterRuntime"
+    ],
+    [
+      "C.PlotterUI-x86_64-apple-macosx15.0-debug.module",
+      "PlotterUI"
+    ],
+    [
+      "C.PortraitArtists-x86_64-apple-macosx15.0-debug.module",
+      "PortraitArtists"
+    ],
+    [
+      "C.PortraitCore-x86_64-apple-macosx15.0-debug.module",
+      "PortraitCore"
+    ],
+    [
+      "C.PortraitLibrary-x86_64-apple-macosx15.0-debug.module",
+      "PortraitLibrary"
+    ],
+    [
+      "C.PortraitStudio-x86_64-apple-macosx15.0-debug.module",
+      "PortraitStudio"
+    ],
+    [
+      "C.PortraitStudioUI-x86_64-apple-macosx15.0-debug.module",
+      "PortraitStudioUI"
+    ]
+  ],
+  "emittedModules": [
+    "DrawingLibrary.swiftmodule",
+    "DrawingLibraryPublicClient.swiftmodule",
+    "PlotterModel.swiftmodule",
+    "PortraitCore.swiftmodule"
+  ],
+  "selectedTargetDependencyMap": {
+    "DrawingLibrary": [
+      "CSQLite",
+      "PortraitCore",
+      "PlotterModel"
+    ],
+    "DrawingLibraryPublicClient": [
+      "DrawingLibrary",
+      "CSQLite",
+      "PortraitCore",
+      "PlotterModel"
+    ],
+    "PlotterModel": [],
+    "PortraitCore": [
+      "PlotterModel"
+    ]
+  }
+}

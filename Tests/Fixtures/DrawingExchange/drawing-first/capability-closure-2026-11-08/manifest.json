@@ -1,0 +1,72 @@
+{
+  "file_count": 16,
+  "files": {
+    "README.md": {
+      "bytes": 3989,
+      "sha256": "5ac90731eea699894c0246e96a38a7ccc5bcf2449aabc8bbd7a3afc90d101e90"
+    },
+    "implementation-delta.json": {
+      "bytes": 1115,
+      "sha256": "d3f644162d857ba77f38525b0d20f51660ebfd92beff33d77ab767fa8eb7253b"
+    },
+    "implementation-pins.json": {
+      "bytes": 37551,
+      "sha256": "186085eaeb3d123da3377183b2239ea5d534dde35a274216e6c65a83bd62a036"
+    },
+    "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz": {
+      "bytes": 44808,
+      "sha256": "c04ccc3b18b6cd0215868ed1f64e328c595ca1c149a3cdefc467a018b46ee480"
+    },
+    "receipt-index.json": {
+      "bytes": 6310,
+      "sha256": "a8b532f1f1a7c600b035cd87c51e178dfe64b59ecb729f07168288e95061162b"
+    },
+    "runs/drawing-first-capability-app-build-2sw0qh_b/build/process.json": {
+      "bytes": 629,
+      "sha256": "b58b1c38e4910062b98129ddf6896c5312173c8d08d50dbc86cbaf5604a4cd16"
+    },
+    "runs/drawing-first-capability-app-build-2sw0qh_b/build/start.json": {
+      "bytes": 2236,
+      "sha256": "ce6ad7b0d8488d13c6f7f6a1b12cd70d8fca9434a768b6a9e4975e0926d3e23b"
+    },
+    "runs/drawing-first-capability-app-build-2sw0qh_b/build/stdout-stderr.log": {
+      "bytes": 119,
+      "sha256": "f6b1e5d207969a2b8c6d8de93a1515db96820b5bf48ccb282befbaf6223c82a2"
+    },
+    "runs/drawing-first-capability-app-build-2sw0qh_b/linked-products.json": {
+      "bytes": 566,
+      "sha256": "0bdca909ac671b74af64adc599e56507c14559356a05c3afb07c7a285988e3f7"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/build/process.json": {
+      "bytes": 649,
+      "sha256": "0c92dd76b8f1f0381c6fe0c9a495862b807ab2460e06791da35711d7a0d62a45"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/build/start.json": {
+      "bytes": 2257,
+      "sha256": "5c0bcb69280cf3cc8c246d684817b890efb69ceb98404530168a528605691cf5"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/build/stdout-stderr.log": {
+      "bytes": 1009,
+      "sha256": "631e5fb3891fc6836132910cf2f8a4dc986739e473b69c56f306c9a70dfa3f96"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/test/process.json": {
+      "bytes": 1501,
+      "sha256": "b81edca9cbcba7022a3aeecb2d5e8199f13295768b816f1ffea9a4395e86c949"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/test/results.xml": {
+      "bytes": 1616,
+      "sha256": "2d26bd9d8792f7cfccd0bbbfe06a1621121f5d60b98decf8be418cff48ddeb75"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/test/start.json": {
+      "bytes": 2610,
+      "sha256": "4e519c578495467bc703984484518cb9d453c53899a64defe67d83bbfdcc4927"
+    },
+    "runs/drawing-first-capability-tests-rjtjum1e/test/stdout-stderr.log": {
+      "bytes": 4279,
+      "sha256": "043f5750bf3d9deeed0bf8abd4657ac04fb625fd366fcb4d6edba5b95ee837cc"
+    }
+  },
+  "format": "drawing-first-capability-supplement-manifest/1",
+  "previous_manifest_sha256": "7448fd104a629615eba7cc10b40123aa4abf932ff000e87f21976af91eed6ea9",
+  "task": "task-89f7fee3b6c847e9ae9acebb9b901347"
+}

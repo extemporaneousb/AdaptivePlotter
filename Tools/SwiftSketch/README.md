@@ -76,9 +76,11 @@ field, centers padding and flips y. It retains stroke order and open endpoints,
 uses deterministic subdivision with tolerance `min(0.05 mm, penWidth/4)` and
 bounded depth/points, and rejects unsupported, nonfinite or out-of-field curves.
 It never silently clamps, closes or merges a stroke. Its settings receipt freezes
-the affine and tolerance. A valid immutable result enters the existing
-`DrawingPackage` and canonical `SavedDrawing` import path; review failures remain
-separate records. Physical plotting still belongs to the main plotter app.
+the affine and tolerance. The converter returns a typed vector program and its
+frozen settings receipt. Authoring integrations publish a `PortraitCore.Drawing`
+through `DrawingLibrary` and exchange exact references through the current
+Drawing Exchange carrier. Historical pilot files remain untouched; their import
+is deferred. Physical plotting belongs to the main plotter app.
 
 `pilot.py plan` freezes six distinct retained originals before any output, selects
 evenly spaced positions in retained metadata order, records the source/capture/

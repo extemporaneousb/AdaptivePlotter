@@ -23,9 +23,10 @@ tracks its implementation across both applications.
 `PortraitStudio` is the independent Flow Edge Dojo: choose a photo, compare a
 broad panel, refine a choice, remove or restore whole lines, rank alternatives,
 and fit/deploy a personal artist. The embedded workspace uses the same journey.
-Every image, result, choice, edit and judgment is saved incrementally inside a
-portable portfolio directory, by default
-`~/Documents/Flow Edge Portfolio.flowportfolio/`.
+Sources, choices, edits, judgments and training records are saved incrementally
+in the common Drawing Library. Generated geometry remains temporary until chosen,
+pruned or explicitly handed to Drawing; Rank retains features and previews without
+retaining every unselected program.
 
 ```sh
 make portrait-studio-app
@@ -34,9 +35,10 @@ make validate-portrait-studio-app
 
 The output is `.build/PortraitStudio.app` (`com.bullard.PortraitStudio`, version
 0.1.0). These commands build and verify it without launching. The standalone app
-accepts an absolute `--portfolio` directory; Portfolio → New/Open selects one in
-the UI. Each portfolio has one writer and includes its images, immutable records,
-training snapshots and checkpoints. Existing private libraries remain historical.
+accepts an absolute `--library` directory. Its default is
+`~/Library/Application Support/PortraitStudio/DrawingLibrary/`; embedded Studio uses
+`~/Library/Application Support/AdaptivePlotter/DrawingLibrary/`. Each library has one
+writer. Historical authoring files remain untouched; their import is deferred.
 
 The artist combines native Flow Edge parameter variation with learned line
 selection. Explicit rankings and pruning targets fit local image-conditioned
@@ -45,11 +47,11 @@ measurements; activation and rollback affect future proposals. Ordinary autosave
 does not invent labels for untouched lines. **Finish pruning** declares a complete
 target, after the edits are already durable.
 
-Export an immutable Drawing Package, import it in AdaptivePlotter, and use the
+Export a Drawing Exchange ZIP, import it in AdaptivePlotter, and use the
 existing placement, material/paper and Draw workflow. Embedded **Send to Drawing**
-uses the same canonical handoff. Studio owns no machine runtime. See the
+passes the retained immutable Drawing and its exact reference directly. Studio owns no machine runtime. See the
 [Studio operator and format guide](docs/PORTRAIT_STUDIO.md) for the complete loop,
-portfolio format, fitting limits and physical evidence boundaries. The
+Drawing Library format, fitting limits and physical evidence boundaries. The
 [frozen development baseline](#portrait-studio-development-baseline) remains a
 historical renderer reference; it does not restore multiple authoring paths.
 
@@ -336,12 +338,12 @@ model acceptance are still required before adaptive drawing readiness.
 Open **Portrait Studio** through the toolbar or **View** to enter the shared
 Flow Edge Dojo. Import or capture a photo, generate a broad panel, choose and refine
 an artistic direction, and prune exact lines. Explore, Prune, Rank and Fit & deploy
-are stages of this one portfolio workflow. Photos, rounds, choices, edit revisions,
-randomized ranking presentations and model reports are autosaved; no Save Drawing
-step is required.
+are stages of this one portfolio workflow. Photos, round metadata, choices, edit revisions, randomized ranking presentations
+and model reports are autosaved. Generated geometry and previews remain temporary
+until retention or Rank capture; no Save Drawing step is required for curation.
 
-**Send to Drawing** imports the selected immutable portfolio result through the
-canonical drawing library and installs it in the shared Drawing panel. Continue
+**Send to Drawing** retains the selected immutable Drawing in the common library
+and passes it directly to the shared Drawing panel. Continue
 with placement, material and paper setup, then press **Draw**. Sending invokes no
 motion. Later curation or model activation cannot change an already placed drawing.
 The drawing reviewer retains bounded source/drawing/run summaries, stage photos

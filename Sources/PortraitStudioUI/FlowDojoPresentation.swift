@@ -91,14 +91,13 @@ extension FlowDojoModel {
     let prefix = (document?.id.uuidString ?? "") + ":" + source.id.uuidString
     guard let item = representative(for: source.id),
       let candidate = document?.candidates.first(where: { $0.id == item.candidateID }) else { return prefix + source.image.sha256 }
-    return prefix + ":" + item.id.uuidString + ":" + candidate.program.sha256
+    return prefix + ":" + item.id.uuidString + ":" + candidate.programHash
   }
   package func representativeThumbnail(_ source: FlowPortfolioSource) async -> Data? {
     guard let item = representative(for: source.id), let store else { return await thumbnail(source: source) }
     let key = representativeKey(source)
     return try? await FlowDojoThumbnailCache.shared.load(key: key) {
-      let program = try await store.candidateProgram(item.candidateID)
-      return try await Task.detached { try FlowDojoRenderer.preview(program, removed: Set(item.removedIndices)) }.value
+      try await store.presentationPreview(item)
     }
   }
 
@@ -113,11 +112,9 @@ extension FlowDojoModel {
     let revision = document?.latestPrune(candidateID: candidate.id)
     let key = candidate.id.uuidString + ":" + (revision?.id.uuidString ?? candidate.preview.sha256)
     return try? await FlowDojoThumbnailCache.shared.load(key: key) {
-      if let revision {
-        let program = try await store.candidateProgram(candidate.id)
-        return try await Task.detached { try FlowDojoRenderer.preview(program, removed: Set(revision.removedIndices)) }.value
-      }
-      return try await store.candidatePreview(candidate.id)
+      let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,
+        revisionID: revision?.id, sourceID: candidate.sourceID, removedIndices: revision?.removedIndices ?? [])
+      return try await store.presentationPreview(item)
     }
   }
 }

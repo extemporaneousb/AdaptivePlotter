@@ -32,9 +32,9 @@ struct RunningAppPreviewPerformanceConfiguration: Equatable, Sendable {
     reportURL = URL(fileURLWithPath: reportPath)
     readyMarkerURL = URL(fileURLWithPath: readyMarkerPath)
     scenario = Self.value(after: Self.scenarioArgument, in: arguments) ?? "preview"
-    guard ["preview", "learned-portrait", "physical-portrait", "native-workbench"].contains(scenario) else { return nil }
+    guard ["preview", "physical-portrait", "native-workbench"].contains(scenario) else { return nil }
     durationSeconds = Self.value(after: Self.durationArgument, in: arguments).flatMap(Double.init)
-      ?? (scenario == "physical-portrait" ? 600 : scenario == "learned-portrait" ? 60 : scenario == "native-workbench" ? 180 : 12)
+      ?? (scenario == "physical-portrait" ? 600 : scenario == "native-workbench" ? 180 : 12)
     guard durationSeconds.isFinite, durationSeconds >= 1, durationSeconds <= 600 else { return nil }
     portraitPhotoURL = Self.value(after: Self.photoArgument, in: arguments).map { URL(fileURLWithPath: $0) }
     physicalControllerIdentifier = Self.value(after: Self.controllerArgument, in: arguments)
@@ -52,7 +52,7 @@ struct RunningAppPreviewPerformanceConfiguration: Equatable, Sendable {
 }
 
 struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
-  static let schema = "adaptiveplotter.running-app-preview-runtime.v2"
+  static let schema = "adaptiveplotter.running-app-preview-runtime.v3"
 
   #if DEBUG
   var buildConfiguration = "debug"
@@ -84,7 +84,6 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   var nativeInputCounts: [String: WorkbenchNativeInputCounts] = [:]
   var retrospectiveRecordIDs: [String] = []
   var retrospectiveConstraintCount = 0
-  var portraitMaximumConcurrentExpensiveJobs = 0
   var portraitProgramHash: String?
   var portraitStrokeCount = 0
   var portraitInputSource: String?
@@ -93,8 +92,6 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
   var cameraSwitchReceipts: [WorkbenchCameraSwitchReceipt] = []
   var suspendedPlotterAnalyzedFrameDelta: UInt64 = 0
   var measuredAnalysisFrameDelta: UInt64 = 0
-  var portraitMaximumConcurrentWorkers = 0
-  var portraitSettledWorkers = 0
   var passivePanelTextChanged: [String] = []
   var passivePanelsObserved: [String] = []
   var stopWasPresent = false
@@ -123,6 +120,16 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
       || nativeInputCounts.values.reduce(0, { $0 + $1.acknowledged }) != nativeInputSamples.count {
       reasons.append("Per-control native counts do not reconcile with all submitted inputs and raw receipts.")
     }
+    let samplesByControl = Dictionary(grouping: nativeInputSamples, by: \.targetIdentifier)
+    for identifier in Set(nativeInputCounts.keys).union(samplesByControl.keys).sorted() {
+      let rawCount = samplesByControl[identifier]?.count ?? 0
+      guard let counts = nativeInputCounts[identifier],
+        counts.posted == rawCount, counts.dispatched == rawCount,
+        counts.handled == rawCount, counts.acknowledged == rawCount else {
+        reasons.append("Native control \(identifier) posted/dispatched/handled/acknowledged counts do not match its raw receipts.")
+        continue
+      }
+    }
     if nativeInputSamples.contains(where: {
       $0.dispatchEntryUptimeSeconds < $0.postedUptimeSeconds
         || $0.handlerUptimeSeconds < $0.dispatchEntryUptimeSeconds
@@ -135,50 +142,8 @@ struct RunningAppPreviewPerformanceReport: Codable, Equatable, Sendable {
     for window in quietAnalysisWindows where window.hasChurn {
       reasons.append("Quiet analysis after \(window.context) changed semantic/root/draft/overlay state or panel text: \(window.changedPanels.joined(separator: ", ")).")
     }
-    guard scenario == "learned-portrait" else { return reasons }
-    if appliedCheckpointID == nil { reasons.append("Accepted saved training was not applied.") }
-    if !completeAcceptedLearningWasRetained || acceptedBorderRecordID == nil {
-      reasons.append("Complete accepted Learning including retained Border completion was not demonstrated.")
-    }
-    if portraitProgramHash == nil || portraitStrokeCount < 100 || !drawingPlanWasAvailable || !targetWasVisible {
-      reasons.append("A dense portrait target and immutable drawing plan were not available.")
-    }
-    if !automaticAnalysisWasRunning || measuredAnalysisFrameDelta == 0
-      || quietAnalysisWindows.filter({ $0.durationSeconds >= 1 && $0.completedFrames >= 1 }).count < 5
-      || (quietAnalysisWindows.first?.completedFrames ?? 0) < 2 {
-      reasons.append("Repeated real plotter analysis did not progress across five measured active-camera windows.")
-    }
-    if completedCameraSwitchCount < 20 { reasons.append("Fewer than twenty selected-camera switches completed.") }
-    if cameraSwitchReceipts.count != completedCameraSwitchCount || cameraSwitchReceipts.contains(where: {
-      !$0.configurationChanged || $0.lastSequence <= $0.firstSequence || $0.lastCaptureNanoseconds <= $0.firstCaptureNanoseconds
-    }) { reasons.append("Completed camera switches lack new capture generations with advancing live frames.") }
-    for role in WorkbenchCameraRole.allCases {
-      if nativeInputCounts["workbench.camera.\(role.rawValue)"]?.acknowledged
-        != cameraSwitchReceipts.filter({ $0.role == role }).count {
-        reasons.append("Native \(role.rawValue) input receipts do not reconcile with settled capture generations.")
-      }
-    }
-    if suspendedPlotterAnalyzedFrameDelta != 0 { reasons.append("Plotter analysis continued while portrait capture was selected.") }
-    if portraitMaximumConcurrentWorkers != 1 || portraitSettledWorkers == 0 { reasons.append("Portrait worker settlement or bounded concurrency was not demonstrated.") }
-    if portraitMaximumConcurrentExpensiveJobs != 1 { reasons.append("The total portrait acquisition/render concurrency bound was not demonstrated.") }
-    for id in Self.requiredPortraitControls {
-      guard let count = nativeInputCounts[id], count.posted > 0,
-        count.posted == count.dispatched, count.posted == count.handled, count.posted == count.acknowledged else {
-        reasons.append("Required native control \(id) was not posted, dispatched, handled, and visibly acknowledged.")
-        continue
-      }
-    }
-    if retrospectiveRecordIDs.isEmpty || retrospectiveConstraintCount == 0 {
-      reasons.append("No existing ordinary drawing supplied reusable retrospective residuals; complete and observe an ordinary drawing under the current calibration, then rerun.")
-    }
-    if measurementDurationSeconds < 60 { reasons.append("The learned-portrait workload did not run for sixty seconds.") }
     return reasons
   }
-
-  static let requiredPortraitControls = ["workbench.camera.portrait", "workbench.camera.plotter",
-    "portrait.minimumLine", "portrait.showOnPlotter", "drawing.scale", "drawing.rotation", "drawing.fit",
-    "workbench.toggle.motion", "workbench.scroll", "workbench.resize", "learning.analyzeDrawings"]
-      + [PortraitVectorPreset.fine, .balanced].map { "portrait.preset.\($0.rawValue)" }
 }
 
 struct PlotterAnalysisPerformanceWindow: Codable, Equatable, Sendable {
@@ -225,8 +190,7 @@ struct WorkbenchCameraSwitchReceipt: Codable, Equatable, Sendable {
 }
 
 /// Opt-in instrumentation for the repository's signed-app performance gate.
-/// The learned-portrait scenario applies the existing saved package and builds
-/// a real portrait target. It never submits controller, motion, Pen, or Draw.
+/// Preview and native-workbench checks remain separate from attended physical checks.
 @MainActor
 enum RunningAppPreviewPerformanceGate {
   private static let previewStartupTimeout: Duration = .seconds(15)
@@ -293,10 +257,6 @@ enum RunningAppPreviewPerformanceGate {
     }
     var workload = PortraitPerformanceWorkload()
     let originalOverlays = application.observationConfigurationProjection.enabledOverlays
-    if configuration.scenario == "learned-portrait" {
-      do { try await preparePortraitWorkload(application, configuration: configuration, workload: &workload) }
-      catch { workload.failures.append(error.localizedDescription) }
-    }
     // The authoring workspace and dock controls occupy different screens.
     // Observe each real surface while it is visible, rather than claiming that
     // hidden or unmounted controls were included in one accessibility snapshot.
@@ -350,17 +310,7 @@ enum RunningAppPreviewPerformanceGate {
     let deadline = measurementStarted.advanced(by: measurementDuration)
     while clock.now < deadline {
       do {
-        if configuration.scenario == "learned-portrait", workload.switchDurations.count < 20 {
-          try await measureCameraSwitch(application, probe: probe, revealPanel: revealPanel,
-            samples: &nativeSamples, workload: &workload)
-        } else if configuration.scenario == "learned-portrait", !workload.editorControlsAttempted {
-          workload.editorControlsAttempted = true
-          revealPanel(.motion)
-          try await measureEditorControls(application, probe: probe, revealPanel: revealPanel,
-            samples: &nativeSamples, workload: &workload)
-        } else {
-          nativeSamples.append(try await probe.hideMotion(reveal: revealPanel))
-        }
+        nativeSamples.append(try await probe.hideMotion(reveal: revealPanel))
         let ordered = nativeSamples.map(\.visibleAcknowledgmentLatencyMilliseconds).sorted()
         let p95 = ordered[max(0, Int(ceil(Double(ordered.count) * 0.95)) - 1)]
         if ordered.last! > 250 || (ordered.count >= 10 && p95 > 100) {
@@ -421,7 +371,7 @@ enum RunningAppPreviewPerformanceGate {
     report.nativeInputCounts = probe.counts
     report.retrospectiveRecordIDs = workload.retrospectiveRecordIDs
     report.retrospectiveConstraintCount = application.drawingDraftSnapshot.residualAnalysis?.constraints.count ?? 0
-    report.portraitMaximumConcurrentExpensiveJobs = application.portraitStudio.workDiagnostics.maximumConcurrentWorkerCount
+    // Classic worker diagnostics were retired; absence never proves a concurrency pass.
     report.portraitProgramHash = workload.programHash
     report.portraitStrokeCount = workload.strokeCount
     report.portraitInputSource = workload.inputSource
@@ -430,8 +380,7 @@ enum RunningAppPreviewPerformanceGate {
     report.cameraSwitchReceipts = workload.switchReceipts
     report.suspendedPlotterAnalyzedFrameDelta = workload.suspendedAnalysisDelta
     report.measuredAnalysisFrameDelta = subtract(analysisEnd, analysisStart)
-    report.portraitMaximumConcurrentWorkers = application.portraitStudio.renderDiagnostics.maximumConcurrentWorkerCount
-    report.portraitSettledWorkers = application.portraitStudio.renderDiagnostics.settledWorkerCount
+
     report.passivePanelsObserved = observedPanels.union(panelsBefore.keys).sorted()
     report.passivePanelTextChanged = passiveChanges.union(Set(panelsBefore.keys).union(panelsAfter.keys).filter {
       panelsBefore[$0] != panelsAfter[$0]
@@ -466,69 +415,7 @@ enum RunningAppPreviewPerformanceGate {
     var switchReceipts: [WorkbenchCameraSwitchReceipt] = []
   }
 
-  private static func preparePortraitWorkload(
-    _ application: PlotterApplicationRuntime,
-    configuration: RunningAppPreviewPerformanceConfiguration,
-    workload: inout PortraitPerformanceWorkload
-  ) async throws {
-    if application.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == nil {
-      let projection = projection(application)
-      guard let saved = projection.semantic.actions.first(where: {
-        if case .learningAction(let request) = $0.intent { return request.action == .applySavedLearning }
-        return false
-      }) else { throw WorkbenchNativeInputError.unavailable("No saved Learning package is available to the production Use Saved Learning action.") }
-      try await submit(saved.id, application: application, projection: projection)
-    }
-    guard let checkpoint = application.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint else {
-      throw WorkbenchNativeInputError.unavailable("Use Saved Learning did not restore an accepted package.")
-    }
-    guard checkpoint.penInteraction != nil, checkpoint.machineArtifacts != nil,
-      checkpoint.machineCamera != nil, checkpoint.tipCalibration != nil, checkpoint.stageFour != nil,
-      application.interactiveLearningIsComplete else {
-      throw WorkbenchNativeInputError.unavailable("Saved Learning lacks the complete accepted Pen, Boundary, camera, tip, or Border completion required for the portrait workload.")
-    }
-    workload.checkpointID = checkpoint.checkpointID.uuidString
-    let strokeStyle = application.drawingStrokeStyle
-    try await selectCamera(.portrait, application: application)
-    let model = application.portraitStudio
-    model.style = .crosshatch
-    model.renderIfNeeded(strokeStyle: strokeStyle)
-    if let photo = configuration.portraitPhotoURL {
-      workload.inputSource = "imported photo: \(photo.lastPathComponent)"
-      await model.importPhoto(photo, strokeStyle: strokeStyle)
-    } else {
-      workload.inputSource = "deterministic tonal portrait image fixture v1"
-      model.options = PortraitAnalysisOptions(cropToFace: false, removeBackground: false)
-      model.setPhoto(try portraitFixtureImage(), for: .front, strokeStyle: strokeStyle)
-    }
-    await model.awaitRendering()
-    guard let program = model.program, program.source.kind == "portrait", program.strokes.count >= 100 else {
-      throw WorkbenchNativeInputError.unavailable("Portrait input did not produce at least 100 strokes: \(model.summary)")
-    }
-    workload.programHash = program.contentHash.description
-    workload.strokeCount = program.strokes.count
-    try await awaitWorkload("The portrait camera produced no live frame during workload preparation.") { model.preview.frame != nil }
-    workload.lastConfigurations[.portrait] = model.preview.frame?.frame.cameraConfigurationID
-    try await selectCamera(.plotter, application: application)
-    try await submit(PlotterAppUIActionID.drawingDraft(.selectProgram(program)), application: application,
-                     projection: projection(application, program: program))
-    if !application.drawingTargetIsVisible {
-      try await submit(PlotterAppUIActionID.drawingDraft(.showTarget), application: application)
-    }
-    try await submit(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion), application: application)
-    if !application.observationConfigurationProjection.enabledOverlays.contains(.penCap) {
-      try await submit(PlotterAppUIActionID.observationOverlay(UserSceneOverlay.penCap.rawValue, enabled: true),
-                       application: application)
-    }
-    guard application.drawingDraftSnapshot.plan != nil else {
-      throw WorkbenchNativeInputError.unavailable("The dense portrait has no immutable drawing plan after Fit Target.")
-    }
-    let firstAnalysisCount = await analysisCount(application)
-    try await awaitWorkload("No plotter camera analysis completed after applying saved Learning.") {
-      await analysisCount(application) > firstAnalysisCount
-    }
-    workload.lastConfigurations[.plotter] = application.actionSurfacePreview.displayedFrame?.frame.cameraConfigurationID
-  }
+
 
   static func projection(_ application: PlotterApplicationRuntime, program: DrawingProgram? = nil)
     -> PlotterAppUIProjection
@@ -537,143 +424,9 @@ enum RunningAppPreviewPerformanceGate {
       manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
   }
 
-  private static func measureCameraSwitch(_ application: PlotterApplicationRuntime,
-    probe: RunningAppNativeInputProbe, revealPanel: @escaping @MainActor (WorkbenchPanel) -> Void,
-    samples: inout [WorkbenchNativeInputSample], workload: inout PortraitPerformanceWorkload) async throws {
-    let role: WorkbenchCameraRole = workload.switchDurations.count.isMultiple(of: 2) ? .portrait : .plotter
-    let started = ContinuousClock.now
-    let id = "workbench.camera.\(role.rawValue)"
-    revealPanel(.videoSettings)
-    samples.append(try await probe.click("workbench.video.cameraRole", handlerIdentifier: id,
-      menuKeyCodes: [115] + (role == .portrait ? [125] : []) + [36]) {
-        application.workbenchCameraRole == role || application.cameraRoleIsTransitioning
-      })
-    // This second native event is delivered while the camera owner's async
-    // stop/start may still be in flight. Switch duration is measured separately.
-    samples.append(try await probe.hideMotion(reveal: revealPanel))
-    try await awaitWorkload("Selected \(role.rawValue) camera did not settle: \(application.cameraRoleError ?? "no current source frame").") {
-      application.workbenchCameraRole == role && !application.cameraRoleIsTransitioning
-        && application.cameraRoleError == nil
-        && (role == .portrait ? application.portraitStudio.preview.frame != nil :
-          application.cameraIsLive && application.actionSurfacePreview.displayedFrame != nil)
-    }
-    guard application.interactiveLearningIsComplete,
-      application.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint?.checkpointID.uuidString == workload.checkpointID else {
-      throw WorkbenchNativeInputError.unavailable("Selected camera switching lost complete accepted Learning or its checkpoint identity.")
-    }
-    let first = role == .portrait ? application.portraitStudio.preview.frame : application.actionSurfacePreview.displayedFrame
-    let expectedDevice = role == .portrait ? application.portraitStudio.selectedDeviceID : application.cameraSnapshot?.selectedDeviceID
-    guard let first, let expectedDevice, first.source == .live(expectedDevice),
-      first.frame.cameraConfigurationID != workload.lastConfigurations[role] else {
-      throw WorkbenchNativeInputError.unavailable("Selected \(role.rawValue) capture did not publish its own new live generation.")
-    }
-    try await awaitWorkload("Selected \(role.rawValue) live frames did not advance after capture startup.") {
-      let next = role == .portrait ? application.portraitStudio.preview.frame : application.actionSurfacePreview.displayedFrame
-      return next?.source == first.source && next?.frame.cameraConfigurationID == first.frame.cameraConfigurationID
-        && (next?.frame.sequence ?? 0) > first.frame.sequence
-        && (next?.frame.captureNanoseconds ?? 0) > first.frame.captureNanoseconds
-    }
-    let progressed = role == .portrait ? application.portraitStudio.preview.frame : application.actionSurfacePreview.displayedFrame
-    guard let progressed else { throw WorkbenchNativeInputError.unavailable("Selected live frame disappeared during camera settlement.") }
-    let analysisBefore = await analysisCount(application)
-    if role == .portrait {
-      let model = application.portraitStudio
-      revealPanel(.portraitStudio)
-      guard RunningAppNativeInputProbe.controlFrame("portrait.adjustmentScroll") != nil,
-        [.contours, .flowEdges].contains(model.style) else {
-        throw WorkbenchNativeInputError.unavailable("Choose Contour or Flow Edge in Parameters before measuring drawing controls.")
-      }
-      let minimumLine = model.nativeVectorOptions.minimumContourLength
-      samples.append(try await probe.click("portrait.minimumLine", fractionX: minimumLine < 20 ? 0.8 : 0.2) {
-        model.nativeVectorOptions.minimumContourLength != minimumLine
-      })
-      let preset: PortraitVectorPreset = workload.switchDurations.count.isMultiple(of: 4) ? .fine : .balanced
-      let before = model.renderConfiguration
-      samples.append(try await probe.click("portrait.preset.\(preset.rawValue)") {
-        model.renderConfiguration != before
-      })
-      samples.append(try await probe.hideMotion(reveal: revealPanel))
-      await model.awaitRendering()
-      try await Task.sleep(for: .milliseconds(250))
-      workload.suspendedAnalysisDelta += subtract(await analysisCount(application), analysisBefore)
-      guard application.cameraSnapshot?.state == .stopped,
-        application.videoVisionDiagnostics?.pipeline.phase.state == .stopped,
-        application.videoVisionDiagnostics?.pipeline.activeFrameSequence == nil else {
-        throw WorkbenchNativeInputError.unavailable("Plotter capture or analysis remained active under the portrait camera.")
-      }
-    } else {
-      workload.analysisWindows.append(await observeQuietAnalysis(application, duration: 1.5, context: "camera switch"))
-    }
-    workload.switchDurations.append(durationMilliseconds(started.duration(to: .now)))
-    workload.lastConfigurations[role] = progressed.frame.cameraConfigurationID
-    workload.switchReceipts.append(.init(role: role, deviceID: expectedDevice.rawValue,
-      configurationID: progressed.frame.cameraConfigurationID.rawValue.uuidString, configurationChanged: true,
-      firstSequence: first.frame.sequence, lastSequence: progressed.frame.sequence,
-      firstCaptureNanoseconds: first.frame.captureNanoseconds, lastCaptureNanoseconds: progressed.frame.captureNanoseconds))
-  }
 
-  private static func measureEditorControls(_ application: PlotterApplicationRuntime,
-    probe: RunningAppNativeInputProbe, revealPanel: @escaping @MainActor (WorkbenchPanel) -> Void,
-    samples: inout [WorkbenchNativeInputSample], workload: inout PortraitPerformanceWorkload) async throws {
-    revealPanel(.portraitStudio)
-    await application.portraitStudio.awaitRendering()
-    guard application.portraitStudio.program != nil else {
-      throw WorkbenchNativeInputError.unavailable("The measured portrait style edits left no renderable portrait: \(application.portraitStudio.summary)")
-    }
-    let selectedHash = application.portraitStudio.selectedCandidate?.program.contentHash
-    samples.append(try await probe.click("portrait.showOnPlotter") {
-      // Re-showing the same drawing intentionally preserves placement. Its
-      // acknowledgment is the actual Studio-to-plotter transition and exact
-      // projected program, not a requirement to manufacture a different hash.
-      application.drawingDraftSnapshot.program?.contentHash == selectedHash
-        && RunningAppNativeInputProbe.controlFrame("workbench.panel.portraitStudio") == nil
-        && RunningAppNativeInputProbe.controlFrame("workbench.panel.drawing") != nil
-        && RunningAppNativeInputProbe.controlFrame("workbench.video.canvas") != nil
-    })
-    try await awaitWorkload("Send to Drawing did not expose the current portrait plan.") {
-      application.drawingDraftSnapshot.program?.contentHash == application.portraitStudio.program?.contentHash
-        && application.drawingTargetIsVisible && application.drawingDraftSnapshot.plan != nil
-    }
-    revealPanel(.drawing)
-    for (id, fraction) in [("drawing.scale", 0.4), ("drawing.rotation", 0.65), ("drawing.fit", 0.5)] {
-      let before = RunningAppNativeInputProbe.controlValue("drawing.placement")
-      samples.append(try await probe.click(id, fractionX: fraction) {
-        RunningAppNativeInputProbe.controlValue("drawing.placement") != before
-      })
-    }
-    for _ in 0..<2 {
-      let wasVisible = RunningAppNativeInputProbe.controlFrame("workbench.panel.motion") != nil
-      samples.append(try await probe.togglePane(.motion) {
-        (RunningAppNativeInputProbe.controlFrame("workbench.panel.motion") != nil) != wasVisible
-      })
-    }
-    samples.append(try await probe.scrollWorkbench())
-    samples.append(try await probe.resizeWorkbench())
-    workload.analysisWindows.append(await observeQuietAnalysis(application, duration: 1.5, context: "portrait and placement edits"))
-    revealPanel(.activeLearning)
-    let records = application.drawingDraftSnapshot.residualRecords
-    guard records.contains(where: { $0.role == .ordinaryDrawing }) else {
-      throw WorkbenchNativeInputError.unavailable("The ordinary drawing archive is empty; retrospective selection requires an observed drawing under the accepted calibration.")
-    }
-    // Select existing immutable records through their real checkboxes. The
-    // normal analysis owner diagnoses role/provenance exclusions; this gate
-    // never manufactures, relabels or writes an archived drawing.
-    for record in records where record.isSelected != (record.role == .ordinaryDrawing) {
-      let id = "learning.record.\(record.recordID.rawValue.uuidString)"
-      let before = RunningAppNativeInputProbe.controlValue(id)
-      samples.append(try await probe.click(id) { RunningAppNativeInputProbe.controlValue(id) != before })
-    }
-    workload.retrospectiveRecordIDs = application.drawingDraftSnapshot.residualRecords.filter { $0.isSelected && $0.role == .ordinaryDrawing }.map { $0.recordID.rawValue.uuidString }
-    let oldAnalysis = application.drawingDraftSnapshot.residualAnalysis
-    samples.append(try await probe.click("learning.analyzeDrawings") {
-      application.drawingDraftSnapshot.residualAnalysis != oldAnalysis
-        && RunningAppNativeInputProbe.controlValue("learning.residualResult") != nil
-    })
-    workload.analysisWindows.append(await observeQuietAnalysis(application, duration: 1.5, context: "retrospective analysis"))
-    guard let analysis = application.drawingDraftSnapshot.residualAnalysis, !analysis.constraints.isEmpty else {
-      throw WorkbenchNativeInputError.unavailable("Existing archive records cannot supply the required ordinary-drawing residual workload: \(application.drawingDraftSnapshot.residualAnalysis?.summary ?? "no completed analysis").")
-    }
-  }
+
+
 
   private static func observeQuietAnalysis(_ application: PlotterApplicationRuntime,
     duration: Double, context: String) async -> PlotterAnalysisPerformanceWindow {
@@ -735,24 +488,7 @@ enum RunningAppPreviewPerformanceGate {
 
   /// Real image decoding and vectorization are exercised; this fixture carries
   /// explicit synthetic provenance and never claims a captured human face.
-  private static func portraitFixtureImage() throws -> Data {
-    let width = 160, height = 200
-    let bytes = Data((0..<(width * height)).map { index -> UInt8 in
-      let x = Double(index % width - width / 2) / 64
-      let y = Double(index / width - height / 2) / 92
-      let radius = x * x + y * y
-      if radius > 1 { return 255 }
-      let eyes = abs(y + 0.22) < 0.04 && abs(abs(x) - 0.32) < 0.12
-      let mouth = abs(y - 0.44) < 0.03 && abs(x) < 0.3
-      return eyes || mouth ? 12 : UInt8(25 + min(180, radius * 140))
-    })
-    guard let provider = CGDataProvider(data: bytes as CFData),
-      let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8,
-        bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
-        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    else { throw PortraitDrawingError.unreadableImage }
-    return try PortraitImageAnalyzer.encodedImage(image)
-  }
+
 
   private nonisolated static func interactionLatencySamples(
     duration: Duration,

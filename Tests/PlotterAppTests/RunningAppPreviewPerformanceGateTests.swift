@@ -31,9 +31,7 @@ struct RunningAppPreviewPerformanceGateTests {
       RunningAppPreviewPerformanceConfiguration.durationArgument, "90",
       RunningAppPreviewPerformanceConfiguration.photoArgument, "/tmp/face.png",
     ])
-    #expect(portrait?.scenario == "learned-portrait")
-    #expect(portrait?.durationSeconds == 90)
-    #expect(portrait?.portraitPhotoURL?.path == "/tmp/face.png")
+    #expect(portrait == nil) // Retired classic scenario cannot be selected.
   }
 
   @Test("physical mode requires an explicit photo and exact controller; preview remains nonphysical")
@@ -331,78 +329,67 @@ struct RunningAppPreviewPerformanceGateTests {
     #expect(decoded == report)
   }
 
-  @Test("an idle preview with excellent scheduling cannot pass the learned portrait workload")
-  func idlePreviewIsNotPortraitProof() {
-    var report = completePortraitReport()
-    report.appliedCheckpointID = nil
-    report.portraitProgramHash = nil
-    report.drawingPlanWasAvailable = false
-    report.measuredAnalysisFrameDelta = 0
-    report.completedCameraSwitchCount = 0
-    report.nativeInputSamples = []
-    let failures = report.workloadFailures.joined(separator: " ")
-    #expect(failures.contains("saved training"))
-    #expect(failures.contains("dense portrait"))
-    #expect(failures.contains("analysis"))
-    #expect(failures.contains("twenty"))
-    #expect(failures.contains("native"))
-    #expect(report.mainActorSchedulingLatencyMilliseconds.allSatisfy { $0 < 1 })
-  }
+
 
   @Test("dropped native clicks and hidden plotter work remain failures despite other passing evidence")
   func missingAcknowledgmentAndHiddenAnalysisFail() {
-    var report = completePortraitReport()
+    var report = completePreviewReport()
     #expect(report.workloadFailures.isEmpty)
     report.submittedNativeInputCount += 1
     report.suspendedPlotterAnalyzedFrameDelta = 1
     report.passivePanelTextChanged = ["motion"]
     let failures = report.workloadFailures.joined(separator: " ")
     #expect(failures.contains("lacks delivery"))
-    #expect(failures.contains("continued"))
+
     #expect(failures.contains("panel text"))
   }
 
-  @Test("a partial saved prefix, one scan, or Motion-only input cannot satisfy the integrated workload")
-  func integratedWorkloadRequiresIndependentReceipts() {
-    var report = completePortraitReport()
-    report.completeAcceptedLearningWasRetained = false
-    report.acceptedBorderRecordID = nil
-    report.quietAnalysisWindows = [.init(durationSeconds: 60, completedFrames: 1)]
-    report.nativeInputCounts = ["workbench.hide.motion": .init(posted: 100, dispatched: 100, handled: 100, acknowledged: 100)]
-    report.retrospectiveConstraintCount = 0
-    let failures = report.workloadFailures.joined(separator: " ")
-    #expect(failures.contains("Border completion"))
-    #expect(failures.contains("five measured"))
-    #expect(failures.contains("portrait.showOnPlotter"))
-    #expect(failures.contains("ordinary drawing"))
-  }
+
 
   @Test("source event time cannot substitute for dispatch-entry and control handler receipts")
   func dispatchTimeMustBeIndependentlySampled() {
-    var report = completePortraitReport()
+    var report = completePreviewReport()
     report.nativeInputSamples[0].dispatchEntryUptimeSeconds = 0
     #expect(report.workloadFailures.contains { $0.contains("dispatch entry") })
-    report = completePortraitReport()
-    report.nativeInputCounts["drawing.scale"]?.handled = 0
-    #expect(report.workloadFailures.contains { $0.contains("drawing.scale") })
+    report = completePreviewReport()
+    report.nativeInputCounts["workbench.toggle.drawing"]?.handled = 0
+    #expect(report.workloadFailures.contains { $0.contains("workbench.toggle.drawing") })
   }
 
-  private func completePortraitReport() -> RunningAppPreviewPerformanceReport {
+  @Test("Every current control reconciles dispatch and handler counts against its own raw receipts")
+  func perControlCountsCannotBorrowReceipts() {
+    let first = "workbench.toggle.drawing", second = "workbench.toggle.motion"
+    for field in [\WorkbenchNativeInputCounts.dispatched, \WorkbenchNativeInputCounts.handled] {
+      var report = completePreviewReport()
+      var counts = report.nativeInputCounts[first]!
+      counts[keyPath: field] = 0
+      report.nativeInputCounts[first] = counts
+      #expect(report.workloadFailures.contains { $0.contains(first) })
+    }
+    var redistributed = completePreviewReport()
+    redistributed.nativeInputCounts[first] = .init(posted: 2, dispatched: 2, handled: 2, acknowledged: 2)
+    redistributed.nativeInputCounts[second] = .init()
+    #expect(redistributed.nativeInputCounts.values.reduce(0) { $0 + $1.posted } == redistributed.submittedNativeInputCount)
+    #expect(redistributed.nativeInputCounts.values.reduce(0) { $0 + $1.acknowledged } == redistributed.nativeInputSamples.count)
+    #expect(redistributed.workloadFailures.contains { $0.contains(first) })
+    #expect(redistributed.workloadFailures.contains { $0.contains(second) })
+  }
+
+  private func completePreviewReport() -> RunningAppPreviewPerformanceReport {
     var report = RunningAppPreviewPerformanceReport(schema: RunningAppPreviewPerformanceReport.schema,
       measurementDurationSeconds: 60, previewPublicationCount: 601, previewFramesAdvanced: 600,
       previewStartSequence: 1, previewEndSequence: 601, previewSourceWasLive: true,
       previewConfigurationRemainedStable: true, semanticPresentationRevisionDelta: 0,
       rootProjectionBuildCountDelta: 0, drawingDraftSynchronizationCountDelta: 0,
       mainActorSchedulingLatencyMilliseconds: [0.1, 0.2])
-    report.scenario = "learned-portrait"
+    report.scenario = "preview"
     report.appliedCheckpointID = UUID().uuidString
     report.completeAcceptedLearningWasRetained = true
     report.acceptedBorderRecordID = UUID().uuidString
     report.quietAnalysisWindows = Array(repeating: .init(durationSeconds: 2, completedFrames: 3), count: 8)
     report.retrospectiveRecordIDs = [UUID().uuidString]
     report.retrospectiveConstraintCount = 200
-    report.portraitMaximumConcurrentExpensiveJobs = 1
-    report.nativeInputCounts = Dictionary(uniqueKeysWithValues: RunningAppPreviewPerformanceReport.requiredPortraitControls.map {
+    report.nativeInputCounts = Dictionary(uniqueKeysWithValues: ["workbench.toggle.drawing", "workbench.toggle.motion"].map {
       let count = $0.hasPrefix("workbench.camera.") ? 10 : 1
       return ($0, WorkbenchNativeInputCounts(posted: count, dispatched: count, handled: count, acknowledged: count))
     })
@@ -418,11 +405,9 @@ struct RunningAppPreviewPerformanceGateTests {
         configurationID: UUID().uuidString, configurationChanged: true,
         firstSequence: 1, lastSequence: 2, firstCaptureNanoseconds: 10, lastCaptureNanoseconds: 20)
     }
-    report.portraitMaximumConcurrentWorkers = 1
-    report.portraitSettledWorkers = 2
     report.passivePanelsObserved = WorkbenchPanel.allCases.map(\.rawValue)
     report.stopWasPresent = true
-    report.nativeInputSamples = RunningAppPreviewPerformanceReport.requiredPortraitControls.flatMap { identifier in
+    report.nativeInputSamples = ["workbench.toggle.drawing", "workbench.toggle.motion"].flatMap { identifier in
       Array<WorkbenchNativeInputSample>(repeating: .init(targetIdentifier: identifier,
       postedUptimeSeconds: 10, eventUptimeSeconds: 10,
       postedEventIdentity: 42, dispatchedEventIdentity: 42, handledEventIdentity: 42,
@@ -442,20 +427,20 @@ struct RunningAppPreviewPerformanceGateTests {
     #expect(!correlation.accepts(0))
     #expect(!correlation.accepts(41))
     #expect(correlation.accepts(42))
-    var report = completePortraitReport()
+    var report = completePreviewReport()
     report.nativeInputSamples[0].dispatchedEventIdentity = 41
     #expect(report.workloadFailures.contains { $0.contains("identify the posted event") })
-    report = completePortraitReport()
+    report = completePreviewReport()
     report.nativeInputSamples[0].eventUptimeSeconds = nil
     #expect(report.workloadFailures.contains { $0.contains("identify the posted event") })
-    report = completePortraitReport()
+    report = completePreviewReport()
     report.nativeInputSamples[0].handledEventIdentity = 41
     #expect(report.workloadFailures.contains { $0.contains("identify the posted event") })
   }
 
   @Test("retained Canvas repainting is diagnostic while semantic, build and text churn still fail")
   func rawCanvasRepaintDoesNotFailQuietWindow() throws {
-    var report = completePortraitReport()
+    var report = completePreviewReport()
     report.quietAnalysisWindows[0].overlayCanvasDrawCountDelta = 23
     #expect(!report.quietAnalysisWindows[0].hasChurn)
     #expect(report.workloadFailures.isEmpty)
@@ -484,11 +469,11 @@ struct RunningAppPreviewPerformanceGateTests {
     panels.observe(["guidedLearning": ["Frame 12"]])
     panels.observe(["guidedLearning": ["Ready"]])
     #expect(panels.changed == ["guidedLearning"])
-    var report = completePortraitReport()
+    var report = completePreviewReport()
     report.quietAnalysisWindows[1].context = "camera switch"
     report.quietAnalysisWindows[1].changedPanels = panels.changed.sorted()
     #expect(report.workloadFailures.contains { $0.contains("Quiet analysis after camera switch") })
-    report = completePortraitReport()
+    report = completePreviewReport()
     report.quietAnalysisWindows[5].context = "retrospective analysis"
     report.quietAnalysisWindows[5].semanticRevisionDelta = 2
     #expect(report.workloadFailures.contains { $0.contains("Quiet analysis after retrospective analysis") })

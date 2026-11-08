@@ -108,7 +108,8 @@ struct DrawingDraftSynchronizationLifetimeTests {
 
 @MainActor
 func drawingDraftSynchronizationTestWorkspace(draft: PlotterDrawingDraftRuntime) -> PlotterApplicationRuntime {
-  PlotterApplicationRuntime(penInteractionRuntime: nominalPenInteractionRuntime(),
+  PlotterApplicationRuntime(
+      portraitStudio: DrawingFirstTestStorage.studio(),penInteractionRuntime: nominalPenInteractionRuntime(),
     boundaryRuntime: nominalBoundaryRuntime(),
     speechEffectRuntime: PlotterSpeechEffectRuntime(announcer: ImmediateSpeechAnnouncer(), outputEnabled: true),
     drawingDraftRuntime: draft,

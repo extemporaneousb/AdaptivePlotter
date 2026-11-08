@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "swift",
+    "build",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--target",
+    "DrawingLibraryTests"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T07:06:50.101375+00:00",
+  "writer_state": "root-confirmed-all-writers-frozen",
+  "ADAPTIVEPLOTTER_REPOSITORY": null
+}

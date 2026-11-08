@@ -1,0 +1,39 @@
+[0/1] Planning build
+Building for debugging...
+[0/10] Write sources
+[4/10] Write swift-version--1AB21518FC5DEDBE.txt
+[6/14] Compiling PortraitLibrary FlowAuthoringArtifacts.swift
+[7/14] Emitting module PortraitLibrary
+[8/18] Compiling DrawingLibraryTests DrawingLibraryAtomicRetentionTests.swift
+[9/18] Emitting module DrawingLibraryTests
+[10/18] Emitting module PortraitStudioUI
+[11/18] Compiling PortraitStudioUI PortraitStudioModel.swift
+[11/18] Write Objects.LinkFileList
+[13/18] Linking PortraitStudio
+[14/18] Applying PortraitStudio
+[15/18] Linking AdaptivePlotter
+[16/18] Applying AdaptivePlotter
+[18/24] Compiling PlotterAppTests PortraitExchangeStorageTests.swift
+[19/24] Compiling PlotterAppTests PortraitExchangeCatalogTests.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Tests/PlotterAppTests/PortraitExchangeCatalogTests.swift:250:9: warning: variable 'catalog' was written to, but never read
+248 |     let admitted = try DX04Fixture.admitted(parent: root)
+249 |     let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
+250 |     var catalog: LibraryExchangeCatalog? = try await store.commonCatalog()
+    |         `- warning: variable 'catalog' was written to, but never read
+251 |     let transaction = try await store.publishFixture(admitted).transactionID
+252 |     let expected = LibraryExchangeMetadata(reference: ref, title: "Kept title", retentionReasons: ["chosen", "plot-submitted"], tombstoned: true)
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Tests/PlotterAppTests/PortraitExchangeCatalogTests.swift:278:9: warning: variable 'catalog' was written to, but never read
+276 |     let admitted = try DX04Fixture.admitted(parent: root)
+277 |     let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
+278 |     var catalog: LibraryExchangeCatalog? = try await store.commonCatalog()
+    |         `- warning: variable 'catalog' was written to, but never read
+279 |     _ = try await store.publishFixture(admitted, metadata: [.init(reference: ref, title: "Selected backup B")])
+280 |     let generation = try await store.createMetadataBackup()
+[20/24] Compiling PlotterAppTests PortraitMaterialIntegrationTests.swift
+[21/24] Emitting module PlotterAppTests
+[22/24] Compiling PlotterAppTests PortraitExchangeProcessTests.swift
+[23/24] Compiling PlotterAppTests PortraitExchangeMetadataBackupTests.swift
+[23/25] Write Objects.LinkFileList
+[24/25] Linking AdaptivePlotterPackageTests
+Build complete! (21.60s)

@@ -17,7 +17,7 @@ public struct ExchangeDigest: Hashable, Codable, Sendable, CustomStringConvertib
     description = hex
   }
   public init(_ digest: Digest) { description = digest.description }
-  public static func hash(_ bytes: Data) -> Self { try! Self(DrawingPackageCodec.sha256(bytes)) }
+  public static func hash(_ bytes: Data) -> Self { try! Self(DrawingArtifactCoding.sha256(bytes)) }
   public init(from decoder: Decoder) throws { try self.init(decoder.singleValueContainer().decode(String.self)) }
   public func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(description) }
 }

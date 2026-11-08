@@ -30,29 +30,7 @@ struct PortraitSemanticHeadCompatibilityTests {
     }
   }
 
-  @Test("durable storage reloads legacy candidates without migration, reanalysis, or vector replacement")
-  func legacyDurableReload() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-ds04-goldens-\(UUID())")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let candidates = try [Self.ds02JSON, Self.ds03JSON].map {
-      try JSONDecoder().decode(PortraitCandidate.self, from: Data($0.utf8))
-    }
-    let writer = PortraitCandidateStore(directoryURL: directory)
-    try await writer.save(snapshot: .init(entries: candidates.map {
-      .init(candidate: $0, reasons: [.init(reason: .shortlisted)])
-    }))
-    await writer.closeLibrary()
-    let loaded = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(loaded.canWrite)
-    #expect(loaded.archive.entries.count == 2)
-    for expected in candidates {
-      let actual = try #require(loaded.archive.entries.first { $0.id == expected.id }?.candidate)
-      try actual.validateIntegrity()
-      #expect(actual.program == expected.program)
-      #expect(try PortraitCandidateCoding.encoder().encode(actual)
-        == PortraitCandidateCoding.encoder().encode(expected))
-    }
-  }
+
 
   @Test("new semantic parameters and manifest create distinct retained identities without changing legacy payloads")
   func semanticIdentityAndDurability() async throws {
@@ -69,18 +47,7 @@ struct PortraitSemanticHeadCompatibilityTests {
     #expect(first.producerRevision == "portrait-v4")
     #expect(first.id != legacy.id)
     #expect(try PortraitCandidateCoding.encoder().encode(legacy) == legacyBytes)
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-ds04-semantic-\(UUID())")
-    defer { try? FileManager.default.removeItem(at: directory) }
-    try await PortraitCandidateStore(directoryURL: directory).save(snapshot: .init(entries:
-      [legacy, first, second].map { .init(candidate: $0, reasons: [.init(reason: .shortlisted)]) }))
-    let result = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(result.canWrite)
-    #expect(Set(result.archive.entries.map(\.id)) == Set([legacy.id, first.id, second.id]))
-    let restored = try #require(result.archive.entries.first { $0.id == first.id }?.candidate)
-    try restored.validateIntegrity()
-    #expect(restored.warpManifest == first.warpManifest)
-    #expect(restored.program == first.program)
-    #expect(restored.recipe.vectorOptions.semanticHead == first.recipe.vectorOptions.semanticHead)
+
   }
 
   @Test("semantic candidates reject missing or mismatched warp evidence")

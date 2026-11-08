@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="11" failures="0" skipped="0" time="98.940644212">
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="newerSelectionWins()" time="0.346473002" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="unsupportedPlotCannotPublish()" time="0.54054224" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="invalidatedReadCannotPublish()" time="0.994042909" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="otherSelectionPublicationsWin()" time="1.061517033" />
+    <testcase classname="PlotterAppTests.PortraitHandoffTests" name="repeatedHandoffPreservesPlacement(drawBorder:)" time="3.112688806" />
+    <testcase classname="PlotterAppTests.DrawingStudioPhysicalAssociationTests" name="exactProjection()" time="0.536963878" />
+    <testcase classname="PlotterAppTests.DrawingStudioPhysicalAssociationTests" name="physicalLabels()" time="0.001295928" />
+    <testcase classname="PlotterAppTests.DrawingStudioPhysicalAssociationTests" name="materialIdentity()" time="0.000611788" />
+    <testcase classname="PlotterAppTests.DrawingCapabilityAdmissionTests" name="runCannotStripRequirements(border:)" time="2.86901928" />
+    <testcase classname="PlotterAppTests.DrawingCapabilityAdmissionTests" name="importExportAndHandoff()" time="1.716038843" />
+    <testcase classname="PlotterAppTests.PortraitMaterialIntegrationTests" name="immutableAdaptation()" time="87.758702755" />
+  </testsuite>
+</testsuites>

@@ -7,7 +7,6 @@ evidence=${2:-"$project_root/.build/evidence/preview-performance.json"}
 scenario=${3:-preview}
 case "$scenario" in
     preview) default_duration=12 ;;
-    learned-portrait) default_duration=60 ;;
     physical-portrait) default_duration=600 ;;
     native-workbench) default_duration=180 ;;
     *) echo "unknown preview performance scenario: $scenario" >&2; exit 1 ;;
@@ -107,7 +106,7 @@ application_pid=$!
 # not wait for measurement/review markers: physical preparation clicks Connect
 # before its first review marker, so such a wait would create a cycle.
 case "$scenario" in
-    preview|learned-portrait|physical-portrait|native-workbench)
+    preview|physical-portrait|native-workbench)
         if ! "$launcher" --activate-existing-pid "$application_pid" "$bundle" >"$temporary_root/activation.log" 2>&1; then
             cat "$temporary_root/activation.log" >&2
             echo "The exact gate process could not be activated; no fallback application was launched" >&2
@@ -460,7 +459,6 @@ measurements = {
     "quietAnalysisWindows": runtime["quietAnalysisWindows"],
     "retrospectiveRecordIDs": runtime["retrospectiveRecordIDs"],
     "retrospectiveConstraintCount": runtime["retrospectiveConstraintCount"],
-    "portraitMaximumConcurrentExpensiveJobs": runtime["portraitMaximumConcurrentExpensiveJobs"],
     "passivePanelObservationProvenance": runtime["passivePanelObservationProvenance"],
     "portraitProgramHash": runtime.get("portraitProgramHash"),
     "portraitStrokeCount": runtime["portraitStrokeCount"],
@@ -470,15 +468,13 @@ measurements = {
     "cameraSwitchReceipts": runtime["cameraSwitchReceipts"],
     "suspendedPlotterAnalyzedFrameDelta": runtime["suspendedPlotterAnalyzedFrameDelta"],
     "measuredAnalysisFrameDelta": runtime["measuredAnalysisFrameDelta"],
-    "portraitMaximumConcurrentWorkers": runtime["portraitMaximumConcurrentWorkers"],
-    "portraitSettledWorkers": runtime["portraitSettledWorkers"],
     "passivePanelTextChanged": runtime["passivePanelTextChanged"],
     "passivePanelsObserved": runtime["passivePanelsObserved"],
     "stopWasPresent": runtime["stopWasPresent"],
     "workloadFailures": runtime["failures"],
 }
 checks = {
-    "runtimeSchema": runtime["schema"] == "adaptiveplotter.running-app-preview-runtime.v2",
+    "runtimeSchema": runtime["schema"] == "adaptiveplotter.running-app-preview-runtime.v3",
     "requestedScenario": runtime["scenario"] == scenario,
     "completeRequiredWorkload": not runtime["failures"],
     "nativeInputsDeliveredAndAcknowledged": runtime["submittedNativeInputCount"]

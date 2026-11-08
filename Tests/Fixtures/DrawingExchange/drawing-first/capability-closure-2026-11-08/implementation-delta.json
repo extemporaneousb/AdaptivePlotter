@@ -1,0 +1,22 @@
+{
+  "Sources/PlotterApp/DrawingStudioPhysicalEvidence.swift": {
+    "after": "69f7460a35c87adcbf96bc2d4ecb89863d4b72f6388572ffd2cde9f3d7672142",
+    "before": "0ad53454ffe54c4fb9d7caf78fc7b214eab554d29e03ad0d96128eda7a14d720"
+  },
+  "Sources/PlotterApp/DrawingTransferView.swift": {
+    "after": "dea4aed22981a6a9a6cc22b6dddd25d2d87dbfcf7ecd71cb6d35d471ad9da4f2",
+    "before": "d95fa25d71c50a75e33569d0e609742014b4f208407f3471a9204a839133217d"
+  },
+  "Sources/PlotterApp/OperatorWorkspace.swift": {
+    "after": "b8ab88161aee6454206e1499ce351550aae777622a99b8a9575ebb48214975fe",
+    "before": "cd4c9a952f7e026874fd39fcc103ee0760fdd142284a90f51b60e0f3e8dd7dbe"
+  },
+  "Sources/PlotterApp/PortraitDrawingActions.swift": {
+    "after": "303bf84d0acd3007b305e67cd4207de021ec66454b372dbc697f9c0f3f43f9ec",
+    "before": "07f739cfda82be1ea8f8809fdbf2ae4d9ea555433c3425f394487ffce81bf3a3"
+  },
+  "Sources/PortraitStudioUI/PortraitStudioModel.swift": {
+    "after": "3d52b4b2e8807985d249f528acc3d28bf3896b2000258b0d94cc22483563d35f",
+    "before": "46011f982ccfc13319fe9c79c971560e767ed1c5d1169e651997a3ce9b227fbd"
+  }
+}

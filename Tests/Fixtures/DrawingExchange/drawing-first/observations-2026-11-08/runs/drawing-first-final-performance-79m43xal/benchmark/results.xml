@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="1" failures="0" skipped="0" time="5.399568884">
+    <testcase classname="DrawingLibraryTests.DrawingLibraryMetadataPerformanceTests" name="namedMetadataScale()" time="5.39868793" />
+  </testsuite>
+</testsuites>

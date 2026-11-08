@@ -1,280 +1,19 @@
-@testable import PortraitArtists
-@testable import PortraitLibrary
-@testable import PortraitStudioUI
 import Foundation
 import PlotterModel
+import PlotterRuntime
+import PortraitArtists
+import PortraitStudioUI
 import Testing
 
-@testable import PlotterApp
-@testable import PlotterRuntime
-
-@Suite("Portrait photo capture and recent sources")
+@Suite("Current capture cancellation and illumination lifetime", .serialized)
 struct PortraitCaptureTests {
-  @Test("cold Capture and Save preserve historical metadata, then concurrent explicit loads join pending source publication")
-  @MainActor
-  func coldCaptureSaveThenJoinedHistoryLoad() async throws {
-    let history = try await PortraitColdMutationHistoryFixture.make()
-    defer { history.remove() }
-    let store = PortraitCandidateStore(directoryURL: history.directory)
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock(), candidateStore: store)
-    let pen = try portraitTestStyle()
-    await model.capture(strokeStyle: pen)
-    let candidate = try #require(model.selectedCandidate)
-    #expect(await model.saveSelectedDrawing() == nil)
-    #expect(model.sketches.persistenceState == .saved && !model.sketches.historyLoadHasCompleted)
-    #expect(model.sketches.entries.map(\.id) == [candidate.id])
-    let authoredBytes = try PortraitCandidateCoding.encoder().encode(StoredCandidate(candidate)).count
-    #expect(await store.recordBytesEncoded == authoredBytes)
-    try history.expectPreserved()
-    let late = PortraitPhoto(id: UUID(), data: Data([55, 56]), label: "Queued during explicit history open",
-      capturedAt: Date(), frameID: nil, captureNanoseconds: nil, pose: .front)
-    async let reviewerLoad: Void = model.sketches.load()
-    async let studioLoad: Void = model.sketches.load()
-    model.sketches.retainSourcePhoto(late)
-    _ = await (reviewerLoad, studioLoad)
-    await model.sketches.awaitPersistence()
-    #expect(model.sketches.historyLoadHasCompleted && model.sketches.persistenceState == .saved)
-    #expect(Set(model.sketches.entries.map(\.id)) == Set([history.kept.id, history.unkept.id, candidate.id]))
-    #expect(model.sketches.labels == [history.label])
-    #expect(model.sketches.archive.withdrawnLabelIDs.contains(history.label.id.uuidString))
-    #expect(model.sketches.savedStyles.map(\.name) == ["Historical style"])
-    #expect(model.sketches.sketches.contains(history.generic))
-    #expect(model.sketches.sourcePhotos.contains { $0.id == late.id && $0.data == late.data })
-    try history.expectPreserved()
-    await model.shutdown()
-    // A cold writer restart is a caller-owned handoff after model work has drained.
-    await store.closeLibrary()
-    let reopened = await PortraitCandidateStore(directoryURL: history.directory).load()
-    #expect(reopened.canWrite)
-    #expect(reopened.archive.sourcePhotos?.contains { $0.id == late.id && $0.data == late.data } == true)
-    #expect(Set(reopened.archive.entries.map(\.id)) == Set([history.kept.id, history.unkept.id, candidate.id]))
-  }
-
-  @Test("an acquired original survives an authoring cache too small to hold it")
-  @MainActor
-  func originalSurvivesCacheAdmissionFailure() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = PortraitCandidateStore(directoryURL: directory)
-    let model = PortraitStudioModel(renderer: SourceFailureRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      photoRetention: .init(maximumCount: 0, maximumBytes: 0), candidateStore: store)
-    await model.importPhoto(URL(fileURLWithPath: "/tmp/9"), strokeStyle: try portraitTestStyle())
-    #expect(model.recentPhotos.isEmpty && model.program == nil)
-    await model.shutdown()
-    await store.closeLibrary()
-    let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(reloaded.canWrite && reloaded.archive.entries.isEmpty)
-    #expect(reloaded.archive.sourcePhotos?.count == 1)
-    #expect(reloaded.archive.sourcePhotos?.first?.data == Data([9, 9]))
-  }
-
-  @Test("capture deletion during an uninterruptible render remains deleted after persistence and reopen")
-  @MainActor
-  func durableDeleteDuringRender() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let renderer = try PausedBurstRenderer()
-    let store = PortraitCandidateStore(directoryURL: directory)
-    let model = PortraitStudioModel(renderer: renderer, candidateStore: store)
-    let pen = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    try await renderer.waitUntilEntered()
-    let photoID = try #require(model.selectedPhotoID)
-    model.deleteRetainedSource(photoID, strokeStyle: pen)
-    await renderer.release()
-    await model.awaitRendering()
-    await model.shutdown()
-    await store.closeLibrary()
-    #expect(model.program == nil && model.selectedPhotoID == nil)
-    let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(reloaded.canWrite && reloaded.archive.entries.isEmpty)
-    #expect(reloaded.archive.sourcePhotos?.isEmpty == true)
-    #expect(reloaded.archive.tombstones.contains { $0.kind == .photo && $0.identity == photoID.uuidString.lowercased() })
-  }
-
-  @Test("source persistence settles independently of a cancelled held render")
-  @MainActor
-  func durableSourceDuringCancellation() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let renderer = try PausedBurstRenderer()
-    let store = PortraitCandidateStore(directoryURL: directory)
-    let model = PortraitStudioModel(renderer: renderer, photoAcquirer: BurstPhotoAcquirer(),
-      candidateStore: store)
-    let pen = try portraitTestStyle()
-    let importing = Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/7"), strokeStyle: pen) }
-    try await renderer.waitUntilEntered()
-    let photo = try #require(model.recentPhotos.first)
-    let cancellation = Task { await model.cancelRendering() }
-    await model.sketches.awaitPersistence()
-    #expect(model.sketches.persistenceState == .saved)
-    await renderer.release()
-    await cancellation.value
-    await importing.value
-    await model.shutdown()
-    await store.closeLibrary()
-    let restored = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(restored.canWrite)
-    #expect(restored.archive.entries.isEmpty)
-    #expect(restored.archive.sourcePhotos?.first?.id == photo.id)
-    #expect(restored.archive.sourcePhotos?.first?.data == photo.data)
-  }
-
-  @Test("captured and imported sources survive render failure, cache eviction and restart with provenance")
-  @MainActor
-  func durableSourcesWithoutDrawing() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = PortraitCandidateStore(directoryURL: directory)
-    let model = PortraitStudioModel(renderer: SourceFailureRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock(),
-      photoRetention: .init(maximumCount: 1, maximumBytes: 4),
-      candidateStore: store)
-    let pen = try portraitTestStyle()
-    await model.capture(strokeStyle: pen)
-    let captured = try #require(model.recentPhotos.first)
-    await model.importPhoto(URL(fileURLWithPath: "/tmp/9"), strokeStyle: pen)
-    let imported = try #require(model.recentPhotos.first)
-    #expect(captured.id != imported.id)
-    #expect(model.recentPhotos.count == 1)
-    #expect(model.program == nil && model.completedCandidate == nil)
-    await model.shutdown()
-    await store.closeLibrary()
-    let restartedStore = PortraitCandidateStore(directoryURL: directory)
-    let restarted = PortraitStudioModel(renderer: SourceFailureRenderer(),
-      candidateStore: restartedStore)
-    await restarted.sketches.load()
-    await restarted.loadPhotoBrowser()
-    #expect(restarted.recentPhotos.isEmpty)
-    #expect(restarted.sketches.entries.isEmpty)
-    #expect(restarted.browsablePhotos.count == 2)
-    let restored = try #require(restarted.browsablePhotos.first { $0.id == captured.id })
-    #expect(restored.data == captured.data && restored.frameID == captured.frameID)
-    #expect(restored.captureNanoseconds == captured.captureNanoseconds)
-    #expect(restored.captureSessionID == captured.captureSessionID)
-    #expect(restored.sourcePixelExtent == captured.sourcePixelExtent)
-    #expect(restored.selectionProvenance == captured.selectionProvenance)
-    restarted.deleteRetainedSource(imported.id, strokeStyle: pen)
-    await restarted.shutdown()
-    await restartedStore.closeLibrary()
-    let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
-    #expect(reloaded.canWrite)
-    #expect(reloaded.archive.sourcePhotos?.map(\.id) == [captured.id])
-  }
-
-  @Test("short still capture samples unique post-settling frames and retains one original source")
-  @MainActor
-  func burstRetention() async throws {
-    let clock = AdvancingPortraitClock()
-    let source = try RepeatingPortraitFrames()
-    let acquirer = BurstPhotoAcquirer()
-    let renderer = BurstRenderer()
-    let model = PortraitStudioModel(renderer: renderer, photoAcquirer: acquirer,
-      frameSource: source, captureClock: clock,
-      photoRetention: .init(maximumCount: 5, maximumBytes: 10))
-    await model.capture(strokeStyle: try portraitTestStyle())
-    #expect(abs(await clock.now() - 0.8) < 0.000_001)
-    #expect(await clock.sleeps.first == 0.25)
-    let metric = try PortraitSourceCropExtent(widthPixels: 901, heightPixels: 1600)
-    #expect(model.recentPhotos.allSatisfy { $0.sourcePixelExtent == metric })
-    #expect(await renderer.sourcePixelExtents.last == metric)
-    #expect(model.recentPhotos.count == 1)
-    #expect(model.retainedPhotoBytes == 2)
-    let stamps = model.recentPhotos.compactMap(\.captureNanoseconds)
-    #expect(stamps == [4])
-    #expect(await acquirer.capturedTimestamps == [2, 3, 4])
-    // The mock returns opaque bytes, so capture must disclose fallback selection.
-    #expect(model.recentPhotos.first?.selectionProvenance?.method == .latestAvailable)
-    #expect(model.recentPhotos.first?.selectionProvenance?.capturedFrameCount == 3)
-    #expect(model.selectedPhotoID == model.recentPhotos.last?.id)
-    #expect(!model.isCapturing)
-    #expect(!model.screenIlluminationActive)
-    #expect(model.captureProgress == 1)
-    #expect(model.acquisitionDiagnostics.startedWorkerCount == 1)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(model.program != nil)
-  }
-
-  @Test("photo deletion retains a separate import and the saved drawing's source")
-  @MainActor
-  func groupedBurstDeletion() async throws {
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock())
-    let pen = try portraitTestStyle()
-    model.renderIfNeeded(strokeStyle: pen)
-    await model.importPhoto(URL(fileURLWithPath: "/tmp/99"), strokeStyle: pen)
-    let imported = try #require(model.recentPhotos.first)
-    await model.capture(strokeStyle: pen)
-    let burst = try #require(model.recentPhotos.last?.captureSessionID)
-    #expect(model.recentPhotos.filter { $0.captureSessionID == burst }.count == 1)
-    let retained = try #require(model.selectedCandidate)
-    #expect(await model.saveSelectedDrawing() == nil)
-    model.removePhoto(try #require(model.selectedPhotoID), strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.recentPhotos.map(\.id) == [imported.id])
-    #expect(model.selectedPhotoID == imported.id)
-    #expect(model.sketches.sketches.map(\.id) == [retained.id])
-    #expect(model.sketches.sketches.first?.portraitCandidate?.sourceData == retained.sourceData)
-    await model.shutdown()
-  }
-
-  @Test("recent imports are bounded by both count and bytes and deletion selects a surviving source")
-  @MainActor
-  func importRetentionAndSelection() async throws {
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      photoRetention: .init(maximumCount: 3, maximumBytes: 4))
-    let style = try portraitTestStyle()
-    for value in 1...4 {
-      await model.importPhoto(URL(fileURLWithPath: "/tmp/\(value)"), strokeStyle: style)
-    }
-    #expect(model.recentPhotos.map(\.data) == [Data([3, 3]), Data([4, 4])])
-    #expect(model.retainedPhotoBytes == 4)
-    let first = try #require(model.recentPhotos.first?.id)
-    model.selectPhoto(first, strokeStyle: style)
-    await model.awaitRendering()
-    #expect(model.selectedPhoto == Data([3, 3]))
-    model.removePhoto(first, strokeStyle: style)
-    #expect(model.selectedPhoto == Data([4, 4]))
-    // The exact cached drawing is prepared asynchronously before publication.
-    #expect(model.program == nil)
-    #expect(model.isProcessing)
-    await model.awaitRendering()
-    #expect(model.program != nil)
-    #expect(!model.isProcessing)
-    let last = try #require(model.selectedPhotoID)
-    model.removePhoto(last, strokeStyle: style)
-    #expect(model.selectedPhoto == nil)
-    #expect(model.program == nil)
-    #expect(model.recentPhotos.isEmpty)
-  }
-
-  @Test("deleting a source during uninterruptible rendering cannot resurrect its image or vectors")
-  @MainActor
-  func deleteDuringRender() async throws {
-    let renderer = try PausedBurstRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let style = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: style)
-    try await renderer.waitUntilEntered()
-    model.removePhoto(try #require(model.selectedPhotoID), strokeStyle: style)
-    #expect(model.program == nil)
-    #expect(!model.isProcessing)
-    await renderer.release()
-    await model.awaitRendering()
-    #expect(model.recentPhotos.isEmpty)
-    #expect(model.selectedPhoto == nil)
-    #expect(model.program == nil)
-    #expect(model.renderDiagnostics.activeWorkerCount == 0)
-  }
-
   @Test("cancelling a lit burst discards held encoding and turns off illumination before it settles")
   @MainActor
   func cancelHeldBurst() async throws {
     let acquirer = PausedBurstAcquirer()
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: acquirer,
+    let model = PortraitStudioModel(library: DrawingFirstTestStorage.library(), photoAcquirer: acquirer,
       frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock())
-    let capture = Task { await model.capture(strokeStyle: try! portraitTestStyle()) }
+    let capture = Task { await model.captureForPortfolio(strokeStyle: try! portraitTestStyle()) }
     try await acquirer.waitUntilEntered()
     #expect(model.isCapturing)
     #expect(model.screenIlluminationActive)
@@ -286,26 +25,23 @@ struct PortraitCaptureTests {
     await acquirer.release()
     await cancel.value
     await capture.value
-    #expect(model.recentPhotos.isEmpty)
-    #expect(model.program == nil)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 0)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
+    #expect(model.portfolioPhoto == nil)
+    #expect(model.currentProgram == nil)
   }
 
   @Test("capture light expires while encoding is held and later worker progress cannot relight it")
   @MainActor
   func lightDeadlineDuringHeldEncoding() async throws {
     let acquirer = PausedBurstAcquirer()
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: acquirer,
+    let model = PortraitStudioModel(library: DrawingFirstTestStorage.library(), photoAcquirer: acquirer,
       frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock())
     let style = try portraitTestStyle()
-    let capture = Task { await model.capture(strokeStyle: style) }
+    let capture = Task { await model.captureForPortfolio(strokeStyle: style) }
     try await acquirer.waitUntilEntered()
     #expect(model.screenIlluminationActive)
     try await waitForBurstState { !model.screenIlluminationActive }
     #expect(model.isCapturing)
     #expect(model.captureProgress == 1)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 1)
     // Resume one sample, then hold the next. Progress from the resumed sample
     // must leave the expired light off while the capture worker remains active.
     await acquirer.release()
@@ -317,53 +53,8 @@ struct PortraitCaptureTests {
     await acquirer.release()
     await cancellation.value
     await capture.value
-    #expect(model.recentPhotos.isEmpty)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 0)
+    #expect(model.portfolioPhoto == nil)
     #expect(!model.screenIlluminationActive)
-  }
-
-  @Test("capture remains short while oversized photos cannot evict retained sources")
-  @MainActor
-  func captureAndMemoryBounds() async throws {
-    let clock = AdvancingPortraitClock()
-    let model = PortraitStudioModel(renderer: BurstRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      frameSource: try RepeatingPortraitFrames(), captureClock: clock,
-      photoRetention: .init(maximumCount: 3, maximumBytes: 4))
-    await model.capture(strokeStyle: try portraitTestStyle())
-    #expect(abs(await clock.now() - 0.8) < 0.000_001)
-    let selected = model.selectedPhotoID
-    model.setPhoto(Data(repeating: 0, count: 100), for: .front, strokeStyle: try portraitTestStyle())
-    #expect(model.selectedPhotoID == selected)
-    #expect(model.retainedPhotoBytes <= 4)
-  }
-
-  @Test("folded vector edits reuse the selected raster while analysis edits invalidate it")
-  @MainActor
-  func selectedRasterCache() async throws {
-    let renderer = BurstRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let style = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: style)
-    await model.awaitRendering()
-    #expect(await renderer.cacheHits == [false])
-    model.vectorOptions.contourLevels = 10
-    model.render(strokeStyle: style)
-    await model.awaitRendering()
-    #expect(await renderer.cacheHits == [false, true])
-    let tunedProgram = try #require(model.currentProgram)
-    model.options.cropToFace.toggle()
-    model.renderIfNeeded(strokeStyle: style)
-    await model.awaitRendering()
-    #expect(await renderer.cacheHits == [false, true, false])
-    model.options.cropToFace.toggle()
-    model.renderIfNeeded(strokeStyle: style)
-    #expect(model.isProcessing)
-    #expect(model.currentProgram == nil)
-    await model.awaitRendering()
-    #expect(model.currentProgram == tunedProgram)
-    #expect(!model.isProcessing)
-    #expect(await renderer.cacheHits == [false, true, false])
-    await model.shutdown()
   }
 }
 
@@ -395,66 +86,6 @@ private actor RepeatingPortraitFrames: PortraitFrameAcquiring {
     defer { requestCount += 1 }
     return frames[min(requestCount / 2, frames.count - 1)]
   }
-}
-
-private actor BurstPhotoAcquirer: PortraitPhotoAcquiring {
-  private(set) var capturedTimestamps: [UInt64] = []
-  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
-    let value: UInt8
-    switch input {
-    case .frame(let frame):
-      capturedTimestamps.append(frame.captureNanoseconds)
-      value = UInt8(frame.captureNanoseconds)
-    case .file(let url): value = UInt8(url.lastPathComponent) ?? 0
-    }
-    return PortraitAcquiredPhoto(data: Data([value, value]),
-      sourcePixelExtent: try PortraitSourceCropExtent(widthPixels: 901, heightPixels: 1600))
-  }
-}
-
-private actor SourceFailureRenderer: PortraitRendering {
-  enum Failure: Error { case rejected }
-  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
-    throw Failure.rejected
-  }
-}
-
-private actor BurstRenderer: PortraitRendering {
-  private(set) var cacheHits: [Bool] = []
-  private(set) var sourcePixelExtents: [PortraitSourceCropExtent?] = []
-  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
-    cacheHits.append(request.cachedRaster != nil)
-    sourcePixelExtents.append(request.sourcePixelExtent)
-    let raster = request.cachedRaster ?? portraitTestRaster()
-    return PortraitRenderResult(raster: raster, program: try PortraitVectorizer.program(
-      from: raster, pose: request.pose, style: request.style, strokeStyle: request.strokeStyle,
-      vectorOptions: request.vectorOptions))
-  }
-}
-
-private actor PausedBurstRenderer: PortraitRendering {
-  private var waiter: CheckedContinuation<Void, Never>?
-  private var entered = false
-  private let result: PortraitRenderResult
-  init() throws {
-    let raster = portraitTestRaster()
-    result = PortraitRenderResult(raster: raster, program: try PortraitVectorizer.program(
-      from: raster, pose: .front, style: .contours, strokeStyle: portraitTestStyle()))
-  }
-  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
-    entered = true
-    await withCheckedContinuation { waiter = $0 }
-    // Deliberately returns a completed result despite task cancellation.
-    return result
-  }
-  func waitUntilEntered() async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while !entered {
-      try #require(ContinuousClock.now < deadline)
-      try await Task.sleep(for: .milliseconds(1))
-    }
-  }
-  func release() { waiter?.resume(); waiter = nil }
 }
 
 private actor PausedBurstAcquirer: PortraitPhotoAcquiring {

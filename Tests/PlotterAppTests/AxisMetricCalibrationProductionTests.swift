@@ -1,3 +1,5 @@
+import DrawingLibrary
+import PortraitCore
 @testable import PortraitLibrary
 @testable import PortraitStudioUI
 import Foundation
@@ -13,14 +15,14 @@ import Testing
 struct AxisMetricCalibrationProductionTests {
   @Test("Ruler save is passive; typed Apply durably prepares and resets dependent Learning before a partial write")
   func passiveSaveAndAmbiguousApply() async throws {
-    let fixture = try await AxisMetricApplicationFixture.make(withPortraitCheckpoint: true)
+    let fixture = try await AxisMetricApplicationFixture.make(withAuthoringState: true)
     let app = fixture.app
     defer { fixture.stores.remove() }
     do {
-      let portraitArchive = app.portraitStudio.sketches.archive
-      let training = (await fixture.portraitCheckpoints.load()).snapshot
-      #expect(!portraitArchive.entries.isEmpty)
-      #expect(!training.checkpoints.isEmpty)
+      let portraitArchive = try await app.portraitStudio.library.drawings().entries.map(\.reference)
+      let authoringMetadata = try await fixture.authoringLibrary.records(kind: "example.axis-independence/1").map(\.payload)
+      #expect(!portraitArchive.isEmpty)
+      #expect(!authoringMetadata.isEmpty)
       let penBefore = await fixture.machine.requestedPenCommands
       let feedsBefore = await fixture.machine.requestedFeeds
       let oldCheckpoint = try fixture.savedCheckpoint()
@@ -51,8 +53,8 @@ struct AxisMetricCalibrationProductionTests {
       #expect(await fixture.machine.requestedFeeds == feedsBefore)
       #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
       #expect(await fixture.machine.requestedBoundaryRequests.isEmpty)
-      #expect(try axisMetricSnapshotData(app.portraitStudio.sketches.archive) == axisMetricSnapshotData(portraitArchive))
-      #expect(try axisMetricSnapshotData((await fixture.portraitCheckpoints.load()).snapshot) == axisMetricSnapshotData(training))
+      #expect(try axisMetricSnapshotData(try await app.portraitStudio.library.drawings().entries.map(\.reference)) == axisMetricSnapshotData(portraitArchive))
+      #expect(try axisMetricSnapshotData(try await fixture.authoringLibrary.records(kind: "example.axis-independence/1").map(\.payload)) == axisMetricSnapshotData(authoringMetadata))
       await app.applyAxisMetricCalibration()
       #expect(fixture.trace.snapshot().invocations == 1)
       #expect(app.axisMetricApplyUnavailableReason != nil)
@@ -146,10 +148,10 @@ private struct AxisMetricApplicationFixture {
   let stores: CompleteAcceptedLearningStores
   let accepted: CompleteAcceptedLearningFixture
   let trace: AxisMetricApplicationTrace
-  let portraitCheckpoints: PortraitCheckpointStore
+  let authoringLibrary: DrawingLibrary
 
   static func make(gate: TestInspectionSuspension? = nil, obstructTerminalPublication: Bool = false,
-                   withPortraitCheckpoint: Bool = false) async throws -> Self {
+                   withAuthoringState: Bool = false) async throws -> Self {
     let accepted = try await CompleteAcceptedLearningFixture.make()
     let stores = CompleteAcceptedLearningStores()
     try await stores.save(accepted)
@@ -159,21 +161,13 @@ private struct AxisMetricApplicationFixture {
     let clock = ComputationTestClock()
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
     let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
-    let portraitCheckpoints = PortraitCheckpointStore(directory: stores.directory.appendingPathComponent("styles"))
-    let portraitStore = PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits"))
-    let portrait = PortraitStudioModel(candidateStore: portraitStore)
-    if withPortraitCheckpoint {
-      let (scope, archive) = try portraitTrainingFixture()
-      // Seed through the same owner borrowed by the model; this is not a second writer.
-      try await portraitStore.save(snapshot: archive)
-      await portrait.sketches.load()
-      await portrait.loadPhotoBrowser()
-      _ = await portraitCheckpoints.load()
-      _ = try await portraitCheckpoints.saveScope(scope)
-      let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
-      let historical = try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
-      _ = try await portraitCheckpoints.install(historical)
-      #expect(!(await portraitCheckpoints.load()).snapshot.checkpoints.isEmpty)
+    let authoringLibrary = DrawingLibrary(directoryURL: stores.directory.appendingPathComponent("drawings"))
+    let portrait = PortraitStudioModel(library: authoringLibrary)
+    if withAuthoringState {
+      let program = try DrawingProgramCatalog.program(for: .line, style: portraitTestStyle())
+      let producer = try DrawingProducerReceipt(id: "example.axis-drawing", version: "1", recordJSON: Data("{}".utf8))
+      _ = try await authoringLibrary.retain(Drawing(program: program, input: .none, parent: .none, producer: producer), reason: "save")
+      try await authoringLibrary.commitRecords([.init(kind: "example.axis-independence/1", id: UUID(), payload: Data("{\"unchanged\":true}".utf8))])
     }
     let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera, portraitStudio: portrait,
       axisCalibration: { proposal, beforeSettingsWrite in
@@ -214,7 +208,7 @@ private struct AxisMetricApplicationFixture {
       let baseline = try #require(accepted.checkpoint.machineArtifacts).controllerContext
       #expect(try ControllerAxisCalibrationProposal.stepsPerMM(axis: .x, context: baseline) == 80)
       #expect(try ControllerAxisCalibrationProposal.stepsPerMM(axis: .y, context: baseline) == 80)
-      return Self(app: app, machine: machine, stores: stores, accepted: accepted, trace: trace, portraitCheckpoints: portraitCheckpoints)
+      return Self(app: app, machine: machine, stores: stores, accepted: accepted, trace: trace, authoringLibrary: authoringLibrary)
     } catch { await app.shutdown(); stores.remove(); throw error }
   }
 

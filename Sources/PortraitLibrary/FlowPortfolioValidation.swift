@@ -4,16 +4,17 @@ import PortraitCore
 /// Integrity is independent of the UI. Corrupt ancestry cannot become a new
 /// writable empty portfolio or invented training supervision.
 enum FlowPortfolioValidation {
+  static func validHash(_ value: String) -> Bool { (try? ExchangeDigest(value)) != nil }
   static func validate(_ state: FlowPortfolioSnapshot) throws {
     func require(_ valid: Bool, _ message: String) throws {
       guard valid else { throw FlowPortfolioError.invalid(message) }
     }
     func unique<T: Identifiable>(_ values: [T]) -> Bool { Set(values.map(\.id)).count == values.count }
-    try require(state.schemaVersion == 1 && state.revision >= 0 && state.createdAt.timeIntervalSince1970.isFinite,
+    try require(state.schemaVersion == 2 && state.revision >= 0 && state.createdAt.timeIntervalSince1970.isFinite,
       "Unsupported portfolio identity or schema.")
     try require(unique(state.sources) && unique(state.rounds) && unique(state.candidates)
       && unique(state.choices) && unique(state.pruneRevisions) && unique(state.presentations)
-      && unique(state.rankings) && unique(state.legacyImports) && unique(state.trainingSnapshots) && unique(state.fits) && unique(state.activations),
+      && unique(state.rankings) && unique(state.trainingSnapshots) && unique(state.fits) && unique(state.activations),
       "Portfolio identities must be unique.")
     let sources = Dictionary(uniqueKeysWithValues: state.sources.map { ($0.id, $0) })
     let rounds = Dictionary(uniqueKeysWithValues: state.rounds.map { ($0.id, $0) })
@@ -28,7 +29,7 @@ enum FlowPortfolioValidation {
       if let capture = source.captureProvenance {
         try require(capture.imageSHA256 == source.image.sha256 && capture.capturedAt.timeIntervalSince1970.isFinite
           && capture.label.utf8.count <= 1024, "Captured photo provenance differs from its image or has invalid metadata.")
-        let bytes = try DrawingPackageCodec.encoder().encode(capture)
+        let bytes = try DrawingArtifactCoding.encoder().encode(capture)
         try require(bytes.count <= 64 * 1024, "Captured photo provenance is too large.")
         if let selection = capture.selectionProvenance {
           try require(selection.capturedFrameCount >= 0 && selection.evaluatedFrameCount >= 0
@@ -70,9 +71,9 @@ enum FlowPortfolioValidation {
       guard let round = rounds[candidate.roundID] else { throw FlowPortfolioError.invalid("Candidate round is missing.") }
       try require(candidate.sourceID == round.sourceID && candidate.parentCandidateID == round.parentCandidateID
         && round.recipes.indices.contains(candidate.slot) && candidate.recipe == round.recipes[candidate.slot]
-        && candidate.modelID == round.modelID && (1...DrawingTransferLimits.maximumStrokes).contains(candidate.strokeCount),
+        && candidate.modelID == round.modelID && (1...DrawingArtifactLimits.maximumStrokes).contains(candidate.strokeCount),
         "Candidate differs from its immutable generation request.")
-      try require(FlowPortfolioStorage.validHash(candidate.programHash), "Candidate program identity is invalid.")
+      try require(FlowPortfolioValidation.validHash(candidate.programHash), "Candidate program identity is invalid.")
       if let title = candidate.title { try require(!title.isEmpty && title.utf8.count <= 1024, "Drawing name is invalid.") }
     }
     for choice in state.choices {
@@ -181,12 +182,6 @@ enum FlowPortfolioValidation {
         && ranking.supersedesID == lastRanking[ranking.presentationID], "Ranking revision is invalid or loses prior judgments.")
       lastRanking[ranking.presentationID] = ranking.id
     }
-    try require(Set(state.legacyImports.map { $0.package.sha256 }).count == state.legacyImports.count, "Historical packages can be imported only once.")
-    for imported in state.legacyImports {
-      try require(candidates[imported.candidateID]?.sourceID == imported.sourceID,
-        "Historical import does not identify its exact candidate and source.")
-      if let revision = imported.finalRevisionID { try require(edits[revision]?.candidateID == imported.candidateID, "Historical target is missing.") }
-    }
     let snapshotIDs = Set(state.trainingSnapshots.map(\.id)), fitIDs = Set(state.fits.map(\.id))
     for snapshot in state.trainingSnapshots {
       try require(snapshot.portfolioID == state.id && snapshot.purpose == state.purpose && snapshot.portfolioRevision < state.revision
@@ -205,7 +200,7 @@ enum FlowPortfolioValidation {
     if let id = state.currentCandidateID { try require(candidates[id] != nil, "Current drawing is missing.") }
     if let id = state.currentPruneRevisionID { try require(edits[id]?.candidateID == state.currentCandidateID, "Current pruning revision is inconsistent.") }
     for blob in blobs(state) {
-      try require(FlowPortfolioStorage.validHash(blob.sha256) && (1...128 * 1024 * 1024).contains(blob.byteCount)
+      try require(FlowPortfolioValidation.validHash(blob.sha256) && (1...128 * 1024 * 1024).contains(blob.byteCount)
         && !blob.mediaType.isEmpty, "Portfolio content reference is invalid.")
     }
   }
@@ -213,8 +208,7 @@ enum FlowPortfolioValidation {
   static func blobs(_ state: FlowPortfolioSnapshot) -> [FlowPortfolioBlob] {
     var result: [FlowPortfolioBlob] = state.sources.map(\.image)
     result.append(contentsOf: state.sources.compactMap { $0.importProvenance?.manifest })
-    result.append(contentsOf: state.legacyImports.map(\.package))
-    for candidate in state.candidates { result.append(contentsOf: [candidate.program, candidate.raster, candidate.preview]) }
+    for candidate in state.candidates { result.append(contentsOf: [candidate.raster, candidate.preview]) }
     result.append(contentsOf: state.pruneRevisions.compactMap(\.historicalRecord))
     result.append(contentsOf: state.trainingSnapshots.map(\.document))
     for fit in state.fits {

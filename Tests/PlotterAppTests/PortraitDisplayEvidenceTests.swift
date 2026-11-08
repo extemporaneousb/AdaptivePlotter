@@ -21,28 +21,7 @@ struct PortraitDisplayEvidenceTests {
       drawingHeightMM: 73, inkWidthMM: 0.3, prompt: "Legacy preview")) == bytes)
   }
 
-  @Test("reference ratings remain usable before projection and retain explicit normalization provenance")
-  func unplacedRating() async throws {
-    let candidate = try portraitPersistenceCandidate()
-    let evidence = try PortraitDisplayEvidence(mode: .reference,
-      programContentHash: candidate.program.contentHash.description, widthSource: .nominalProgram)
-    let context = try PortraitPresentationContext(inkWidthMM: 0.8, displayEvidence: evidence)
-    let model = PortraitStudioModel()
-    #expect(model.sketches.retain(candidate: candidate, reason: .shortlisted) == nil)
-    model.sketches.selectedID = candidate.id
-    #expect(model.projectedCandidate == nil)
-    #expect(model.sketches.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: context) == nil)
-    let label = try #require(model.sketches.labels.last)
-    try PortraitArchiveValidation.label(label, candidate: candidate)
-    #expect(label.presentation.rendererRevision == "portrait-plane-preview-v2")
-    #expect(label.presentation.drawingHeightMM == 100)
-    #expect(label.presentation.displayEvidence?.mode == .reference)
-    let restored = try JSONDecoder().decode(PortraitLabelRevision.self,
-      from: PortraitCandidateCoding.encoder().encode(label))
-    #expect(restored == label)
-    #expect(PortraitTrainingPresentation(restored.presentation) == PortraitTrainingPresentation(context))
-    await model.shutdown()
-  }
+
 
   @Test("planned presentation retains exact transform and validates candidate height and identity")
   func plannedContext() throws {

@@ -1354,61 +1354,21 @@ different planes.
 
 ## Applicability and durable checkpoints
 
-Portrait acquisition queues the selected original photograph independently of
-render success. Render failure/cancellation, recent-cache eviction and digital
-drawing deletion do not delete a committed photograph. Capture UUID is the root
-identity: equal image bytes do not merge captures. Portrait drawing occurrences
-pair that UUID with the immutable renderer candidate ID. Explicit photo deletion
-tombstones that capture and its descendants; imported legacy tombstones retain
-their recorded meaning. Delayed render, read and mutation publication must not
-resurrect deleted identities. Failed persistence remains visible and retryable;
-capture status alone does not establish durable save.
+The common Drawing Library retains source acquisitions independently of rendering.
+Capture identity is independent of shared image bytes. Failed or cancelled
+rendering and temporary geometry eviction do not delete a committed photograph.
+The concrete `DrawingLibrary` actor owns strict schema-10 SQLite metadata and
+immutable content-addressed assets. Selected Drawings use exact
+`{issuer, revision, digest}` references; equal geometry does not merge occurrences.
+Required source/input and edit-parent closure commits with the retained Drawing.
+Metadata pages do not materialize every historical program or image.
 
-The portrait library stores metadata in SQLite and immutable source, raster and
-record bytes in content-addressed files. Mandatory foreign keys bind each drawing
-to its photograph, each work to its drawing, and each media row to its work.
-Payloads are synchronized before their transactional metadata references become
-selected. The existing library facade owns publication; a browse page is an
-advisory projection, never a writable partial archive. The legacy portrait index
-is an importer input, with no writable fallback. Current browsing requires the
-selected portrait and DrawingEvidence generations; changed or failed source
-reconciliation must be presented as stale or unavailable. A genuinely absent raw
-evidence archive permits photos with no plotted work only when no previous raw
-generation, run binding or downstream work was selected. Disappearance of a
-previously selected archive is a failure, never an empty-history result.
-
-Ordinary source/save mutations bootstrap the compact mutation metadata and append
-exact occurrence changes without loading every historical raster. Omitted rows in
-that mode remain retained. Operations requiring complete preference/history state
-explicitly join full history loading through the same mutation worker. Failed full
-loading never marks history complete; Retry revalidates the requested full history
-before applying its pending work. A compact reload cannot clear an observed
-full-history corruption block; successful full verification must clear it. Labels preserve immutable predecessor and exact
-capture associations even after withdrawal; queued feedback binds the capture
-occurrence at submission.
-
-Historical association requires validated explicit references or unique exact
-program, source and capture evidence. Labels, timestamps and visual resemblance
-do not establish lineage. A retained historical program keeps its original
-identity; absent recipe, raster or capture time remains unknown. Unresolved work
-is excluded from normal portrait browsing and preserved separately with original
-bytes, checksum manifest and reason. Migration requires an independently verified
-backup before selecting the new graph. An accepted disposable generation may be
-promoted to an absent destination through its owning SQLite backup operation,
-with the exact accepted database hash and fresh verification of input generations,
-required payload inventory and quarantined originals. Raw DrawingEvidence remains in place with
-its existing execution, possible-ink and no-redraw authority.
-
-The library offers All Photos, Photos with Plotted Works, Photos without Plotted
-Works, and Plotted Works. A plotted work has valid upstream photo/drawing lineage
-and either an ink-dispatch-possible marker or a positive commanded/completed
-stroke frontier. Stopped and failed work qualifies when that condition holds;
-prepared or refused requests with no such marker remain drawing history.
-Controller completion, result-photo completeness, media availability and observed
-ink are independent facts. A missing final photograph never removes otherwise
-valid plotted-work ancestry. Photo lists are bounded metadata pages; selected
-photos, drawings and runs resolve through the same service projection. Original
-pixels are verified when read, and selection refuses stale/deleted identities.
+Missing, changed or corrupted selected content is a visible failure. Failed
+persistence must not report success or publish stale selections. A pending mutation
+reconciles its durable outcome before retrying. Historical authoring files remain
+untouched; old-format import and migration are deferred, with no startup importer
+or fallback writer. Raw DrawingEvidence remains independently authoritative for
+execution, possible ink and no-redraw safety.
 
 Tip applicability separates:
 
@@ -1871,26 +1831,21 @@ Contour, Sketch, SwiftSketch, saved-style, single-canvas Previous/Next and separ
 Review interfaces are not current alternative authoring routes. Earlier archives
 and frozen renderer receipts remain historical; they are not silently migrated.
 
-The Dojo's durable owner is a portable Flow portfolio directory. It contains exact
-source bytes, retained analysis rasters, recipes, generated programs/previews,
-round seeds and outcomes, parent choices and offered alternatives, immutable
-pruning revisions, randomized ranking presentations, judgments, exclusions,
-frozen training snapshots, fitting reports, checkpoints and activation history.
-Each operator mutation is committed incrementally; there is no explicit Save
-requirement. Missing content, corruption or persistence failure is reported.
-A failed mutation never reports success; it retains pending intent and reconciles
-the durable head before retrying when the commit outcome is uncertain. The
-acknowledged in-memory state stays unchanged until reconciliation succeeds.
-One writer owns a portfolio. The head publishes writer-capability version two on
-new commits; current code can read version-one heads without rewriting history,
-while older applications must refuse the new head instead of dropping fields.
-Immutable records and frozen document schemas remain unchanged. Camera sources
-retain exact capture identity/time, frame timestamp, measured extent and selection
-provenance; retrying the same photo identity cannot duplicate a source. Only the
-actual acquisition session supplies initial session grouping, never inferred
-subject identity. Source photos and
-all required training assets remain inside the directory rather than depending on
-paths into an old library or outside model runtime.
+The Dojo's durable owner is the common Drawing Library. Source bytes, prepared
+inputs, retained Drawing revisions, recipes, round outcomes, choices, immutable
+pruning revisions, ranking features/previews, judgments, exclusions, frozen training
+snapshots, reports, checkpoints and activation history use that owner. Each
+operator mutation commits incrementally; no explicit Save is required for curation.
+Generated geometry remains in bounded temporary storage until selection, committed
+pruning or explicit Plot handoff. Rank retains enough features and preview bytes
+for its judgments without retaining every unselected program. Missing content,
+corruption or persistence failure is reported; uncertain mutations reconcile before
+retry. One writer owns a library. There is no separate portfolio head/delta writer.
+
+Camera sources retain exact capture identity/time, frame timestamp, measured extent
+and selection provenance; retrying the same identity cannot duplicate a source.
+Only the actual acquisition session supplies initial session grouping, never
+inferred subject identity. Required training assets are retained within the library.
 
 Photos are the navigation and training-coverage unit. Durable names and representative
 thumbnails identify sources and drawings. Browsing never creates a choice. Coverage
@@ -1946,7 +1901,8 @@ Fitting freezes a portfolio revision, observation IDs and source/group partition
 All exact-photo descendants and connected declared subject/session groups stay in
 one partition, including connections through excluded or unlabelled sources. Unused
 generated rows do not allocate training features or count as supervised coverage;
-all portfolio artifacts remain retained. Comparisons crossing the split are excluded. Three or more groups
+Rank features and previews remain durable without retaining unused geometry.
+Comparisons crossing the split are excluded. Three or more groups
 permit a deterministic holdout; smaller fits remain explicitly experimental.
 Training/holdout losses, baseline losses, observation counts and group counts have
 distinct meanings. Deletion diagnostics also measure the deployed threshold and
@@ -1970,31 +1926,33 @@ operator steps, fitting limits and file layout.
 
 Standalone Studio composes no machine runtime. Startup discovers cameras; capture
 requires an explicit action through the existing acquisition owner. Shutdown joins
-capture, generation, fitting and durable work. Its default portfolio is under
-Documents; `--portfolio` or New/Open selects another. The previous private library
-is historical and does not become a shared writable database.
+capture, generation, fitting and durable work. Its default library is
+`~/Library/Application Support/PortraitStudio/DrawingLibrary/`; one absolute
+`--library` argument selects another. Embedded Studio uses
+`~/Library/Application Support/AdaptivePlotter/DrawingLibrary/`. Historical
+libraries and exchange files remain untouched; historical import is deferred.
 
-**Export Drawing** creates a version-one `DrawingPackage` for the selected exact
-portfolio candidate/pruning revision. Its source bytes, raster input, recipe,
-original basis, selected mask, preview and hash-bound portfolio/source/result
-identity remain inspectable. Its artist is `adaptiveplotter.flow-artist`. Import
-preserves the exact supported `portrait` program and origin; it does not rerender,
-relabel unsupported geometry or invent a native candidate. The canonical
-`SavedDrawing` owner admits the result through the existing Drawing path. Duplicate
-imports remain idempotent and conflicts fail. Deliberate file import may restore
-an exactly matching deleted transfer; delayed/background paths cannot revive it,
-and broader source tombstones remain authoritative.
+**Export Drawing** emits a Drawing Exchange v1 directory/ZIP carrier for the exact
+retained Drawing revision. Studio exports ZIP. Import verifies its closed payload,
+exact typed references, program and producer claims, required source/input and
+parent assets. It preserves original immutable record bytes rather than rerendering
+or inventing a candidate. Embedded handoff passes the same Drawing/ref directly.
+Nominal physical pen width is optional for both fresh and retained Drawings; an
+unknown value adds no required declaration or setup step. Field-space preview width
+is separate from millimeters and measured material width.
 
-Existing `PlotAttachment` records remain inspection evidence bound to exact origin
-and program identity. They confer no controller, Learning, paper-clearance, resume
-or redraw authority. Controller settlement and original photographs retain their
-separate meanings; neither software fit nor settlement proves deposited ink.
+Historical drawing packages and plot attachments are retained files rather than
+active compatibility readers or writers. They confer no controller, Learning,
+paper-clearance, resume or redraw authority. Controller settlement and original
+photographs retain separate meanings; neither software fit nor settlement proves
+deposited ink.
 
 ### Embedded Studio and Drawing
 
 Within AdaptivePlotter, the same Dojo is a full workspace independent of plotter
 control docks. Imported-photo authoring remains available while disconnected.
-**Send to Drawing** uses the package import and existing draft admission owners;
+**Send to Drawing** retains the selected Drawing and passes its exact value/ref
+through the existing draft admission owners;
 it installs a selected immutable program and initially fits it. Re-showing an
 already admitted program preserves its placement. Later portfolio edits and model
 activation cannot mutate placed or executed geometry.
@@ -2006,40 +1964,24 @@ motion. During a run or retained terminal review, Drawing presents the sealed ru
 plan rather than substituting a later Studio candidate. Reference previews and
 nominal pen width remain separate from measured material and physical evidence.
 
-The Portrait Library presents retained capture occurrences, their exact drawings,
-linked run history, stage photographs and notes. Generic vector drawings remain
-saveable and executable through Drawing, but source-free generic work is not a
-portrait-library item. A portrait program requires its exact durable source and
-candidate provenance at save, explicit handoff and the existing pre-motion
-retention callback. Missing portrait ancestry refuses the attempt before motion;
-no additional planner, runner or motion authority is introduced.
-That callback reuses only the raw owner's successful typed publication for the
-exact current stage. It verifies the selected current-attempt bytes and a stable
-raw manifest when committing the durable capture binding, without reloading
-historical runs or media. A newly inserted portrait stage marks browsing stale
-and defers its advisory projection until that binding settles; recovered prepared
-history does not create a hold. Later raw publication releases an abandoned stage
-hold. Full raw structural recovery and library reconciliation retain their
-existing verification responsibilities.
+The Drawing browser reads bounded summary pages from the common library and
+materializes only the selected exact Drawing. Generic source-free work and
+photo-derived work share that model. The selected Drawing's reviewer presents
+associated retained raw runs, labeled baseline/progress/terminal photographs and
+drawing/run/media notes. Browsing does not change the active runtime selection;
+**Send to Drawing** is explicit.
 
-Opening the reviewer reads bounded summary pages through the shared store.
-Selecting any photo, drawing or work presents the same source-to-drawing-to-run
-chain. Historical exact programs with unknown recipe/raster can be inspected as
-references but cannot be reconstructed as renderer candidates. The reviewer
-labels source and stage photographs, run status, capture identity and known dates;
-unknown dates remain explicit. It offers Fit/100% image viewing and explicit
-Portrait Studio inspection or Drawing handoff for renderable retained candidates.
-Browsing never replaces the active Studio candidate or runtime selection.
+The existing pre-motion retention adapter verifies the retained Drawing and the
+raw owner's exact successful staged-intent publication. It records the full
+DrawingRef-to-run association in the common library after checking the staged raw
+manifest and attempt bytes. That relation is authoring metadata; raw evidence
+continues to own execution, possible ink and no-redraw recovery. It introduces no
+planner, runner or motion authority. Failed association refuses the pre-motion
+path without converting a successful raw publication into a hardware retry.
 
-**Delete Photo and Its Drawings** removes one capture and its library descendants.
-**Delete Drawing** removes the selected capture/drawing occurrence without deleting
-an equal-content drawing belonging to another capture. **Delete Run Review** hides an
-execution from review and residual selection. **Dismiss Unfinished Run** hides an
-unfinished run and any later terminal review. Run and media deletion retain raw
-execution, possible-ink/no-redraw facts and shared original media; they never mark
-paper clear. Drawing, run and media notes remain annotations in DrawingEvidence,
-not measurements, ratings or accepted Learning evidence. Deletion tombstones
-survive delayed reads and restart.
+Review notes remain annotations in DrawingEvidence, not measurements, artistic
+ratings or accepted Learning evidence. Raw review tombstones preserve execution,
+possible-ink/no-redraw facts and original media; they never mark paper clear.
 
 Retained source-program previews are references, not evidence of physical ink or
 controller completion. Missing stage references and unreadable referenced pixels

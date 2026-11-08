@@ -1,0 +1,39 @@
+{
+  "after_sha256": "6928d6c667c50ed6c60a3a94b1b2319c3c055ada4c2f0e99ca097d8148db19d6",
+  "argv": [
+    "swift",
+    "test",
+    "--skip-build",
+    "--no-parallel",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--xunit-output",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-studio-retry-zmpv_u6z/test/results.xml",
+    "--filter",
+    "FlowDojoTests|FlowDojoNavigationTests|FlowDojoTrainingProgressTests|PortraitLineEditTests|PortraitStudioFaceInputTests|PortraitStudioWorkspaceLayoutTests|FlowPortfolioTests|FlowAuthoringCacheTests"
+  ],
+  "before_sha256": "6928d6c667c50ed6c60a3a94b1b2319c3c055ada4c2f0e99ca097d8148db19d6",
+  "changed_inputs": [],
+  "elapsed_seconds": 140.9618134018965,
+  "exit_code": 0,
+  "input_count": 771,
+  "log_sha256": "45720f9dc52f068566ac21cdea15dbf397276b1e241c8066773c9e3bf076cc05",
+  "owned_temp_cleanup": [
+    {
+      "existed_after_process": true,
+      "path": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-test-process-D0BAF062-DD64-4D8D-9BF2-3B082C0E97BB",
+      "removed": true,
+      "safe_owned_prefix_and_temp_parent": true
+    }
+  ],
+  "start_utc": "2026-11-08T09:25:05.082362+00:00",
+  "stop_utc": "2026-11-08T09:27:25.918296+00:00",
+  "xml_counts": {
+    "errors": 0,
+    "executed_passes": 38,
+    "failures": 0,
+    "skips": 0,
+    "testcase_elements": 38,
+    "xml_sha256": "d9d56914c6b8d3db4d4f0baa8af7b2d7cb96cc909f0972c5a44ca8e67f6665ae"
+  }
+}

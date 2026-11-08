@@ -172,6 +172,7 @@ struct MotionReadoutTests {
     let runComposition = nominalDrawingRunComposition(machineSession: session)
     let workspace = PlotterApplicationRuntime(
       machineSession: session,
+      portraitStudio: DrawingFirstTestStorage.studio(),
       penInteractionRuntime: nominalPenInteractionRuntime(machineSession: session),
       boundaryRuntime: nominalBoundaryRuntime(),
       statePersistencePort: TestApplicationStatePersistencePort(),

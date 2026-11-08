@@ -5,6 +5,7 @@ import CryptoKit
 import Foundation
 import ImageIO
 import PlotterModel
+import PortraitCore
 import PlotterRuntime
 import UniformTypeIdentifiers
 import Vision
@@ -75,6 +76,7 @@ package struct PortraitRenderResult: Sendable {
   package var flowWorkspace: PortraitFlowRenderer.Workspace? = nil
   package var preparedSource: PortraitSourcePreparation? = nil
   package var timings: PortraitRenderTimings? = nil
+  package var drawingInput: FrozenImageInputRecord? = nil
 
   package init(
     raster: PortraitRaster,

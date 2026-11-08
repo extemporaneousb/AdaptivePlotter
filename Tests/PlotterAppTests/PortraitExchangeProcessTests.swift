@@ -2,11 +2,11 @@ import Darwin
 import Foundation
 import MachO
 import PortraitCore
-@testable import PortraitLibrary
+@testable import DrawingLibrary
 import Testing
 
 @Suite("Drawing Exchange real process recovery", .serialized)
-struct PortraitExchangeProcessTests {
+struct LibraryExchangeProcessTests {
   @Test("Direct already-built helper launch selects exactly one helper test and reports its actual loaded image")
   func helperLaunchSmoke() async throws {
     let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at:root) }
@@ -52,8 +52,8 @@ struct PortraitExchangeProcessTests {
     let corpus = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at: corpus) }
     let admitted = try DX04Fixture.admitted(parent: corpus)
     let digests = Set(admitted.files.entries.values.map { $0.digest.description }).sorted()
-    let eachObject: Set<PortraitExchangeStorageFault.Boundary> = [.beforeBlobCopy,.afterBlobCopy,.beforeBlobFileSync,.afterBlobFileSync,.beforeBlobInstall,.afterBlobInstall,.beforeBlobDirectorySync,.afterBlobDirectorySync]
-    let storageCases = PortraitExchangeStorageFault.Boundary.allCases.filter { ![.beforeBackupPublish,.afterBackupPublish].contains($0) }
+    let eachObject: Set<LibraryExchangeStorageFault.Boundary> = [.beforeBlobCopy,.afterBlobCopy,.beforeBlobFileSync,.afterBlobFileSync,.beforeBlobInstall,.afterBlobInstall,.beforeBlobDirectorySync,.afterBlobDirectorySync]
+    let storageCases = LibraryExchangeStorageFault.Boundary.allCases.filter { ![.beforeBackupPublish,.afterBackupPublish].contains($0) }
     var completed: [String] = []
     for boundary in storageCases {
       for path in eachObject.contains(boundary) ? digests : [""] {
@@ -67,7 +67,7 @@ struct PortraitExchangeProcessTests {
         completed.append(boundary.rawValue + ":" + path)
       }
     }
-    for boundary in [PortraitExchangeCatalogBoundary.beforeSQLPublication,.beforeSQLCommit,.afterSQLCommit,.afterSQLPublication] {
+    for boundary in [LibraryExchangeCatalogBoundary.beforeSQLPublication,.beforeSQLCommit,.afterSQLCommit,.afterSQLPublication] {
       let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at: root) }
       let child = try DX04Process.start(root: root, mode: "publish", boundary: boundary.rawValue)
       defer { DX04Process.stop(child) }
@@ -82,23 +82,23 @@ struct PortraitExchangeProcessTests {
 
   @Test("SIGKILL before/after forensic preservation and atomic restore selection always leaves a selected catalog")
   func restoreCrashMatrix() async throws {
-    for boundary in [PortraitExchangeCatalogBoundary.beforeRestorePreservation,.afterRestorePreservation,.beforeRestoreSelection,.afterRestoreSelection] {
+    for boundary in [LibraryExchangeCatalogBoundary.beforeRestorePreservation,.afterRestorePreservation,.beforeRestoreSelection,.afterRestoreSelection] {
       let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at: root) }
-      let store = PortraitCandidateStore(directoryURL: root.appendingPathComponent("library"))
+      let store = DrawingLibrary(directoryURL: root.appendingPathComponent("library"))
       let admitted = try DX04Fixture.admitted(parent: root)
-      let ref = PortraitExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
-      _ = try await store.publishExchange(admitted, metadata: [.init(reference: ref,title: "Backup",retentionReasons: ["chosen"],tombstoned: true)])
-      let generation = try await store.createExchangeMetadataBackup()
-      try await store.updateExchangeMetadata(.init(reference: ref,title: "Current",retentionReasons: ["current"],tombstoned: false))
+      let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
+      _ = try await store.publishFixture(admitted, metadata: [.init(reference: ref,title: "Backup",retentionReasons: ["chosen"],tombstoned: true)])
+      let generation = try await store.createMetadataBackup()
+      try await store.updateFixtureMetadata(.init(reference: ref,title: "Current",retentionReasons: ["current"],tombstoned: false))
       await store.closeLibrary()
       let child = try DX04Process.start(root: root, mode: "restore", boundary: boundary.rawValue, generation: generation.generationID)
       defer { DX04Process.stop(child) }
       try await DX04Process.waitReady(child)
       DX04Process.stop(child); try await DX04Process.waitExit(child)
-      let sql = root.appendingPathComponent("library/library-v1.sqlite")
+      let sql = root.appendingPathComponent("library/drawing-library.sqlite")
       #expect(FileManager.default.fileExists(atPath: sql.path))
-      let db = try PortraitLibraryDatabase(url: sql)
-      let restored = try PortraitExchangeCatalog(database: db)
+      let db = try DrawingLibraryDatabase(url: sql)
+      let restored = try LibraryExchangeCatalog(database: db)
       let metadata = try restored.metadata(ref)
       let value = try #require(metadata)
       #expect(value.title == (boundary == .afterRestoreSelection ? "Backup" : "Current"))
@@ -109,12 +109,12 @@ struct PortraitExchangeProcessTests {
 
   @Test("Fresh-root restore intent marker is durable before selection and interrupted missing SQL never bootstraps empty")
   func freshRootRestoreCrashMatrix() async throws {
-    for boundary in [PortraitExchangeCatalogBoundary.beforeRestorePreservation,.beforeRestoreSelection,.afterRestoreSelection] {
+    for boundary in [LibraryExchangeCatalogBoundary.beforeRestorePreservation,.beforeRestoreSelection,.afterRestoreSelection] {
       let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at:root) }
-      let source = PortraitCandidateStore(directoryURL:root.appendingPathComponent("source"))
+      let source = DrawingLibrary(directoryURL:root.appendingPathComponent("source"))
       let admitted = try DX04Fixture.admitted(parent:root)
-      _ = try await source.publishExchange(admitted)
-      let generation = try await source.createExchangeMetadataBackup()
+      _ = try await source.publishFixture(admitted)
+      let generation = try await source.createMetadataBackup()
       await source.closeLibrary()
       let library = root.appendingPathComponent("library"), backups = library.appendingPathComponent("metadata-backups")
       try FileManager.default.createDirectory(at:backups,withIntermediateDirectories:true)
@@ -123,25 +123,25 @@ struct PortraitExchangeProcessTests {
       defer { DX04Process.stop(child) }
       try await DX04Process.waitReady(child)
       DX04Process.stop(child); try await DX04Process.waitExit(child)
-      #expect(FileManager.default.fileExists(atPath:library.appendingPathComponent("exchange-authority.json").path))
-      let sql = library.appendingPathComponent("library-v1.sqlite")
+      #expect(FileManager.default.fileExists(atPath:library.appendingPathComponent("drawing-authority.json").path))
+      let sql = library.appendingPathComponent("drawing-library.sqlite")
       if boundary != .afterRestoreSelection {
         #expect(!FileManager.default.fileExists(atPath:sql.path))
-        #expect(throws:(any Error).self) { _ = try PortraitLibraryDatabase(url:sql) }
-        #expect(throws:(any Error).self) { _ = try PortraitCandidateStore(directoryURL:library).loadPhotoPage() }
-        try PortraitExchangeCatalog.restore(root:library,generationID:generation.generationID)
+        #expect(throws:(any Error).self) { _ = try DrawingLibraryDatabase(url:sql) }
+        await #expect(throws:(any Error).self) { _ = try await DrawingLibrary(directoryURL:library).drawings() }
+        try LibraryExchangeCatalog.restore(root:library,generationID:generation.generationID)
       }
-      let db = try PortraitLibraryDatabase(url:sql)
-      let catalog = try PortraitExchangeCatalog(database:db)
+      let db = try DrawingLibraryDatabase(url:sql)
+      let catalog = try LibraryExchangeCatalog(database:db)
       #expect(try catalog.publish(admitted).wasAlreadyPublished)
     }
     print("DX04_REAL_PROCESS_FRESH_ROOT_RESTORE_CASES=3 ALL_VERIFIED")
   }
 
   private func verifyRestart(root: URL, admitted: ValidatedExchangePackage) throws {
-    let db = try PortraitLibraryDatabase(url: root.appendingPathComponent("library/library-v1.sqlite"))
-    let catalog = try PortraitExchangeCatalog(database: db)
-    let ref = PortraitExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
+    let db = try DrawingLibraryDatabase(url: root.appendingPathComponent("library/drawing-library.sqlite"))
+    let catalog = try LibraryExchangeCatalog(database: db)
+    let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
     _ = try catalog.publish(admitted, metadata: [.init(reference: ref,title: "Crash title",retentionReasons: ["explicit-save"],tombstoned: true)])
     #expect(try db.scalar("SELECT COUNT(*) FROM dx_transaction") == "1")
     #expect(try catalog.storage.pendingTransactions().isEmpty)
@@ -156,7 +156,7 @@ struct PortraitExchangeProcessTests {
 /// Spawned directly from the already-built Swift Testing binary. No SwiftPM process,
 /// recursive build, production library, app launch or device initialization occurs.
 @Suite("Drawing Exchange isolated process helper")
-struct PortraitExchangeProcessHelperTests {
+struct LibraryExchangeProcessHelperTests {
   @Test("isolated helper", .enabled(if: ProcessInfo.processInfo.environment["DX04_PROCESS_HELPER"] != nil))
   func helper() throws {
     let env = ProcessInfo.processInfo.environment
@@ -177,23 +177,23 @@ struct PortraitExchangeProcessHelperTests {
     if mode == "restore" {
       let generationText = try #require(env["DX04_PROCESS_GENERATION"])
       let generation = try #require(UUID(uuidString:generationText))
-      try PortraitExchangeCatalog.restore(root: library, generationID: generation) { if $0.rawValue == selected { try reached() } }
+      try LibraryExchangeCatalog.restore(root: library, generationID: generation) { if $0.rawValue == selected { try reached() } }
       throw DX04Fixture.Failure.process
     }
     if mode == "writer-refused" {
-      do { _ = try PortraitLibraryDatabase(url: library.appendingPathComponent("library-v1.sqlite")); Issue.record("Competing writer unexpectedly opened") }
+      do { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite")); Issue.record("Competing writer unexpectedly opened") }
       catch { return }
       return
     }
-    let db = try PortraitLibraryDatabase(url: library.appendingPathComponent("library-v1.sqlite"), readOnly: mode == "reader")
+    let db = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite"), readOnly: mode == "reader")
     if mode == "hold" { try reached() }
     if mode == "writer" || mode == "reader" { try db.integrityCheck(); return }
-    let catalog = try PortraitExchangeCatalog(database: db) { event in
+    let catalog = try LibraryExchangeCatalog(database: db) { event in
       if event.boundary.rawValue == selected && (object.isEmpty || object == event.path) { try reached() }
     }
     catalog.injectFault = { if $0.rawValue == selected { try reached() } }
     let admitted = try DX04Fixture.admitted(parent: root)
-    let ref = PortraitExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
+    let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
     _ = try catalog.publish(admitted, metadata: [.init(reference: ref,title: "Crash title",retentionReasons: ["explicit-save"],tombstoned: true)])
     throw DX04Fixture.Failure.process // Targeted boundary must be reached before normal completion.
   }
@@ -211,7 +211,7 @@ private enum DX04Process {
     }
     guard images.count == 1 else { throw DX04Fixture.Failure.process }
     return ["pid":ProcessInfo.processInfo.processIdentifier,"parentPID":getppid(),"argv":CommandLine.arguments,
-      "loadedImage":images[0],"helperTest":"PortraitExchangeProcessHelperTests/helper"]
+      "loadedImage":images[0],"helperTest":"LibraryExchangeProcessHelperTests/helper"]
   }
   static func start(root: URL, mode: String, library: URL? = nil, boundary: String = "", object: String = "", generation: UUID? = nil) throws -> Child {
     let nonce = UUID().uuidString, ready = root.appendingPathComponent("ready-" + nonce), log = root.appendingPathComponent("child-" + nonce + ".log")
@@ -237,8 +237,8 @@ private enum DX04Process {
       reporterDeviation = ["mode": mode, "parentReport": parentReport, "childReport": childReport.path,
         "reason": "Unique child reporter outside tested Library/CAS/staging; image and test selection retained"]
     }
-    if let index = arguments.firstIndex(of:"--filter"), index + 1 < arguments.count { arguments[index+1] = "PortraitExchangeProcessHelperTests/helper" }
-    else { arguments += ["--filter","PortraitExchangeProcessHelperTests/helper"] }
+    if let index = arguments.firstIndex(of:"--filter"), index + 1 < arguments.count { arguments[index+1] = "LibraryExchangeProcessHelperTests/helper" }
+    else { arguments += ["--filter","LibraryExchangeProcessHelperTests/helper"] }
     if !arguments.contains("--testing-library") { arguments += ["--testing-library","swift-testing"] }
     process.arguments = arguments
     var env = ProcessInfo.processInfo.environment
@@ -262,7 +262,7 @@ private enum DX04Process {
         let data = try Data(contentsOf:child.ready)
         let proof = try #require(JSONSerialization.jsonObject(with:data) as? [String:Any])
         #expect(proof["pid"] as? Int32 == child.process.processIdentifier)
-        #expect(proof["helperTest"] as? String == "PortraitExchangeProcessHelperTests/helper")
+        #expect(proof["helperTest"] as? String == "LibraryExchangeProcessHelperTests/helper")
         #expect(proof["loadedImage"] as? String == child.expectedImage)
         print("DX04_HELPER_BOUNDARY_PROOF=" + String(decoding:data,as:UTF8.self))
         return

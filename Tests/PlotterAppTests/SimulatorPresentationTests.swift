@@ -113,6 +113,7 @@ func simulatedCameraRefreshUsesLearningRuntime() async throws {
 
   let workspace = PlotterApplicationRuntime(
     observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
+      portraitStudio: DrawingFirstTestStorage.studio(),
     manualMotionComposition: composition,
     penInteractionRuntime: nominalPenInteractionRuntime(
       manualMotionComposition: composition

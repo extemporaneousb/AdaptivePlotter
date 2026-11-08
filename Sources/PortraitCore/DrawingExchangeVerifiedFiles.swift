@@ -52,6 +52,16 @@ final class ExchangeCarrierCounters: @unchecked Sendable {
   }
   var snapshot: ExchangeCarrierStatistics { lock.lock(); defer { lock.unlock() }; return value }
 }
+/// A catalog mapping is untrusted metadata until its selected file is opened and hashed.
+public struct ExchangeCatalogFile: Sendable {
+  public let path: String
+  public let storagePath: String
+  public let digest: ExchangeDigest
+  public let byteLength: UInt64
+  public init(path: String, storagePath: String, digest: ExchangeDigest, byteLength: UInt64) {
+    self.path = path; self.storagePath = storagePath; self.digest = digest; self.byteLength = byteLength
+  }
+}
 public struct VerifiedExchangeFile: Sendable {
   public let path: String
   public let digest: ExchangeDigest
@@ -82,6 +92,56 @@ public final class VerifiedExchangeFiles: @unchecked Sendable {
       byDigest[entry.digest] = path
     }
     self.handles = handles; self.byDigest = byDigest
+  }
+  /// Pins one catalog root; hashes only selected files when first touched. This is
+  /// not carrier admission and grants no whole-publication integrity claim.
+  public convenience init(catalogRoot: URL, inventory: [ExchangeCatalogFile], limits: ExchangeCarrierLimits = .init()) throws {
+    try limits.validate()
+    guard inventory.count <= limits.maximumEntries else { throw DrawingExchangeError.limit("Catalog inventory count") }
+    let root = try ExchangePinnedDirectory(catalogRoot), counters = ExchangeCarrierCounters()
+    var entries: [String: VerifiedExchangeFile] = [:], folded = Set<String>()
+    var total: UInt64 = 0
+    var shared: [String:ExchangeFileFingerprint] = [:]
+    for item in inventory {
+      try DrawingExchangeCarrier.safePath(item.path); try DrawingExchangeCarrier.safePath(item.storagePath)
+      guard entries[item.path] == nil, folded.insert(DrawingExchangeCarrier.fold(item.path)).inserted else {
+        throw DrawingExchangeError.malformed("Catalog inventory collision")
+      }
+      try DrawingExchangeCarrier.addSize(item.byteLength, total: &total, limits: limits)
+      let key=item.storagePath+":"+item.digest.description+":"+String(item.byteLength)
+      let fingerprint = shared[key] ?? ExchangeFileFingerprint(catalogRoot: root, path: item.storagePath,
+        digest: item.digest, byteLength: item.byteLength, limits: limits, counters: counters)
+      shared[key]=fingerprint
+      entries[item.path] = .init(path: item.path, digest: item.digest, byteLength: item.byteLength, fingerprint: fingerprint)
+    }
+    self.init(catalogEntries: entries, rootURL: catalogRoot, limits: limits, counters: counters)
+  }
+  private init(catalogEntries entries: [String: VerifiedExchangeFile], rootURL: URL,
+    limits: ExchangeCarrierLimits, counters: ExchangeCarrierCounters) {
+    self.entries = entries; stagingURL = rootURL; self.limits = limits; self.counters = counters; materializationBudget = nil
+    handles = entries.mapValues(\.fingerprint)
+    byDigest = Dictionary(entries.values.map { ($0.digest, $0.path) }, uniquingKeysWith: { first, _ in first })
+  }
+  /// Rechecks only files whose hashes this resolver actually established.
+  /// Streams integrity verification for every immutable inventory path. This
+  /// proves bytes/lengths/private files only, without admitting media or records.
+  public func verifyInventory() throws {
+    var verified=Set<ObjectIdentifier>()
+    for path in handles.keys.sorted() {
+      let handle=handles[path]!
+      if verified.insert(ObjectIdentifier(handle)).inserted { _ = try handle.open() }
+    }
+  }
+  public func revalidateSelected() throws {
+    for handle in handles.values where handle.isVerified { _ = try handle.open() }
+  }
+  public func selectedVerifiedFiles() throws -> VerifiedExchangeFiles {
+    let selected = entries.filter { $0.value.fingerprint.isVerified }
+    return try .init(entries: selected, stagingURL: stagingURL, limits: limits, counters: counters)
+  }
+  func verify(_ digest: ExchangeDigest) throws {
+    guard let path = byDigest[digest], let handle = handles[path] else { throw DrawingExchangeError.missingAsset(digest.description) }
+    _ = try handle.open()
   }
   private init(sharing files: VerifiedExchangeFiles, budget: ExchangeReadBudget) {
     entries = files.entries; stagingURL = files.stagingURL; limits = files.limits; counters = files.counters
@@ -192,21 +252,54 @@ final class ExchangePinnedDirectory: @unchecked Sendable {
 final class ExchangeFileFingerprint: @unchecked Sendable {
   let root: ExchangePinnedDirectory
   let path: String
-  let initial: stat
+  private var initial: stat?
+  private let lock = NSLock()
+  private let expected: (ExchangeDigest, UInt64)?
+  private let catalogLimits: ExchangeCarrierLimits?
+  private let counters: ExchangeCarrierCounters?
   init(root: ExchangePinnedDirectory, path: String) throws {
-    self.root = root; self.path = path
+    self.root = root; self.path = path; expected = nil; catalogLimits = nil; counters = nil
     let pinned = try root.open(path)
     var info = stat(); guard fstat(pinned.fd, &info) == 0 else { throw DrawingExchangeError.malformed("Fingerprint") }; initial = info
   }
   init(root: ExchangePinnedDirectory, path: String, verifiedStat: stat) {
     self.root = root; self.path = path; initial = verifiedStat
+    expected = nil; catalogLimits = nil; counters = nil
   }
+  init(catalogRoot: ExchangePinnedDirectory, path: String, digest: ExchangeDigest,
+    byteLength: UInt64, limits: ExchangeCarrierLimits, counters: ExchangeCarrierCounters) {
+    root = catalogRoot; self.path = path; initial = nil; expected = (digest, byteLength)
+    catalogLimits = limits; self.counters = counters
+  }
+  var isVerified: Bool { lock.lock(); defer { lock.unlock() }; return initial != nil }
   func open() throws -> ExchangePinnedFile {
+    lock.lock(); defer { lock.unlock() }
     let pinned = try root.open(path)
     var s = stat()
-    guard fstat(pinned.fd, &s) == 0, s.st_dev == initial.st_dev, s.st_ino == initial.st_ino, s.st_size == initial.st_size,
-      s.st_mtimespec.tv_sec == initial.st_mtimespec.tv_sec, s.st_mtimespec.tv_nsec == initial.st_mtimespec.tv_nsec,
-      s.st_ctimespec.tv_sec == initial.st_ctimespec.tv_sec, s.st_ctimespec.tv_nsec == initial.st_ctimespec.tv_nsec else { throw DrawingExchangeError.digestMismatch("Verified file changed") }
+    guard fstat(pinned.fd, &s) == 0 else { throw DrawingExchangeError.malformed("Catalog file stat") }
+    if let initial {
+      guard s.st_dev == initial.st_dev, s.st_ino == initial.st_ino, s.st_size == initial.st_size,
+        s.st_mtimespec.tv_sec == initial.st_mtimespec.tv_sec, s.st_mtimespec.tv_nsec == initial.st_mtimespec.tv_nsec,
+        s.st_ctimespec.tv_sec == initial.st_ctimespec.tv_sec, s.st_ctimespec.tv_nsec == initial.st_ctimespec.tv_nsec else {
+        throw DrawingExchangeError.digestMismatch("Verified file changed")
+      }
+    } else if let (digest, length) = expected, let limits = catalogLimits {
+      guard s.st_size >= 0, UInt64(s.st_size) == length else { throw DrawingExchangeError.digestMismatch(path) }
+      var hasher = SHA256(), count: UInt64 = 0, buffer = [UInt8](repeating: 0, count: limits.bufferBytes)
+      while true {
+        let n = Darwin.read(pinned.fd, &buffer, buffer.count)
+        guard n >= 0 else { throw DrawingExchangeError.malformed("Catalog verification read") }
+        if n == 0 { break }
+        guard UInt64(n) <= length - min(length, count) else { throw DrawingExchangeError.limit("Catalog file grew") }
+        count += UInt64(n); hasher.update(data: Data(buffer.prefix(n)))
+        counters?.update { $0.verificationBytesRead += UInt64(n); $0.hashedBytes += UInt64(n) }
+      }
+      try pinned.check()
+      let actual = try ExchangeDigest(hasher.finalize().map { String(format: "%02x", $0) }.joined())
+      guard count == length, actual == digest else { throw DrawingExchangeError.digestMismatch(path) }
+      initial = s
+      guard lseek(pinned.fd, 0, SEEK_SET) == 0 else { throw DrawingExchangeError.malformed("Catalog rewind") }
+    } else { throw DrawingExchangeError.malformed("Missing sealed file expectation") }
     return pinned
   }
 }

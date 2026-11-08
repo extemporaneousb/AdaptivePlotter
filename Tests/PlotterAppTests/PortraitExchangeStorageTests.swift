@@ -2,21 +2,21 @@ import Foundation
 import Darwin
 import Testing
 import PortraitCore
-@testable import PortraitLibrary
+@testable import DrawingLibrary
 
-struct PortraitExchangeStorageFixture {
+struct LibraryExchangeStorageFixture {
   let bag: DrawingExchangeCarrierTestBag
   let root: URL
-  let lease: PortraitLibraryWriterLease
-  let storage: PortraitExchangeStorage
-  init(fault: @escaping (PortraitExchangeStorageFault) throws -> Void = { _ in }) throws {
+  let lease: DrawingLibraryWriterLease
+  let storage: LibraryExchangeStorage
+  init(fault: @escaping (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
     bag = try DrawingExchangeCarrierTestBag(files: ["data/exchange.json": Data("{\"profile\":\"unknown/91\"}".utf8),
       "data/unknown.bin": Data(repeating: 73, count: 150_000), "data/duplicate.bin": Data(repeating: 73, count: 150_000)])
     root = bag.root.appendingPathComponent("library")
-    lease = try PortraitLibraryWriterLease(root: root)
-    storage = try PortraitExchangeStorage(root: root, lease: lease, fault: fault)
+    lease = try DrawingLibraryWriterLease(root: root)
+    storage = try LibraryExchangeStorage(root: root, lease: lease, fault: fault)
   }
-  func stage() throws -> PortraitExchangeStaging {
+  func stage() throws -> LibraryExchangeStaging {
     let incoming = try DrawingExchangeCarrier.stageDirectory(bag.source, stagingParent: bag.root)
     return try storage.stage(files: incoming.files, transactionID: UUID(), intent: Data("catalog-owned opaque intent".utf8))
   }
@@ -26,27 +26,27 @@ struct PortraitExchangeStorageFixture {
 private enum StorageInjectedFailure: Error { case stop }
 
 @Suite("DX04 immutable exchange storage", .serialized)
-struct PortraitExchangeStorageTests {
+struct LibraryExchangeStorageTests {
   @Test func actualPublicationEncodingFitsDeclaredLibraryPolicy() throws {
     let digest = ExchangeDigest.hash(Data("budget proof".utf8))
-    let records: [PortraitExchangeReference] = (0..<10_000).map { _ in
+    let records: [LibraryExchangeReference] = (0..<10_000).map { _ in
       .drawing(.init(issuer: UUID(), revision: UUID(), digest: digest))
     }
     let links = (0..<30_000).map { index in
-      PortraitExchangeLink(source: records[index % records.count], target: records[(index + 1) % records.count], relation: "supersedes")
+      LibraryExchangeLink(source: records[index % records.count], target: records[(index + 1) % records.count], relation: "supersedes")
     }
-    let metadata = records.map { PortraitExchangeMetadata(reference: $0, title: String(repeating: "t", count: 64),
+    let metadata = records.map { LibraryExchangeMetadata(reference: $0, title: String(repeating: "t", count: 64),
       retentionReasons: [String(repeating: "r", count: 32), String(repeating: "s", count: 32)], tombstoned: false) }
     let id = UUID()
-    let publication = PortraitExchangePublication(version: 1, transactionID: id, indexDigest: digest,
-      packageDigest: digest, records: records, links: links, metadata: metadata)
+    let publication = LibraryExchangePublication(version: 1, transactionID: id, indexDigest: digest,
+      packageDigest: digest, records: records, links: links, metadata: metadata, attachments: [], domainCommit: nil)
     let intent = try JSONEncoder().encode(publication)
     #expect(intent.count > 1024 * 1024)
-    #expect(intent.count <= PortraitExchangeStorage.maximumPublicationIntentBytes)
+    #expect(intent.count <= LibraryExchangeStorage.maximumPublicationIntentBytes)
     let entries = (0..<20_000).map { _ in
-      PortraitExchangeStorageEntry(path: "data/drawings/" + UUID().uuidString.lowercased() + "/" + UUID().uuidString.lowercased() + "/" + digest.description + ".json", digest: digest, byteLength: 1_000_000)
+      LibraryExchangeStorageEntry(path: "data/drawings/" + UUID().uuidString.lowercased() + "/" + UUID().uuidString.lowercased() + "/" + digest.description + ".json", digest: digest, byteLength: 1_000_000)
     }
-    struct Journal: Encodable { let version: Int; let state: String; let stage: PortraitExchangeStaging }
+    struct Journal: Encodable { let version: Int; let state: String; let stage: LibraryExchangeStaging }
     let journal = Journal(version: 1, state: "prepared", stage: .init(transactionID: id, intent: intent, entries: entries))
     let journalEncoder = JSONEncoder(); journalEncoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     let payload = try journalEncoder.encode(journal)
@@ -55,26 +55,26 @@ struct PortraitExchangeStorageTests {
     struct Envelope: Encodable { let version: Int; let digest: ExchangeDigest; let payload: Data }
     let emptyEnvelopeBytes = try journalEncoder.encode(Envelope(version: 1, digest: digest, payload: Data())).count
     let envelopeBytes = emptyEnvelopeBytes + 4 * ((payload.count + 2) / 3)
-    #expect(envelopeBytes <= PortraitExchangeStorage.maximumJournalBytes)
-    #expect(PortraitExchangeStorage.maximumMetadataBytes == 16 * 1024 * 1024)
+    #expect(envelopeBytes <= LibraryExchangeStorage.maximumJournalBytes)
+    #expect(LibraryExchangeStorage.maximumMetadataBytes == 16 * 1024 * 1024)
   }
 
   @Test func oversizedValidOpaqueIntentIsAResourceRefusalBeforePublication() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let incoming = try DrawingExchangeCarrier.stageDirectory(f.bag.source, stagingParent: f.bag.root)
-    #expect(throws: PortraitExchangeStorageError.resourceLimit("publication intent exceeds 32MiB")) {
-      try f.storage.stage(files: incoming.files, transactionID: UUID(), intent: Data(count: PortraitExchangeStorage.maximumPublicationIntentBytes + 1))
+    #expect(throws: LibraryExchangeStorageError.resourceLimit("publication intent exceeds 32MiB")) {
+      try f.storage.stage(files: incoming.files, transactionID: UUID(), intent: Data(count: LibraryExchangeStorage.maximumPublicationIntentBytes + 1))
     }
     #expect(try f.storage.pendingTransactions().isEmpty)
     #expect(FileManager.default.fileExists(atPath: incoming.stagingURL.appendingPathComponent("data/unknown.bin").path))
   }
 
   @Test func exactBytesDedupRestartInventoryAndScopedCleanup() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let stage = try f.stage()
     let unrelated = try f.stage()
     try f.storage.installObjects(stage)
-    let reopened = try PortraitExchangeStorage(root: f.root, lease: f.lease)
+    let reopened = try LibraryExchangeStorage(root: f.root, lease: f.lease)
     #expect(Set(try reopened.pendingTransactions().map(\.transactionID)) == [stage.transactionID, unrelated.transactionID])
     #expect(try reopened.pendingTransactions().first(where: { $0.transactionID == stage.transactionID }) == stage)
     let objects = try FileManager.default.contentsOfDirectory(atPath: f.root.appendingPathComponent("objects/sha256").path)
@@ -90,14 +90,14 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func everyOwnedAssetBoundaryLeavesRecoverableIntentAndIncoming() throws {
-    let boundaries: [PortraitExchangeStorageFault.Boundary] = [.beforeBlobCopy, .afterBlobCopy,
+    let boundaries: [LibraryExchangeStorageFault.Boundary] = [.beforeBlobCopy, .afterBlobCopy,
       .beforeBlobFileSync, .afterBlobFileSync, .beforeBlobInstall, .afterBlobInstall,
       .beforeBlobDirectorySync, .afterBlobDirectorySync, .beforeJournalTransition, .afterJournalTransition]
     for boundary in boundaries {
-      let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+      let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
       let stage = try f.stage()
       var fired = false
-      let interrupted = try PortraitExchangeStorage(root: f.root, lease: f.lease) { event in
+      let interrupted = try LibraryExchangeStorage(root: f.root, lease: f.lease) { event in
         if event.boundary == boundary && !fired { fired = true; throw StorageInjectedFailure.stop }
       }
       #expect(throws: StorageInjectedFailure.self) { try interrupted.installObjects(stage) }
@@ -110,8 +110,8 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func journalCreationFailuresPreserveUncertainStaging() throws {
-    for boundary in [PortraitExchangeStorageFault.Boundary.beforeBagCopy, .duringBagCopy, .afterBagCopy, .beforeJournalCreation, .afterJournalCreation, .beforeStagingPublication] {
-      let f = try PortraitExchangeStorageFixture { event in if event.boundary == boundary { throw StorageInjectedFailure.stop } }
+    for boundary in [LibraryExchangeStorageFault.Boundary.beforeBagCopy, .duringBagCopy, .afterBagCopy, .beforeJournalCreation, .afterJournalCreation, .beforeStagingPublication] {
+      let f = try LibraryExchangeStorageFixture { event in if event.boundary == boundary { throw StorageInjectedFailure.stop } }
       defer { f.dispose() }
       #expect(throws: StorageInjectedFailure.self) { try f.stage() }
       let children = try FileManager.default.contentsOfDirectory(atPath: f.root.appendingPathComponent("exchange-staging").path)
@@ -123,14 +123,14 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func conflictsAndCleanupFaultsAreScoped() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let first = try f.stage(), second = try f.stage()
     let conflict = try f.storage.preserveConflict(transactionID: first.transactionID)
     #expect(FileManager.default.fileExists(atPath: conflict.appendingPathComponent("bag/data/unknown.bin").path))
     #expect(try f.storage.pendingTransactions() == [second])
-    for boundary in [PortraitExchangeStorageFault.Boundary.beforeCleanup, .duringCleanup, .afterCleanup] {
+    for boundary in [LibraryExchangeStorageFault.Boundary.beforeCleanup, .duringCleanup, .afterCleanup] {
       let stage = try f.stage()
-      let interrupted = try PortraitExchangeStorage(root: f.root, lease: f.lease) { event in if event.boundary == boundary { throw StorageInjectedFailure.stop } }
+      let interrupted = try LibraryExchangeStorage(root: f.root, lease: f.lease) { event in if event.boundary == boundary { throw StorageInjectedFailure.stop } }
       #expect(throws: StorageInjectedFailure.self) { try interrupted.collectStaging(transactionID: stage.transactionID) }
       #expect(FileManager.default.fileExists(atPath: f.stageURL(stage.transactionID).path) == (boundary == .beforeCleanup))
     }
@@ -140,7 +140,7 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func corruptMissingLinkedAndWrongLengthObjectsRefused() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let stage = try f.stage(); try f.storage.installObjects(stage)
     let entry = stage.entries.first(where: { $0.path == "data/unknown.bin" })!
     let object = f.storage.objectURL(digest: entry.digest)
@@ -161,9 +161,9 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func forgedStageInventoryAndJournalCorruptionNeverDeleteBytes() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let stage = try f.stage()
-    let forged = PortraitExchangeStaging(transactionID: stage.transactionID, intent: Data(), entries: stage.entries)
+    let forged = LibraryExchangeStaging(transactionID: stage.transactionID, intent: Data(), entries: stage.entries)
     #expect(throws: (any Error).self) { try f.storage.installObjects(forged) }
     let journal = f.stageURL(stage.transactionID).appendingPathComponent("journal.json")
     let original = try Data(contentsOf: journal)
@@ -181,14 +181,14 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func publicationBoundaryLeavesCompleteRestartableStage() throws {
-    let f = try PortraitExchangeStorageFixture { event in
+    let f = try LibraryExchangeStorageFixture { event in
       if event.boundary == .afterStagingPublication { throw StorageInjectedFailure.stop }
     }
     defer { f.dispose() }
     #expect(throws: StorageInjectedFailure.self) { try f.stage() }
     let pending = try f.storage.pendingTransactions()
     #expect(pending.count == 1)
-    let reopened = try PortraitExchangeStorage(root: f.root, lease: f.lease)
+    let reopened = try LibraryExchangeStorage(root: f.root, lease: f.lease)
     try reopened.installObjects(pending[0])
     try reopened.collectStaging(transactionID: pending[0].transactionID)
     #expect(try reopened.pendingTransactions().isEmpty)
@@ -198,13 +198,13 @@ struct PortraitExchangeStorageTests {
     let digest = ExchangeDigest.hash(Data())
     for paths in [["../escape"], ["/absolute"], ["a\\b"], ["a", "A"], ["Dir/a", "dir/b"], ["a", "a/b"]] {
       #expect(throws: (any Error).self) {
-        try PortraitExchangeStorage.validateInventory(paths.map { .init(path: $0, digest: digest, byteLength: 0) })
+        try LibraryExchangeStorage.validateInventory(paths.map { .init(path: $0, digest: digest, byteLength: 0) })
       }
     }
   }
 
   @Test func exactPrivateBagRejectsAddedOrLinkedEntries() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let stage = try f.stage()
     let bag = f.stageURL(stage.transactionID).appendingPathComponent("bag")
     let added = bag.appendingPathComponent("extra")
@@ -221,10 +221,10 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func rootAliasesAndPromotionRetainDescriptorOwnership() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let alias = f.bag.root.appendingPathComponent("alias")
     try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: f.root)
-    let throughAlias = try PortraitExchangeStorage(root: alias, lease: f.lease)
+    let throughAlias = try LibraryExchangeStorage(root: alias, lease: f.lease)
     let stage = try f.stage()
     let promoted = f.bag.root.appendingPathComponent("promoted")
     try FileManager.default.moveItem(at: f.root, to: promoted)
@@ -248,7 +248,7 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func boundedObjectReadsUseVerifiedBytesAndRejectInvalidBudgets() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     let stage = try f.stage(); try f.storage.installObjects(stage)
     let entry = stage.entries.first(where: { $0.path == "data/exchange.json" })!
     let read = try f.storage.readObject(digest: entry.digest, byteLength: entry.byteLength, maximumBytes: 1024)
@@ -259,12 +259,12 @@ struct PortraitExchangeStorageTests {
   }
 
   @Test func metadataMarkerRejectsLinksAndNeverTreatsCorruptionAsAbsence() throws {
-    let f = try PortraitExchangeStorageFixture(); defer { f.dispose() }
+    let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
     #expect(try f.storage.readMetadata() == nil)
     let bytes = Data("{\"version\":1}".utf8)
     try f.storage.durableMetadataWrite(bytes)
     #expect(try f.storage.readMetadata() == bytes)
-    let marker = f.root.appendingPathComponent("exchange-authority.json")
+    let marker = f.root.appendingPathComponent("drawing-authority.json")
     try Data("corrupt".utf8).write(to: marker)
     #expect(throws: (any Error).self) { try f.storage.durableMetadataWrite(bytes) }
     try FileManager.default.removeItem(at: marker)

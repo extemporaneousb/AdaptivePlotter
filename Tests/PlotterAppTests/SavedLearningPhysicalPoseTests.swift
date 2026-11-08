@@ -534,7 +534,7 @@ struct SavedLearningPhysicalPoseTests {
   func translatedPlanCannotReplayPossibleInk(_ border: Bool) async throws {
     let portraitDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: portraitDirectory) }
-    let portrait = PortraitStudioModel(candidateStore: .init(directoryURL: portraitDirectory))
+    let portrait = PortraitStudioModel(library: DrawingFirstTestStorage.library())
     let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: portrait)
     defer { f.stores.remove() }
     let app = f.application
@@ -840,15 +840,8 @@ private func selectPhysicalPosePortrait(_ f: DrawingWorkbenchApplicationFixture,
   let app = f.application
   let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
     style: .contours, strokeStyle: app.drawingStrokeStyle)
-  if retainingSource {
-    let recipe = PortraitStyleRecipe(id: "physical-pose-exact-portrait", title: "Exact portrait",
-      seed: 834, style: .contours, vectorOptions: .nativeDefaults(for: .contours), analysisOptions: .init())
-    let candidate = try PortraitCandidate(sourceData: Data([8, 3, 4]),
-      sourcePixelExtent: portraitTestRaster().sourceCropExtent, raster: portraitTestRaster(),
-      recipe: recipe, program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
-    let handoffFailure = await app.projectPortrait(candidate)
-    try #require(handoffFailure == nil, "\(handoffFailure ?? "")")
-  }
+  let handoffFailure = await app.projectDrawing(try drawingTestValue(program: program))
+  try #require(handoffFailure == nil, "\(handoffFailure ?? "")")
   let projection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
     manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
   let request = try #require(projection.semantic.request(matching: .drawingDraft(.selectProgram(program))))

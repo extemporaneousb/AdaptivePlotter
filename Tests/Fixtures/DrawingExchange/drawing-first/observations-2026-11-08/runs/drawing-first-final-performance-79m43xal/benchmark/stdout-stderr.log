@@ -1,0 +1,10 @@
+[0/1] Planning build
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: x86_64-apple-macos14.0
+◇ Suite "Current DrawingLibrary metadata performance" started.
+◇ Test "100 versus 10k named metadata rows, 30 warm trials, with artwork unavailable" started.
+DRAWING_LIBRARY_METADATA_PERF_REPORT=/private/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-final-performance-79m43xal/benchmark/measurements.json
+✔ Test "100 versus 10k named metadata rows, 30 warm trials, with artwork unavailable" passed after 5.398 seconds.
+✔ Suite "Current DrawingLibrary metadata performance" passed after 5.399 seconds.
+✔ Test run with 1 test passed after 5.399 seconds.

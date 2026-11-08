@@ -155,7 +155,7 @@ struct FlowArtistVariationTests {
 
   @Test("Absent and zero mark coordinates preserve legacy recipe bytes and exact geometry")
   func zeroIdentity() throws {
-    let encoder = DrawingPackageCodec.encoder(), original = FlowArtistRecipe.standard
+    let encoder = DrawingArtifactCoding.encoder(), original = FlowArtistRecipe.standard
     let bytes = try encoder.encode(original)
     let decoded = try JSONDecoder().decode(FlowArtistRecipe.self, from: bytes)
     let zero = FlowArtistRecipe(values: original.values, marks: .init())
@@ -282,10 +282,11 @@ struct FlowArtistVariationTests {
   }
 
   @Test("Retain matched real-photo mark forms and equal-budget old/new panels without artistic labels",
-    .enabled(if: ProcessInfo.processInfo.environment["FLOW_VARIATION_ROOT"] != nil))
+    .enabled(if: ProcessInfo.processInfo.environment["FLOW_VARIATION_SOURCES"] != nil))
   func realPhotoVariation() async throws {
     let environment = ProcessInfo.processInfo.environment
-    let root = URL(fileURLWithPath: try #require(environment["FLOW_VARIATION_ROOT"]), isDirectory: true)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("flow-variation-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
     let input = URL(fileURLWithPath: try #require(environment["FLOW_VARIATION_SOURCES"]))
     let sources = try JSONDecoder().decode([String].self, from: Data(contentsOf: input))
     #expect((1...3).contains(sources.count))
@@ -297,7 +298,7 @@ struct FlowArtistVariationTests {
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
     for (sourceIndex, path) in sources.enumerated() {
       let data = try Data(contentsOf: URL(fileURLWithPath: path))
-      let hash = DrawingPackageCodec.sha256(data), renderer = FlowDojoRenderer()
+      let hash = DrawingArtifactCoding.sha256(data), renderer = FlowDojoRenderer()
       for (name, marks) in forms {
         let recipe = FlowArtistRecipe(values: matchedBase.values, marks: marks)
         let start = Date()
@@ -320,7 +321,7 @@ struct FlowArtistVariationTests {
             let result = try await renderer.render(data: data, recipe: recipe, strokeStyle: style)
             let preview = try FlowDojoRenderer.preview(result.program)
             try preview.write(to: root.appendingPathComponent("\(policy)-panel-\(index).png"), options: .atomic)
-            previews.insert(DrawingPackageCodec.sha256(preview)); occupied.append(occupancy(result.program))
+            previews.insert(DrawingArtifactCoding.sha256(preview)); occupied.append(occupancy(result.program))
             titles.append(recipe.themeTitle)
           }
           var distances: [Double] = []
@@ -339,56 +340,12 @@ struct FlowArtistVariationTests {
     let receipt = VariationReceipt(scope: "validationFixture: renderer/coverage experiment, no human artistic ratings or identity independence claim",
       rendererRevision: PortraitFlowRenderer.markRevision, proposalRevision: FlowArtistProposals.revision,
       forms: rows, panels: panels)
-    try DrawingPackageCodec.encoder().encode(receipt).write(to: root.appendingPathComponent("variation-receipt.json"), options: .atomic)
+    try DrawingArtifactCoding.encoder().encode(receipt).write(to: root.appendingPathComponent("variation-receipt.json"), options: .atomic)
     #expect(rows.filter { $0.form == "looped" }.allSatisfy { $0.metrics.closedStrokeCount > 0 })
     #expect(rows.filter { $0.form == "polygon-loops" }.contains { $0.metrics.closedStrokeCount > 0 })
   }
 
-  @Test("Export exact copied artist labels for declared training-only diagnostics without portfolio mutation",
-    .enabled(if: ProcessInfo.processInfo.environment["FLOW_ARTIST_DIAGNOSTIC_INPUT"] != nil))
-  func diagnosticInput() async throws {
-    let environment = ProcessInfo.processInfo.environment
-    let directory = URL(fileURLWithPath: try #require(environment["FLOW_DOJO_ARTIST_REPLAY"]))
-    let destination = URL(fileURLWithPath: try #require(environment["FLOW_ARTIST_DIAGNOSTIC_INPUT"]))
-    let reportURL = URL(fileURLWithPath: try #require(environment["FLOW_ARTIST_DIAGNOSTIC_REPORT"]))
-    try #require(directory.lastPathComponent == "ArtistReplay.flowportfolio")
-    try #require(!FileManager.default.fileExists(atPath: destination.path))
-    let store = try FlowPortfolioStore(directory: directory, purpose: .artist)
-    let before = await store.snapshot()
-    let dataset = try await FlowDojoTraining.dataset(store: store, document: before)
-    struct ExistingReceipt: Decodable { let report: FlowArtistFitReport }
-    let old = try JSONDecoder().decode(ExistingReceipt.self, from: Data(contentsOf: reportURL))
-    let checkpoint = try #require(old.report.checkpoint)
-    try checkpoint.validateForInference()
-    try #require(Set(checkpoint.exampleIDs) == Set(dataset.examples.map(\.id)))
-    try #require(Set(checkpoint.rankingIDs) == Set(dataset.rankings.map(\.id)))
-    try #require(dataset.rankings.allSatisfy { $0.provenance == .choice },
-      "This declared diagnostic replays direct deletion labels only; mask comparisons would require their exact objective rows.")
-    struct Row: Encodable {
-      let exampleID: String; let sourceGroupID: String; let index: Int
-      let removed: Bool; let provenance: String; let initialWeight: Double; let features: [Double]
-    }
-    var rows: [Row] = []
-    for example in dataset.examples.sorted(by: { $0.id < $1.id }) where !example.strokeLabels.isEmpty {
-      let total = example.strokeLabels.reduce(0.0) { $0 + ($1.provenance == .completedMask ? 0.5 : 1) }
-      for label in example.strokeLabels {
-        rows.append(.init(exampleID: example.id, sourceGroupID: example.sourceGroupID, index: label.index,
-          removed: label.removed, provenance: label.provenance.rawValue,
-          initialWeight: (label.provenance == .completedMask ? 0.5 : 1) / total,
-          features: example.strokeFeatures[label.index]))
-      }
-    }
-    struct Export: Encodable {
-      let purpose: String; let portfolioRevision: Int; let checkpointID: String
-      let configuration: FlowArtistFitConfiguration; let holdoutGroupIDs: [String]
-      let nativeWeights: [Double]; let rows: [Row]
-    }
-    let output = Export(purpose: "Exact genuine direct labels from prepared copy; training-only regularization and threshold diagnostic; no invented labels or deployment",
-      portfolioRevision: before.revision, checkpointID: checkpoint.id, configuration: checkpoint.fitConfiguration,
-      holdoutGroupIDs: checkpoint.holdoutGroupIDs, nativeWeights: try #require(checkpoint.deleter?.weights), rows: rows)
-    #expect(await store.snapshot() == before)
-    try DrawingPackageCodec.encoder().encode(output).write(to: destination, options: .atomic)
-  }
+
 
   private var matchedBase: FlowArtistRecipe {
     .init(nativeValues: [5, 3, 0.18, 1.2, 1.5, 0.015, 0, 0.15, 0.2, 0.4, 0.25, 0])

@@ -1,13 +1,21 @@
+import PortraitCore
 import PortraitLibrary
 import Foundation
 import PlotterModel
 import PlotterRuntime
 
-extension SavedDrawing {
-  /// Reference construction validates the known compositor against the exact authored payload.
+extension Drawing {
+  /// The existing opaque digest branch binds the entire immutable drawing record.
   func executionReference(for executionProgram: DrawingProgram) -> DrawingRunCandidateReference? {
-    guard let reference = runCandidateReference else { return nil }
-    return reference.matches(executionProgram) ? reference : nil
+    guard capabilities.supported.contains(.plot), let ref = reference else { return nil }
+    let hex = Array(ref.digest.description.utf8)
+    let bytes = stride(from: 0, to: hex.count, by: 2).compactMap {
+      UInt8(String(decoding: hex[$0...($0 + 1)], as: UTF8.self), radix: 16)
+    }
+    guard let digest = try? PlotterModel.Digest(bytes: bytes) else { return nil }
+    let candidate = DrawingRunCandidateReference(candidateID: ref.digest.description,
+      contentHash: digest, sourceProgram: program)
+    return candidate.matches(executionProgram) ? candidate : nil
   }
 }
 
@@ -25,89 +33,37 @@ extension PlotterApplicationRuntime {
     return digest
   }
 
-  /// The staged intent supplies identity. Retention must settle before the runtime
-  /// can begin motion; a failed write is an explicit attempt failure.
+  /// Stage receipt, exact ref and plan are captured before the durable association.
+  /// The existing runtime awaits this callback before Pen Up normalization or motion.
   func retainDrawingCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
-    let capturedDrawing = authoredDrawing(for: intent.context.program)
-    do {
-      try await retainStagedDrawingCandidateForAttempt(intent)
-    } catch {
+    do { try await retainStagedDrawing(intent) }
+    catch {
       await drawingEvidencePort.finishPortraitBinding(intent)
       throw error
     }
     await drawingEvidencePort.finishPortraitBinding(intent)
-    if let reference = intent.context.candidate {
-      guard let capturedDrawing, !portraitStudio.sketches.drawingWasDeleted(capturedDrawing),
-        !Task.isCancelled, drawingDraftSnapshot.program == intent.context.program,
-        drawingDraftSnapshot.plan == intent.plan,
-        let current = authoredDrawing(for: intent.context.program),
-        sameRetainedArtwork(current, capturedDrawing),
-        current.executionReference(for: intent.context.program) == reference else {
-        throw DrawingRunEvidenceError.invalidAttemptContext
-      }
-    }
   }
 
-  private func sameRetainedArtwork(_ current: SavedDrawing, _ captured: SavedDrawing) -> Bool {
-    if captured.portraitCandidate != nil || captured.transferredPackage != nil { return current == captured }
-    // An unsaved source-free draft receives a fresh display date on projection.
-    return current.portraitCandidate == nil && current.transferredPackage == nil
-      && current.id == captured.id && current.program == captured.program
-  }
-
-  private func retainStagedDrawingCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
-    guard let reference = intent.context.candidate else {
-      if intent.role == .ordinaryDrawing, intent.context.program.source.kind == "portrait" {
-        throw SavedDrawingBrowserError.portraitProvenanceRequired
-      }
-      return
-    }
-    guard drawingDraftSnapshot.program == intent.context.program,
-      drawingDraftSnapshot.plan == intent.plan else {
-      throw DrawingRunEvidenceError.invalidAttemptContext
-    }
-    guard let drawing = authoredDrawing(for: intent.context.program),
-      drawing.id == reference.candidateID,
-      drawing.program == reference.sourceProgram,
-      drawing.executionReference(for: intent.context.program) == reference else {
+  private func retainStagedDrawing(_ intent: DrawingRunIntent) async throws {
+    guard let drawing = authoredDrawing(for: intent.context.program), let ref = drawing.reference,
+      let candidate = intent.context.candidate,
+      drawing.executionReference(for: intent.context.program) == candidate,
+      drawingDraftSnapshot.program == intent.context.program, drawingDraftSnapshot.plan == intent.plan,
+      !Task.isCancelled else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    guard case .loaded(let archive) = await drawingEvidencePort.loadForPortraitBinding(intent),
+      archive.attempts.contains(where: { $0.intent == intent }) else {
       throw DrawingRunEvidenceError.invalidAttemptContext
     }
     func assertCurrent() throws {
-      guard !Task.isCancelled, !portraitStudio.sketches.drawingWasDeleted(drawing),
-        drawingDraftSnapshot.program == intent.context.program,
+      guard !Task.isCancelled, drawingDraftSnapshot.program == intent.context.program,
         drawingDraftSnapshot.plan == intent.plan,
-        let current = authoredDrawing(for: intent.context.program), sameRetainedArtwork(current, drawing),
-        drawing.executionReference(for: intent.context.program) == reference else {
+        let current = authoredDrawing(for: intent.context.program), current.reference == ref,
+        current.executionReference(for: intent.context.program) == candidate else {
         throw DrawingRunEvidenceError.invalidAttemptContext
       }
-    }
-    if let failure = await portraitStudio.sketches.saveDrawing(drawing) {
-      throw PlotterModelError.invalidValue(failure)
     }
     try assertCurrent()
-    if drawing.transferredPackage != nil {
-      try await portraitStudio.sketches.validateDurableDrawing(drawing)
-      try assertCurrent()
-    }
-    if let candidate = drawing.portraitCandidate {
-      let selection = portraitStudio.sketches.selectedID
-      let failure = portraitStudio.sketches.retain(candidate: candidate,
-        reason: .physicalAttempt(attemptID: intent.runID.rawValue))
-      portraitStudio.sketches.selectedID = selection
-      if let failure { throw PlotterModelError.invalidValue(failure) }
-      await portraitStudio.sketches.awaitPersistence()
-      try assertCurrent()
-      guard case .saved = portraitStudio.sketches.persistenceState else {
-        throw PlotterModelError.invalidValue("The attempted drawing could not be durably retained.")
-      }
-      guard case .loaded(let stagedArchive) = await drawingEvidencePort.loadForPortraitBinding(intent) else {
-        throw DrawingRunEvidenceError.invalidAttemptContext
-      }
-      try assertCurrent()
-      try await portraitStudio.sketches.bindPortraitAttempt(intent, candidate: candidate,
-        evidence: stagedArchive, sourceURL: drawingEvidencePort.archiveURL)
-      try assertCurrent()
-    }
+    try await portraitStudio.sketches.bindDrawingAttempt(intent, drawing: drawing, archive: archive, archiveURL: drawingEvidencePort.archiveURL)
     try assertCurrent()
   }
 

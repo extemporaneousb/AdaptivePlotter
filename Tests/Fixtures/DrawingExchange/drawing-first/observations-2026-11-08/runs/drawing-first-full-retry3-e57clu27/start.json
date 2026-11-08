@@ -1,0 +1,23 @@
+{
+  "argv": [
+    "swift",
+    "build",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T07:44:37.873147+00:00",
+  "cache": "cached all-products retry, two reviewed App line fixes",
+  "predecessor": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-full-retry-htfj9q4q/process.json",
+  "reviewed_source_delta": {
+    "Sources/PlotterApp/OperatorWorkspace.swift": {
+      "before": "14f3b0d34158248bdec2dfeec390e7317fc1ff196eda4432145af3ff4d91f83a",
+      "after": "cd4c9a952f7e026874fd39fcc103ee0760fdd142284a90f51b60e0f3e8dd7dbe"
+    },
+    "Sources/PlotterApp/DrawingStudioPhysicalGallery.swift": {
+      "before": "f0dae1e35605020e2c80bbfc264a8a6697d7e47b5b77927dccf047f9f31908ac",
+      "after": "807f5d782e261d97bf96432e4cfa6678939a3a17ff948b58403e15a56317e6ee"
+    }
+  },
+  "writer_state": "root-confirmed-all-writers-frozen"
+}

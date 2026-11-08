@@ -1,0 +1,11 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[1/4] Write swift-version--1AB21518FC5DEDBE.txt
+[3/6] Emitting module DrawingLibrary
+[4/6] Compiling DrawingLibrary DrawingLibraryAuthoring.swift
+[4/7] Write Objects.LinkFileList
+[5/7] Linking DrawingLibraryPublicClient
+[6/7] Applying DrawingLibraryPublicClient
+Build of product 'DrawingLibraryPublicClient' complete! (1.95s)
+Swift/ErrorType.swift:254: Fatal error: Error raised at top level: PortraitCore.ExchangeCarrierFailure(stagingURL: file:///var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-records-48d4bc04-0493-445e-8a12-f11dc67ebb32/exchange-incoming-b5da0557-b610-404b-83e5-f09d39e19fa4/, underlying: PortraitCore.DrawingExchangeError.malformed("Exact manifest closure"))

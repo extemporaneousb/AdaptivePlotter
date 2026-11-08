@@ -1,0 +1,24 @@
+[0/1] Planning build
+Building for debugging...
+[0/11] Write sources
+[4/11] Write swift-version--1AB21518FC5DEDBE.txt
+[6/13] Compiling PortraitStudioUI PortraitStudioModel.swift
+[7/13] Emitting module PortraitStudioUI
+[7/15] Write Objects.LinkFileList
+[8/20] Linking PortraitStudio
+[9/20] Applying PortraitStudio
+[11/22] Emitting module PortraitStudioTests
+[12/22] Compiling PortraitStudioTests DrawingProjectionRaceTests.swift
+[13/22] Compiling PlotterApp PortraitDrawingActions.swift
+[14/22] Emitting module PlotterApp
+[15/22] Compiling PlotterApp DrawingTransferView.swift
+[16/22] Compiling PlotterApp DrawingStudioPhysicalEvidence.swift
+[17/22] Compiling PlotterApp OperatorWorkspace.swift
+[17/22] Write Objects.LinkFileList
+[18/22] Linking AdaptivePlotter
+[19/22] Applying AdaptivePlotter
+[21/24] Compiling PlotterAppTests DrawingCapabilityAdmissionTests.swift
+[22/24] Emitting module PlotterAppTests
+[22/24] Write Objects.LinkFileList
+[23/24] Linking AdaptivePlotterPackageTests
+Build complete! (76.18s)

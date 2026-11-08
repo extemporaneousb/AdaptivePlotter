@@ -1,0 +1,39 @@
+{
+  "after_sha256": "a88b3d9a4af4804cafe18534552c1bce5e019b4d4fab1b9b5898624eb3f89598",
+  "argv": [
+    "swift",
+    "test",
+    "--skip-build",
+    "--no-parallel",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--xunit-output",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-focused-retry-slaexjxt/test/results.xml",
+    "--filter",
+    "DrawingLibrary|LibraryExchange|FlowPortfolio|FlowAuthoringCache|FlowPhotoCollection|FlowDojoCamera|DrawingProjectionRace|DrawingStudioPhysicalAssociation|PortraitCaptureTests|PortraitHandoffTests|PortraitMaterialIntegrationTests|DrawingTransferAdmission|DrawingDependencyContract"
+  ],
+  "before_sha256": "a88b3d9a4af4804cafe18534552c1bce5e019b4d4fab1b9b5898624eb3f89598",
+  "changed_inputs": [],
+  "elapsed_seconds": 165.78307038499042,
+  "exit_code": 0,
+  "input_count": 769,
+  "log_sha256": "d48dc30f9e5f63005b964146d0c4760460931fc0f4377f44bc5a4de5c4ba763c",
+  "owned_temp_cleanup": [
+    {
+      "existed_after_process": true,
+      "path": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-test-process-1F220533-B90E-4E98-A05E-8F8FA69E56A7",
+      "removed": true,
+      "safe_owned_prefix_and_temp_parent": true
+    }
+  ],
+  "start_utc": "2026-11-08T08:44:01.636016+00:00",
+  "stop_utc": "2026-11-08T08:46:47.316277+00:00",
+  "xml_counts": {
+    "errors": 0,
+    "executed_passes": 89,
+    "failures": 0,
+    "skips": 1,
+    "testcase_elements": 90,
+    "xml_sha256": "07447364bfd4acabcb1fe6e0f3e307376da8b06de22ea1f25764d458680fb96d"
+  }
+}

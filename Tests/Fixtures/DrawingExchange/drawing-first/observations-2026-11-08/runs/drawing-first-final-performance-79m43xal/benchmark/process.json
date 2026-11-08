@@ -1,0 +1,30 @@
+{
+  "argv": [
+    "swift",
+    "test",
+    "--skip-build",
+    "--no-parallel",
+    "--scratch-path",
+    "/private/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--xunit-output",
+    "/private/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-final-performance-79m43xal/benchmark/results.xml",
+    "--filter",
+    "DrawingLibraryMetadataPerformanceTests"
+  ],
+  "changed_inputs": [],
+  "elapsed_seconds": 7.604825319722295,
+  "exit_code": 0,
+  "input_count": 773,
+  "log_sha256": "db02f300dae6546b5ec55a17dd0410a4303fd122413d211972623fb7484ff5be",
+  "measurement_report_written": true,
+  "report_sha256": "43b5a438f8a7093c8a562caa75794d4b91c00b7a626f416fd25b5b4e1d18bc4a",
+  "start_utc": "2026-11-08T09:29:35.311242+00:00",
+  "stop_utc": "2026-11-08T09:29:42.916592+00:00",
+  "xml_counts": {
+    "errors": 0,
+    "failures": 0,
+    "skips": 0,
+    "testcase_elements": 1
+  },
+  "xml_sha256": "d7e30cd882ef5fb36c398714512acfef3f4ff78619f91950e7ca2be85907e86d"
+}

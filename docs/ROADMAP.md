@@ -11,16 +11,25 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-Status: DX-01 through DX-03 are adopted; the dated
-[DX-03 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-03-closed-carrier-receipt-2026-11-07)
-records canonical adoption and its configured gate. DX-04's implemented storage
-foundation and measured software evidence are retained in its
-[dated receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07);
-its two configured gates failed; subsequent reader and composition-owner
-corrections, focused checks and source-specific measurements are recorded there.
-The third configured gate and adoption remain pending. DX-05 still requires
-adopted DX-03 and completed DX-04. This status does not select work; no unfinished
-ticket below is implementation or acceptance evidence.
+Pre-gate snapshot, **2026-11-08**: DX-01 through DX-04 were adopted. DX-04 landed at
+`707212cb5f193f6fd7fa1faba4eab1de74a3a33a`; its
+[dated receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07)
+records the configured gate. The initial compatibility-oriented DX-05 task was
+canceled as superseded, not passed. At this snapshot the replacement Drawing-first
+task had scoped software probes and current metadata measurements recorded in the
+[Drawing-first receipt](CURRENT_EVIDENCE.md#drawing-first-software-probe-receipt-2026-11-08).
+The public client and affected software tests had passed. Authoritative later
+configured validation, acceptance and landing state belongs to Blackdog task
+`task-89f7fee3b6c847e9ae9acebb9b901347`; this dated checklist does not assert it.
+
+The 2026-11-07 operator direction supersedes legacy compatibility requirements
+below wherever they conflict with this cutover: thread Drawing and the new format
+through the software, remove live v1–4 authoring readers/writers/fallbacks, and
+leave historical files untouched for a later importer. No converter, migration
+rehearsal or production-data operation belongs to this task. Existing renderer,
+editing, learning and physical handoff behavior remains required; no new mandatory
+UI input or setup obligation is allowed.
+
 The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
 section below describes the shipped baseline and outstanding model evaluation;
 it does not authorize a competing portfolio, retention or storage authority.
@@ -92,29 +101,41 @@ DX-01's baseline, adopted DX-02/DX-03 contracts and DX-04's implemented
 single-writer storage scope are retained in their dated
 [Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07).
 Those receipts retain accepted scope/gate/recovery constraints and distinguish
-source observations from authoritative validation/adoption. The contracts below
-remain unfinished; the existing dependency DAG is unchanged.
+source observations from authoritative validation/adoption. The entries below
+record the **2026-11-08 pre-gate** checklist; the Drawing-first task above owns its
+later completion state. The existing dependency DAG is unchanged.
 
-**DX-05 — Introduce common Library API and retire shadow identity paths.** Allowed:
-`Sources/PortraitLibrary/{SavedDrawing,PortraitLibraryQueries,PortraitSketchCollection,PortraitCandidateStore,DrawingTransfer}.swift`,
-associated browse/lineage/store tests, `Package.swift`, and all of
-`Sources/PortraitLibrary/` specifically for moving producer/runtime imports
-and legacy adapter responsibilities out of the common catalog. This permits
-mechanical moves and caller updates for old reconciliation, review, training
-and checkpoint paths without preempting their later behavior cutovers. Include producer validators in
-`Sources/PortraitArtists/` and integration adapters in the two executable
-compositions and Studio UI. Move runtime evidence reconciliation and producer-specific
-decode/validation out of the core catalog. Prove the common value and catalog can
-build without depending on PortraitArtists or PlotterRuntime (inspect the real
-package graph and imports; compile a client using a source-free drawing). Route
-source-free, portrait and imported revisions through one exact-reference API;
-retain frozen producer records and parent/input closure. Replace ambiguous
-`loadDrawing(String)` and candidate-only caches at reachable callers; legacy
-aliases require proven occurrence identity. Make generic drawings visible without
-inventing photos. Gate: same candidate ID in two photos/issuers, identical geometry
-in separate selections, renamed title, forked archive and stale cache tests.
-Delete superseded live query/write paths in the same cutover; retain needed v1
-read adapters. Recovery: copied-library rollback preserves original bytes/aliases.
+**DX-05 — Drawing-first model, active format and interface cutover.** At the
+**2026-11-08 pre-gate snapshot**, implemented software paths had scoped probe
+receipts. Consult Blackdog task `task-89f7fee3b6c847e9ae9acebb9b901347` for later
+configured validation, acceptance and landing. Historical import is deferred and
+nonblocking. Introduce a concrete public `DrawingLibrary` target depending only
+on Core, Model and SQLite. Carry `PortraitCore.Drawing` and exact `DrawingRef`
+identity through native/source-free authoring, selection, immutable edits,
+retention, browsing, metadata and the existing plot handoff. Retire shadow
+candidate/String identity and old authoring persistence interfaces, including
+live Flow persistence. Keep one writer/lease and immutable publication/admission
+context; unknown required features cannot regain capabilities through a cache.
+No generic adapter-state facade or runtime legacy source ports remain.
+
+Allowed implementation: new `Sources/DrawingLibrary/`, producer adapters in
+Artists, Library/Studio/UI/executable callers, narrowly scoped Core drawing,
+codec, verified-files and closure admission, schema descriptions, package,
+associated tests/tools and canonical documentation. Episode/runtime authority,
+Stop and physical evidence are outside this cutover. Historical authoring files
+stay untouched and unloaded; no importer is implemented now.
+
+Gate: real public dependency-isolated source-free client; exact identity,
+parent/input closure, duplicate/equal-geometry selections, Rank failure/retention,
+chrono keyset pages at scale, no artwork reads for metadata, unknown width without
+new UI input, index and per-Drawing required-feature refusal before preview,
+handoff and Run (while preserving export), tamper/cache refusal, crash retry/request binding,
+single-owner interleaving/drain-close, current-format offline copy and actual
+consumer builds. Delete superseded live interfaces in the same cutover. Compare
+performance on equivalent fresh current-format workloads, preserving frozen
+baselines and receipts. Full configured validation, independent review and
+canonical adoption remain required. Recovery leaves historical files untouched
+and preserves copied current-format immutable bytes.
 
 **DX-06 — Atomic import/export/mount API.** Allowed:
 `Sources/PortraitLibrary/DrawingTransfer.swift`, new exchange library adapter files,

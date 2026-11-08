@@ -2171,7 +2171,6 @@ final class PlotterApplicationRuntime:
     self.machineSession = machineSession
     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
     self.portraitStudio = resolvedPortraitStudio
-    resolvedPortraitStudio.sketches.requireEvidenceSynchronization()
     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
     if let observationSession {
       observationRuntime = PlotterObservationConfigurationRuntime(
@@ -2931,6 +2930,28 @@ final class PlotterApplicationRuntime:
     switch result.disposition {
     case .applied:
       drawingEvidenceError = nil
+      if case .selectCatalogItem = submission.intent,
+        let program = result.snapshot.authoredProgram {
+        let revision = result.snapshot.projection.draftRevision
+        let selectionEpoch = portraitStudio.selectionEpoch
+        let priorProjection = portraitStudio.projectedDrawing?.reference
+        do {
+          let retained = try await portraitStudio.sketches.retain(sourceFreeDrawing(program), reason: "choose")
+          guard applicationAdmissionIsOpen,
+            drawingDraftSnapshot.projection.draftRevision == revision,
+            drawingDraftSnapshot.authoredProgram == program,
+            portraitStudio.selectionEpoch == selectionEpoch else { return }
+          try await portraitStudio.projectDrawing(retained, isStillCurrent: {
+            applicationAdmissionIsOpen && !Task.isCancelled
+              && drawingDraftSnapshot.projection.draftRevision == revision
+              && drawingDraftSnapshot.authoredProgram == program
+              && portraitStudio.projectedDrawing?.reference == priorProjection
+          })
+        } catch {
+          drawingEvidenceError = error.localizedDescription
+          return
+        }
+      }
       if submission.intent == .showTarget {
         let reviewResult = borderValidationRuntime.apply(.setComparisonReviewPinned(false))
         if case .refused(let reason, let remedy) = reviewResult.disposition {
@@ -3361,12 +3382,47 @@ final class PlotterApplicationRuntime:
   func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async -> PlotterDrawingRunSubmissionResult? {
     guard applicationAdmissionIsOpen else { return nil }
     let startsRun = submission.intent == .start
+    // Match the authored value before considering a source-free fallback. The
+    // execution program can also contain placement or border composition.
+    if startsRun, let projected = portraitStudio.projectedDrawing,
+      projected.program == drawingDraftSnapshot.authoredProgram,
+      !projected.capabilities.supported.contains(.plot) {
+      drawingEvidenceError = "This drawing is not admitted for plotting."
+      return nil
+    }
     if startsRun {
       guard drawingFrameEditSession == nil, tipCalibrationRuntime.workingRegionEdit == nil,
         !drawingRunStartSubmissionIsPending else { return nil }
       drawingRunStartSubmissionIsPending = true
     }
     defer { if startsRun { drawingRunStartSubmissionIsPending = false } }
+    if startsRun, let execution = drawingDraftSnapshot.program,
+      authoredDrawing(for: execution) == nil {
+      let captured = drawingDraftSnapshot
+      let selectionEpoch = portraitStudio.selectionEpoch
+      let priorProjection = portraitStudio.projectedDrawing?.reference
+      guard let program = captured.authoredProgram else { return nil }
+      do {
+        let retained = try await portraitStudio.sketches.retain(sourceFreeDrawing(program), reason: "plot")
+        guard applicationAdmissionIsOpen, !Task.isCancelled,
+          drawingDraftSnapshot.projection.draftRevision == captured.projection.draftRevision,
+          drawingDraftSnapshot.authoredProgram == program,
+          drawingDraftSnapshot.program == execution,
+          drawingDraftSnapshot.plan == captured.plan,
+          portraitStudio.selectionEpoch == selectionEpoch else { return nil }
+        try await portraitStudio.projectDrawing(retained, isStillCurrent: {
+          applicationAdmissionIsOpen && !Task.isCancelled
+            && drawingDraftSnapshot.projection.draftRevision == captured.projection.draftRevision
+            && drawingDraftSnapshot.authoredProgram == program
+            && drawingDraftSnapshot.program == execution && drawingDraftSnapshot.plan == captured.plan
+            && portraitStudio.projectedDrawing?.reference == priorProjection
+        })
+      } catch {
+        drawingEvidenceError = error.localizedDescription
+        return nil
+      }
+    }
+    // Submit the original request once. Retention never refreshes a stale capability.
     let result = await drawingRunRuntime.submit(submission)
     guard applicationAdmissionIsOpen else { return result }
     installDrawingRunSnapshot(result.snapshot)
@@ -11184,6 +11240,8 @@ final class PlotterApplicationRuntime:
   func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
     guard applicationAdmissionIsOpen, startupState == .notStarted else { return }
     startupState = .starting
+    do { try await portraitStudio.library.open() }
+    catch { drawingEvidenceError = "Drawing Library unavailable: " + error.localizedDescription }
     await loadDrawingEvidenceArchive()
     guard applicationAdmissionIsOpen, !Task.isCancelled else {
       startupState = .cancelled
@@ -11216,7 +11274,6 @@ final class PlotterApplicationRuntime:
   }
 
   func loadDrawingEvidenceArchive() async {
-    await drawingEvidencePort.installPortraitLibrary(portraitStudio.sketches)
     let loadResult = await drawingEvidencePort.load()
     guard applicationAdmissionIsOpen, !Task.isCancelled else { return }
     let restored = await drawingRunRuntime.restoreNoRedrawTruth(

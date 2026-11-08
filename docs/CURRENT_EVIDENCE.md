@@ -8,6 +8,152 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing-first cutover scope correction, 2026-11-07
+
+The compatibility-oriented DX-05 task
+`task-3faf841631564a1390b67aed65056d0e` was canceled as superseded. Its unfinished
+final tree did not run configured validation and was not landed. Earlier narrow
+builds and its public-client pass apply only to their pinned earlier trees.
+All 87 changed files and raw receipts were preserved outside the repository;
+historical production files were untouched.
+
+Replacement task `task-89f7fee3b6c847e9ae9acebb9b901347` starts from adopted DX-04.
+Its immutable nine-criterion definition is
+`25095331357c9051e35bed33241e22aabf3cd4c00fc9a43f2dc5a62d637b2259`.
+The operator explicitly prioritized Drawing and one active format throughout the
+software, with historical import deferred. This is an implementation scope
+record, not evidence of completed behavior, executed tests or acceptance.
+The frozen DX01 `DrawingExchangeBaselineTests.swift` and
+`DrawingExchangeFlowBaselineTests.swift` are retained byte-identically but excluded
+from active SwiftPM test membership because their retired authoring ABI is no
+longer a runtime contract. Their original driver, golden inputs and measured
+receipts remain unchanged. Raw runtime and renderer/model obligations remain
+active; this exclusion supplies no new performance evidence.
+
+### Drawing-first test cutover scope, 2026-11-08
+
+The following test ports replace retired interfaces; their scoped execution is
+recorded below. This table does not claim configured validation or acceptance. Frozen DX01 driver sources and the two DX04 old-authoring benchmark
+probes remain byte-identical and inert outside active test membership. Their
+measurements do not validate the new runtime.
+
+| Retired obligation or interface | Current coverage boundary |
+| --- | --- |
+| Classic candidate archives, v1 transfer, review routers, named-style storage and historical import | Retired with their live interfaces. Fresh Common value/domain/closure/cache tests cover current storage and exact identity; no historical import claim. |
+| Old relational owner and publication wrappers | Neutral transaction/VFS tests plus catalog, real child-process publication/restore and metadata-backup tests retain the safety obligations. Legacy projection/quarantine import is deferred with historical import. |
+| Mutable classic editor, recent-history and automatic exploration UI | Current Dojo/Flow source, selection, prune, Rank and fit tests; pure renderer, grouping, receipt and semantic-geometry tests remain active. Retired wrapper-specific framing is not claimed equivalent. |
+| Candidate/String physical handoff | Current Drawing exact-ref association, repeated handoff, Stop, paper/pose and raw runtime tests use fake effects and temporary owners. These are software assertions, not physical trials. |
+| Classic hosted review/editor layouts and capture caches | Actual current Dojo and Drawing reviewer layouts, separate Drawing panel route checks, delayed-selection arbitration and held-encoder illumination/cancellation tests. |
+
+Application test constructors inject disposable Common owners before startup can
+open a catalog. The App helper reports its process-owned temporary root for
+cleanup after the test process settles; no HOME redirection or product-only test
+branch is used. Optional data-writing pilot/diagnostic environment flags must be
+cleared for the configured gate.
+
+## Drawing-first software probe receipt, 2026-11-08
+
+Pre-gate snapshot recorded **2026-11-08**: implementation and scoped probes were
+recorded before final configured validation, formal acceptance and canonical
+landing. The authoritative later validation/assessment/landing state belongs to
+Blackdog task `task-89f7fee3b6c847e9ae9acebb9b901347`; this dated receipt does not
+assert that later state. Historical import is **deferred and nonblocking**. The old compatibility task remains canceled,
+not passed. [Retained bundle](../Tests/Fixtures/DrawingExchange/drawing-first/observations-2026-11-08/README.md),
+[immutable manifest](../Tests/Fixtures/DrawingExchange/drawing-first/observations-2026-11-08/manifest.json)
+SHA-256 `7448fd104a629615eba7cc10b40123aa4abf932ff000e87f21976af91eed6ea9`.
+
+The concrete public DrawingLibrary owns the current `drawing-library.sqlite`,
+CAS, lease and publication/domain transactions. Core Drawing values and full
+DrawingRefs now pass through current native and source-free authoring, immutable
+edits, choice/Rank, browsing and the existing handoff. Actual standalone and
+embedded compositions share one owner within each process and use distinct new
+app-local roots. The standalone optional path flag is `--library`. Live classic
+candidate archives, String/store identities, head/delta persistence and old v1–4
+authoring readers/writers/fallbacks were removed; historical files are untouched.
+[Source/caller retirement map](../Tests/Fixtures/DrawingExchange/drawing-first/observations-2026-11-08/retirement-map.json).
+
+| Probe | Actual result and limit |
+| --- | --- |
+| Common build and both executable products | Fresh common build exit 0, 76.598 s; all-products third attempt exit 0, 97.461 s. Compilation/link only; no app launch. |
+| Focused storage/current authoring retry | XML 90 cases: 89 executed passes, 1 helper skip, no failures/errors; 165.783 s. Includes 72 controlled publication-kill children, 4 restore and 3 fresh-root restore cases. |
+| Studio/offscreen-layout/pure-ML run | XML 81 cases: 68 passes, 4 declared skips, 9 failed cases; 519.384 s. Remains a failed run. Successful long native-render and numeric-ML observations apply to that pinned tree. |
+| Affected Studio retry | XML 38 cases: all passed, no skips/errors; 140.962 s. Covers the nine failed cases and new invalid-source/repeated-bound-reference regressions. Initial six-card rank visibility remains checked; the auto-advanced pair requires two visible Unranked controls. |
+| Current metadata scale | One opt-in test passed in 7.605 s. 100 versus 10,000 named synthetic metadata rows, one actual retained drawing each, 30 warm samples per operation, artwork unavailable throughout. |
+| Final external public client | Exit 0, 9.885 s; actual public API assertions. DFS closure exactly client/Common/Core/Model/CSQLite; emitted modules contain no Artists/Runtime. 773 inputs unchanged. |
+
+These are separate overlapping runs, not an added test total or full current-tree
+suite pass. Raw failures, XML, commands, source pins and resolutions remain in the
+bundle. The most recent all-test build passed in 29.791 s; build success is not a
+unit-test execution count. Application test storage uses explicit temporary owners;
+only the emitted process-owned temporary root is cleaned after exit.
+
+At 10,000 metadata rows, p95 was 3.548 ms first page, 6.255 ms deep page,
+3.697 ms rename and 4.106 ms title clearing (page size 30). At 100 rows it was
+3.573/3.645/2.830/2.853 ms respectively. The deep cursor was obtained by real keyset
+walk outside timing; rename followed page measurements. Raw nearest-rank samples
+and host/toolchain/debug binary context are retained. Lifetime peak RSS was
+57,438,208 bytes at 10,000 rows, including startup, setup and the preceding scale;
+this is not operation-local memory. Metadata succeeded with artwork absent while
+selected artwork loading refused. No instrumented zero-open/hash/decode count,
+10,000 retained-program, old-baseline comparison or Dojo CPU claim is made.
+
+The five excluded old-ABI benchmark sources remain exact adopted-base bytes;
+[hashes and membership](../Tests/Fixtures/DrawingExchange/drawing-first/observations-2026-11-08/frozen-benchmark-exclusions.json)
+cover both DX01 sources, two DX04 probes and the DX01 counter control. Original
+golden data, scripts and earlier evidence bundles were not regenerated.
+
+Capability limit: app registries do not semantically revalidate arbitrary
+persisted Flow receipts. Original producer/program bytes are preserved; supported
+known-program preview/plot/edit remain available, while generic regeneration and
+training are not advertised from an unverified producer receipt. Current Dojo
+training and material adaptation use exact domain capsules/references. This does
+not close a future generic producer-proof gate. Unknown nominal width needs no
+new user input; abstract preview style is not a physical width declaration.
+No historical import, signed/native app trial, actual camera session, physical
+motion, production-library mutation, model promotion or remote Git action is
+claimed. Existing raw runtime/evidence/Stop authority remains unchanged.
+
+### Per-Drawing capability closure supplement, 2026-11-08
+
+A subsequent source review confirmed that unknown per-Drawing required features
+can leave a known stroke value materialized with all operations denied. Identity
+alone did not enforce that refusal at App boundaries; a non-portrait Run fallback
+could mint a new source-free value from its program. This is separate from unknown
+index-context opacity. App/Model handoff now requires `.plot` on the exact retained
+value before effects or selection publication. Execution-reference adaptation
+refuses denial; Run checks the known projected **authored** program before fallback,
+including when border/placement alters the execution program. Transfer renders
+only admitted `.preview`, disables Send without `.plot` and keeps byte-preserving
+Export. Raw runtime/episode authority is unchanged.
+
+The [separate sealed supplement](../Tests/Fixtures/DrawingExchange/drawing-first/capability-closure-2026-11-08/README.md)
+manifest SHA is
+`2851716a326e01ef45e1873ffc8684d133149435a13f53967f5b67426067be04`.
+The original `7448fd…` bundle remains unchanged. Cached all-test compilation passed
+in 77.632 s; capability units passed **11 XML cases, zero skips/failures/errors**
+in 101.753 s. Logs include both border argument values. Actual current carriers
+with empty index features and unknown Drawing features preserve record/program
+bytes through import/export while refusing preview/handoff. A denied projection
+cannot mint a fallback ref, allocate run evidence/binding or request plan/pen/stroke
+effects. The exact Model handoff callback stays uncalled; previous selection and
+draft remain unchanged. Valid native material adaptation passed in 87.759 s.
+The Transfer-view conditional was inspected/compiled; no native interaction claim
+is made for that view.
+
+Final normal all-products build passed in 2.230 s, with both current app products
+recorded: PortraitStudio SHA
+`0bf8c495772fe827993f8207a1d19a8fa2f780d6db31c84510878c1fd2f2b278`,
+AdaptivePlotter SHA
+`30448a40a55652918c9ea5b027b655295abfcce00d66fe22489a4a683f0c7956`.
+All three operations had 875 unchanged input pins. Only five App/shared-UI
+production files changed after the earlier bundle; Core/Common/Model modules
+reachable by the metadata benchmark and external client were unchanged, so those
+scope-specific observations were not repeated. Root's independent re-review
+reported the bypass closed statically. This **2026-11-08 pre-gate snapshot**
+predates final configured validation, formal acceptance and canonical adoption;
+consult authoritative Blackdog task `task-89f7fee3b6c847e9ae9acebb9b901347`
+for their later state. No actual app/hardware trial is claimed by these probes.
+
 ## Drawing Exchange DX-04 single-writer catalog receipt, 2026-11-07
 
 The Library now owns one lifetime writer lease for its selected
@@ -16,7 +162,15 @@ journals and explicitly selected metadata backup generations. This is an interna
 storage foundation: DX-05's common Library/identity/dependency cutover, DX-06's
 public mount/export transaction and DX-07's retention policy remain future work.
 
-Status: **implemented and measured software; configured gate/adoption pending**.
+Status: **adopted** at `707212cb5f193f6fd7fa1faba4eab1de74a3a33a`, tree
+`ce5e7d5d8944526f0fea21ff9c20117be4e8f7de`. The third configured gate,
+`dx04-owning-composition-closure-20261107`, completed all three commands with exit
+0, event `2f2b885a75b4e31bed61dc49728d8ede9db77bb0811d1c12ebb95d363c5e6948`:
+docs 45.070 s, quick-test 1056.923 s, diff 0.022 s. Retained XML contains 2046
+executed passes and 48 skips, with no failures or errors (2094 testcase elements;
+XML SHA `d66c45d71c0de5215bc4f7991fc9ee4a7075907e839e5a91740bf46555688268`).
+Post-land all five assessments were current/met; task and cleanup completed.
+The failed gates and source-specific observations below remain historical.
 Task `task-4d7d637760c2485f9081fb3b258d5674`, attempt
 `attempt-f6a54b542df74d8b87867c4a64faba12`, targets `main` from adopted DX-03
 `56180604569843fbc16ff450ef66142b15a5ebb0`. Immutable definition:

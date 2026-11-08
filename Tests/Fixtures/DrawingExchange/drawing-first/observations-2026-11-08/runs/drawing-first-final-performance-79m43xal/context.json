@@ -1,0 +1,19 @@
+{
+  "recorded_utc": "2026-11-08T09:29:34.323877+00:00",
+  "host_uname": [
+    "Darwin",
+    "MacBookPro.localdomain",
+    "24.6.0",
+    "Darwin Kernel Version 24.6.0: Sun Aug 23 20:30:56 PDT 2026; root:xnu-11417.140.69.712.69~1/RELEASE_X86_64",
+    "x86_64",
+    "i386"
+  ],
+  "sw_vers": "ProductName:\t\tmacOS\nProductVersion:\t\t15.8.1\nBuildVersion:\t\t24H32\n",
+  "swift_version": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)\nTarget: x86_64-apple-macosx15.0\n",
+  "configuration": "debug; existing normal SwiftPM build-tests binary; skip-build benchmark",
+  "test_binary": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch/x86_64-apple-macosx/debug/AdaptivePlotterPackageTests.xctest/Contents/MacOS/AdaptivePlotterPackageTests",
+  "test_binary_bytes": 220406408,
+  "test_binary_sha256": "a4b56d7278d79e0f48a6e73d6fe9dacc22f4d132c974779cb6213bf19e793f80",
+  "build_description_sha256": "91c708e902153277c0251ac82aa8cc12b31b3ab76bb3880110521bfe6e890b35",
+  "writer_state": "root-confirmed-all-writers-frozen"
+}

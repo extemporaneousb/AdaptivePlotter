@@ -1,0 +1,46 @@
+[0/1] Planning build
+Building for debugging...
+[0/1] Write sources
+[3/4] Write swift-version--1AB21518FC5DEDBE.txt
+[5/21] Compiling PortraitCore DrawingExchangeTime.swift
+[6/21] Compiling PortraitCore DrawingImageRecords.swift
+[7/21] Compiling PortraitCore DrawingExchangeVerifiedFiles.swift
+[8/21] Compiling PortraitCore DrawingExchangeZIP.swift
+[9/21] Compiling PortraitCore DrawingExchangeReferences.swift
+[10/22] Compiling PortraitCore SwiftSketchProtocol.swift
+[11/22] Compiling PortraitCore DrawingExchangeJSON.swift
+[12/22] Compiling PortraitCore DrawingExchangeImageProof.swift
+[13/22] Compiling PortraitCore DrawingExchangeImages.swift
+[14/22] Compiling PortraitCore DrawingExchangeCarrier.swift
+[15/22] Compiling PortraitCore DrawingExchangeEnvelope.swift
+[16/22] Compiling PortraitCore DrawingExchangeAssets.swift
+[17/22] Compiling PortraitCore CatalogDrawingProducer.swift
+[18/22] Compiling PortraitCore Drawing.swift
+[19/22] Compiling PortraitCore DrawingArtifactCoding.swift
+[20/22] Compiling PortraitCore DrawingExchangeCodec.swift
+[21/22] Compiling PortraitCore DrawingExchangeClosure.swift
+[22/22] Emitting module PortraitCore
+[23/37] Compiling DrawingLibrary DrawingLibraryWrites.swift
+[24/37] Compiling DrawingLibrary DrawingLibraryReads.swift
+[25/37] Compiling DrawingLibrary DrawingLibraryStorage.swift
+[26/37] Compiling DrawingLibrary DrawingLibraryWriterLease.swift
+[27/37] Compiling DrawingLibrary DrawingLibraryExchange.swift
+[28/37] Compiling DrawingLibrary DrawingLibraryMetadataBackup.swift
+[29/37] Compiling DrawingLibrary DrawingLibraryPublication.swift
+[30/37] Compiling DrawingLibrary DrawingLibraryRecords.swift
+[31/37] Compiling DrawingLibrary DrawingLibraryDatabase.swift
+[32/37] Compiling DrawingLibrary DrawingLibraryBatchPublication.swift
+[33/37] Compiling DrawingLibrary DrawingLibrary.swift
+[34/37] Compiling DrawingLibrary DrawingLibraryBackup.swift
+[35/37] Compiling DrawingLibrary DrawingLibraryAuthoring.swift
+[36/37] Emitting module DrawingLibrary
+[37/37] Compiling DrawingLibrary DrawingLibraryCatalog.swift
+[38/45] Compiling DrawingLibraryTests DrawingLibraryValueFlowTests.swift
+[39/45] Compiling DrawingLibraryTests DrawingLibraryUnknownWidthTests.swift
+[40/45] Compiling DrawingLibraryTests DrawingLibraryOwnershipTests.swift
+[41/45] Compiling DrawingLibraryTests DrawingLibrarySelectedClosureTests.swift
+[42/45] Compiling DrawingLibraryTests DrawingLibraryDomainCommitTests.swift
+[43/45] Emitting module DrawingLibraryTests
+[44/45] Compiling DrawingLibraryTests DrawingLibraryIndexContextCacheTests.swift
+[45/45] Compiling DrawingLibraryTests DrawingLibraryAtomicRetentionTests.swift
+Build of target: 'DrawingLibraryTests' complete! (7.86s)

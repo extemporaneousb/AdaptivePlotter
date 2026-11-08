@@ -28,6 +28,7 @@ package struct FlowPortfolioSource: Codable, Identifiable, Equatable, Sendable {
   package var excluded = false
   package var importProvenance: FlowPortfolioSourceImport? = nil
   package var captureProvenance: FlowPortfolioCaptureProvenance? = nil
+  package var photo: PhotoRef? = nil
   /// Exact source identity is the minimum grouping boundary. Declared identities
   /// are joined transitively by the training consumer, never inferred from pixels.
   package var groupKeys: [String] {
@@ -66,13 +67,13 @@ package struct FlowPortfolioCandidate: Codable, Identifiable, Equatable, Sendabl
   package let parentCandidateID: UUID?
   package let recipe: FlowArtistRecipe
   package let modelID: String?
-  package let program: FlowPortfolioBlob
   package let raster: FlowPortfolioBlob
   package let preview: FlowPortfolioBlob
   package let programHash: String
   package let strokeCount: Int
   package var excluded = false
   package var title: String? = nil
+  package var drawing: DrawingRef? = nil
 }
 package struct FlowPortfolioChoice: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
@@ -105,6 +106,7 @@ package struct FlowPortfolioPruneRevision: Codable, Identifiable, Equatable, Sen
   package let policy: String?
   package var undoOperationIDs: [UUID]
   package var redoOperationIDs: [UUID]
+  package var drawing: DrawingRef? = nil
 }
 
 package enum FlowRankingScope: Codable, Equatable, Sendable { case round(UUID), source(UUID), candidate(UUID), portfolio }
@@ -155,14 +157,6 @@ package struct FlowPortfolioFit: Codable, Identifiable, Equatable, Sendable {
   package var hasCheckpoint: Bool { checkpoint != nil }
   package let report: FlowPortfolioBlob
 }
-package struct FlowPortfolioLegacyImport: Codable, Identifiable, Equatable, Sendable {
-  package let id: UUID
-  package let createdAt: Date
-  package let sourceID: UUID
-  package let candidateID: UUID
-  package let finalRevisionID: UUID?
-  package let package: FlowPortfolioBlob
-}
 package struct FlowPortfolioActivation: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID
   package let createdAt: Date
@@ -186,7 +180,6 @@ package struct FlowPortfolioSnapshot: Codable, Equatable, Sendable {
   package var trainingSnapshots: [FlowPortfolioTrainingSnapshot]
   package var fits: [FlowPortfolioFit]
   package var activations: [FlowPortfolioActivation]
-  package var legacyImports: [FlowPortfolioLegacyImport]
   package var selectedSourceID: UUID?
   package var currentRoundID: UUID?
   package var currentCandidateID: UUID?
@@ -195,9 +188,9 @@ package struct FlowPortfolioSnapshot: Codable, Equatable, Sendable {
   package var currentPresentationID: UUID?
 
   package static func empty(purpose: FlowPortfolioPurpose = .artist) -> Self {
-    Self(schemaVersion: 1, purpose: purpose, id: UUID(), createdAt: Date(), revision: 0,
+    Self(schemaVersion: 2, purpose: purpose, id: UUID(), createdAt: Date(), revision: 0,
       sources: [], rounds: [], candidates: [], choices: [], pruneRevisions: [],
-      presentations: [], rankings: [], trainingSnapshots: [], fits: [], activations: [], legacyImports: [],
+      presentations: [], rankings: [], trainingSnapshots: [], fits: [], activations: [],
       selectedSourceID: nil, currentRoundID: nil, currentCandidateID: nil,
       currentPruneRevisionID: nil, activeFitID: nil, currentPresentationID: nil)
   }

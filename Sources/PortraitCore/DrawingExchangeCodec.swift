@@ -6,6 +6,7 @@ public struct DrawingProducerContext: Sendable {
   public let input: SourceLink<ImageInputRef>
   public let parent: SourceLink<DrawingRef>
   public let units: DrawingUnits
+  public let artifacts: DrawingProducerArtifactReads
 }
 public typealias DrawingProducerValidator = @Sendable (DrawingProducerReceipt, DrawingProducerContext) throws -> Void
 
@@ -15,14 +16,52 @@ public struct DrawingProducerKey: Hashable, Sendable {
   public let version: String
   public init(id: String, version: String) { self.id = id; self.version = version }
 }
+public struct DrawingProducerArtifactRequest: Sendable {
+  public let object: ExchangeDigest
+  public let maximumBytes: Int
+  public init(object: ExchangeDigest, maximumBytes: Int = ExchangeJSON.maximumRecordBytes) {
+    self.object = object; self.maximumBytes = maximumBytes
+  }
+}
+public struct DrawingProducerArtifactReads: Sendable {
+  private let values: [ExchangeDigest: Data]
+  public static let empty = DrawingProducerArtifactReads(uncheckedEmpty: ())
+  private init(uncheckedEmpty: Void) { values = [:] }
+  public init(_ values: [ExchangeDigest: Data]) throws {
+    guard values.count <= 10_000 else { throw DrawingExchangeError.limit("Producer artifact count") }
+    var count = 0
+    for (digest, data) in values {
+      guard data.count <= 256 * 1024 * 1024 - count else { throw DrawingExchangeError.limit("Producer artifact bytes") }
+      guard ExchangeDigest.hash(data) == digest else { throw DrawingExchangeError.digestMismatch("Producer artifact") }
+      count += data.count
+    }
+    self.values = values
+  }
+  public func record(_ digest: ExchangeDigest) throws -> Data {
+    guard let bytes = values[digest] else { throw DrawingExchangeError.missingAsset("Producer artifact " + digest.description) }
+    return bytes
+  }
+}
+public struct DrawingProducerRule: Sendable {
+  public let dependencies: @Sendable (DrawingProducerReceipt) throws -> [DrawingProducerArtifactRequest]
+  public let validator: DrawingProducerValidator
+  public init(dependencies: @escaping @Sendable (DrawingProducerReceipt) throws -> [DrawingProducerArtifactRequest],
+    validator: @escaping DrawingProducerValidator) {
+    self.dependencies = dependencies; self.validator = validator
+  }
+}
 public struct DrawingProducerValidators: Sendable {
   let validators: [DrawingProducerKey: DrawingProducerValidator]
-  public init(_ validators: [DrawingProducerKey: DrawingProducerValidator] = [:]) { self.validators = validators }
+  let rules: [DrawingProducerKey: DrawingProducerRule]
+  public init(_ validators: [DrawingProducerKey: DrawingProducerValidator] = [:]) { self.validators = validators; rules = [:] }
+  public init(rules: [DrawingProducerKey: DrawingProducerRule]) {
+    self.rules = rules; validators = rules.mapValues(\.validator)
+  }
 }
 public enum DrawingAdmission {
   public static func produced(program: DrawingProgram, input: SourceLink<ImageInputRef>, parent: SourceLink<DrawingRef>,
-    producer: DrawingProducerReceipt, units: DrawingUnits, validator: DrawingProducerValidator) throws -> Drawing {
-    try validator(producer, .init(program: program, input: input, parent: parent, units: units))
+    producer: DrawingProducerReceipt, units: DrawingUnits, artifacts: DrawingProducerArtifactReads = .empty, validator: DrawingProducerValidator) throws -> Drawing {
+    try validator(producer, .init(program: program, input: input, parent: parent, units: units, artifacts: artifacts))
     return try Drawing(program: program, input: input, parent: parent, producer: producer, units: units, reference: nil,
       capabilities: .init(supported: [.preview, .plot, .edit], unsupportedRequiredFeatures: [], producerVerified: true))
   }
@@ -126,8 +165,26 @@ public enum DrawingExchangeCodec {
       intendedPhysicalFieldMM: wire.representation.intendedPhysicalFieldMillimeters,
       historical: historical?.units, historicalReceipt: historical?.producerReceipt)
     if let validator {
+      var artifacts: [ExchangeDigest: Data] = [:]
+      if let rule = validators.rules[.init(id: receipt.id, version: receipt.version)] {
+        let requests = try rule.dependencies(receipt)
+        guard requests.count <= 10_000 else { throw DrawingExchangeError.limit("Producer artifact requests") }
+        for request in requests {
+          guard request.maximumBytes > 0, request.maximumBytes <= DrawingExchangeLimits.maximumProgramBytes,
+            let descriptor = assetDescriptors[request.object] else { throw DrawingExchangeError.missingAsset("Producer artifact descriptor " + request.object.description) }
+          try objects.validate(descriptor.asset)
+          if case .files(let files, _) = objects {
+            let path = "data/objects/sha256/" + request.object.description
+            guard files.entries[path]?.digest == request.object else { throw DrawingExchangeError.digestMismatch("Producer artifact canonical path") }
+            try files.verify(request.object)
+            _ = try files.validateAsset(descriptor)
+          }
+          if artifacts[request.object] == nil { artifacts[request.object] = try objects.bytes(request.object, maximum: request.maximumBytes) }
+        }
+      }
       if case .files(let files, _) = objects { files.counters.update { $0.producerValidatorEntries += 1 } }
-      try validator(receipt, .init(program: program, input: wire.input, parent: wire.parent, units: units))
+      try validator(receipt, .init(program: program, input: wire.input, parent: wire.parent, units: units,
+        artifacts: try DrawingProducerArtifactReads(artifacts)))
     }
     let unknown = wire.requiredFeatures.filter { !supportedFeatures.contains($0) }
     var sourceDependencies: [String] = []
@@ -193,9 +250,9 @@ public enum DrawingExchangeCodec {
   }
   public static func freeze(_ drawing: Drawing, identity: ExchangeIdentity, createdAt: Date,
     originalProgramJSON: Data? = nil) throws -> FrozenDrawingRecord {
-    guard let width = drawing.units.nominalPenWidthMM, width > 0,
-      createdAt.timeIntervalSinceReferenceDate.isFinite else { throw DrawingExchangeError.malformed("New exports require nominal pen width and finite date") }
-    let programBytes = try originalProgramJSON ?? DrawingPackageCodec.encoder().encode(drawing.program)
+    guard createdAt.timeIntervalSinceReferenceDate.isFinite else { throw DrawingExchangeError.malformed("New exports require a finite date") }
+    let width = drawing.units.nominalPenWidthMM
+    let programBytes = try originalProgramJSON ?? DrawingArtifactCoding.encoder().encode(drawing.program)
     _ = try ExchangeJSON.validate(programBytes, maximumBytes: DrawingExchangeLimits.maximumProgramBytes)
     guard (try JSONDecoder().decode(DrawingProgram.self, from: programBytes)) == drawing.program else { throw DrawingExchangeError.digestMismatch("Original program bytes") }
     let representation = Representation(kind: strokeProfile, object: .hash(programBytes), programHash: ExchangeDigest(drawing.programDigest),
@@ -207,14 +264,14 @@ public enum DrawingExchangeCodec {
       createdAt: timestamp, representation: representation,
       input: drawing.input, parent: drawing.parent,
       producer: .init(id: drawing.producer.id, version: drawing.producer.version, record: drawing.producer.record))
-    let bytes = try DrawingPackageCodec.encoder().encode(wire)
+    let bytes = try DrawingArtifactCoding.encoder().encode(wire)
     let ref = DrawingRef(issuer: identity.issuer, revision: identity.revision, digest: .hash(bytes))
     let bound = drawing.binding(reference: ref, capabilities: drawing.capabilities)
     return .init(originalJSON: bytes, originalProgramJSON: programBytes, drawing: bound)
   }
   public static func encode(_ record: FrozenDrawingRecord) -> Data { record.originalJSON }
   static func builtinValidator(_ id: String, version: String) -> DrawingProducerValidator? {
-    guard id == "adaptiveplotter.catalog", version == "1" else { return nil }
+    guard id == "adaptiveplotter.catalog", ["1","2"].contains(version) else { return nil }
     return { receipt, context in
       let program = context.program
       let json = try ExchangeJSON.validate(receipt.originalJSON)
@@ -224,7 +281,7 @@ public enum DrawingExchangeCodec {
           context.units.historicalReceipt == receipt.record else { throw DrawingExchangeError.invalidProducer("Unproven catalog units") }
       }
       guard let profile = json["profile"] as? String,
-        ["adaptiveplotter.catalog-receipt/1", "adaptiveplotter.example.catalog-receipt/1"].contains(profile) else {
+        (version == "2" ? ["adaptiveplotter.catalog-receipt/2"] : ["adaptiveplotter.catalog-receipt/1", "adaptiveplotter.example.catalog-receipt/1"]).contains(profile) else {
         throw DrawingExchangeError.invalidProducer("Catalog receipt profile")
       }
       let nominal: Double?
@@ -238,7 +295,7 @@ public enum DrawingExchangeCodec {
         physicalField = try DrawingImageAdmission.decode(raw, as: Size2<FieldSpace>.self)
       } else { physicalField = nil }
       guard context.units.intendedPhysicalFieldMM == physicalField else { throw DrawingExchangeError.invalidProducer("Catalog intended physical field") }
-      guard receipt.version == "1", let entryName = json["entry"] as? String,
+      guard receipt.version == version, let entryName = json["entry"] as? String,
         let entry = DrawingCatalogEntryID(rawValue: entryName),
         json["sourceIdentifier"] as? String == program.source.sourceIdentifier,
         let first = program.strokes.first else { throw DrawingExchangeError.invalidProducer("Catalog receipt") }

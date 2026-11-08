@@ -11,11 +11,11 @@ struct FlowDojoTrainingProgressTests {
   @Test("Unused generated rows disappear from fitting, while complete offered comparisons and exact masks remain")
   func supervisionProjection() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let store = try FlowPortfolioStore(directory: root, purpose: .validationFixture)
+    let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
     let source = try await store.addSource(data: FlowDojoFixture.image(1), title: "Fixture photo")
-    let candidates = try await round(store, source: source.id, count: 3)
     let unused = try await round(store, source: source.id, count: 1, raster: .init(width: 2, height: 2,
       luminance: [0.2, 0.4, 0.6, 0.8], provenance: "unused-test-only", analysisSummary: "No feedback"))
+    let candidates = try await round(store, source: source.id, count: 3)
     let empty = FlowDojoTrainingProgress(document: await store.snapshot())
     #expect(empty.exampleCount == 0 && !empty.canAttemptFit)
     #expect(try await FlowDojoTraining.dataset(store: store, document: store.snapshot()).examples.isEmpty)
@@ -32,7 +32,7 @@ struct FlowDojoTrainingProgressTests {
     #expect(progress.feedbackPhotoCount == 1 && progress.generatedDrawingCount == 4)
     #expect(progress.photo(source.id).candidateCount == 4)
     // No extraction should touch an unused generated raster, even if it is unreadable.
-    try Data("deliberately invalid unused fixture raster".utf8).write(to: root.appendingPathComponent("objects/" + unused[0].raster.sha256))
+    await #expect(throws: FlowPortfolioError.self) { try await store.candidateProgram(unused[0].id) }
     let dataset = try await FlowDojoTraining.dataset(store: store, document: document)
     #expect(!dataset.examples.contains { $0.id == unused[0].id.uuidString })
     #expect(dataset.examples.count == progress.exampleCount)
@@ -45,7 +45,7 @@ struct FlowDojoTrainingProgressTests {
   @Test("Undo, inherited masks, unfinished edits and withdrawn ranks never manufacture labels")
   func feedbackSemantics() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let store = try FlowPortfolioStore(directory: root, purpose: .validationFixture)
+    let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
     let source = try await store.addSource(data: FlowDojoFixture.image(1), title: "Fixture")
     let candidates = try await round(store, source: source.id, count: 2)
     _ = try await store.applyPrune(candidateID: candidates[0].id, action: .remove, indices: [0])
@@ -69,7 +69,7 @@ struct FlowDojoTrainingProgressTests {
   @Test("Excluded unlabelled source bridges still join related photo groups")
   func transitiveGroups() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let store = try FlowPortfolioStore(directory: root, purpose: .validationFixture)
+    let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
     let a = try await store.addSource(data: FlowDojoFixture.image(1), title: "A")
     let bridge = try await store.addSource(data: FlowDojoFixture.image(2), title: "Bridge")
     let b = try await store.addSource(data: FlowDojoFixture.image(3), title: "B")
@@ -91,7 +91,7 @@ struct FlowDojoTrainingProgressTests {
   @Test("Exact frozen comparisons track withdrawals and groups, ignore browsing, and never consume failed fits")
   func fitCutoffs() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let store = try FlowPortfolioStore(directory: root, purpose: .validationFixture)
+    let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
     let source = try await store.addSource(data: FlowDojoFixture.image(1), title: "Fixture")
     let candidates = try await round(store, source: source.id, count: 3)
     try await store.chooseCandidate(candidates[0].id)
@@ -101,7 +101,7 @@ struct FlowDojoTrainingProgressTests {
     let frozen = try await store.trainingDocument(snapshotID: snapshot.id)
     let dataset = try await FlowDojoTraining.dataset(store: store, document: frozen)
     let report = FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings)
-    let checkpoint = try #require(report.checkpoint), encoder = DrawingPackageCodec.encoder()
+    let checkpoint = try #require(report.checkpoint), encoder = DrawingArtifactCoding.encoder()
     let fit = try await store.installFit(checkpoint: encoder.encode(checkpoint), report: encoder.encode(report), snapshotID: snapshot.id)
     try await store.activateModel(fit.id)
     var progress = FlowDojoTrainingProgress(document: await store.snapshot(), fittedDocument: frozen, activeDocument: frozen)
@@ -139,9 +139,9 @@ struct FlowDojoTrainingProgressTests {
       var values = FlowArtistRecipe.standard.values; values[0] = Double(index) / Double(max(1, count)); return .init(values: values)
     }
     let round = try await store.beginRound(sourceID: source, recipes: recipes)
-    let program = try FlowPortfolioTests.program(), preview = try DrawingPackageLibraryValidation.preview(program).bytes
+    let program = try FlowPortfolioTests.program(), preview = try PortraitDrawingPreview.png(program)
     var result: [FlowPortfolioCandidate] = []
-    for slot in 0..<count { result.append(try await store.completeCandidate(roundID: round.id, slot: slot, program: program, raster: raster, previewPNG: preview)) }
+    for slot in 0..<count { result.append(try await store.completeCandidate(roundID: round.id, slot: slot, production: StudioDrawingFixture.production(program: program, raster: raster), previewPNG: preview)) }
     try await store.finishRound(round.id); return result
   }
 }

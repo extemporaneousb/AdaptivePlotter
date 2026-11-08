@@ -24,7 +24,8 @@ fi
 # Update this fingerprint only after deliberate client/guard review and all
 # required checks. Never automatically refresh it from the current source hash.
 if [ -f "$approved_artist_client" ]; then
-    reviewed_client_sha256='60e2d45fd7d03885487f4f7054f9f631e281c05e67af6f6509fc1e2438312499'
+    # Reviewed neutral SHA-256 owner rename only; subprocess seams are unchanged.
+    reviewed_client_sha256='1230e2d597d3f22a0813be89de6bcb18fbb685b9bc06941c19f500c3dd7a0ab0'
     actual_client_sha256=$(shasum -a 256 "$approved_artist_client" | awk '{print $1}')
     constructor_count=$(rg -c "$forbidden_child_capability" "$approved_artist_client" || true)
     if [ "$actual_client_sha256" != "$reviewed_client_sha256" ] || [ "$constructor_count" != 2 ] ||

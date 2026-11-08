@@ -1,0 +1,85 @@
+{
+  "format": "drawing-first-whitespace-only-delta/1",
+  "base_supplement_manifest_sha256": "2851716a326e01ef45e1873ffc8684d133149435a13f53967f5b67426067be04",
+  "reason": "Staged diff-check includes newly added files; preserve sealed raw compiler log bytes and clear code whitespace only. Earlier unstaged checks did not cover these new files.",
+  "files": [
+    {
+      "path": "Sources/DrawingLibrary/DrawingLibraryCatalog.swift",
+      "before_staged_sha256": "b53522edc8b9771f47c60a934478b26aee3234714202ad89ea927f8f0409ca3d",
+      "after_sha256": "374b263b1e20efe913fece05e8c3596ba715c381a0d75d824744822982cedca6",
+      "comparison_argv": [
+        "/usr/bin/diff",
+        "-w",
+        "-B",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/0-before.swift",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/0-after.swift"
+      ],
+      "comparison_exit_code": 0,
+      "comparison_output": "",
+      "semantic_diff_under_whitespace_blankline_ignore": "empty"
+    },
+    {
+      "path": "Sources/DrawingLibrary/DrawingLibraryPublication.swift",
+      "before_staged_sha256": "34a43d1fd380f6a31e53c51b6682da2d5f6b3935f149b31671cfd88cc8190a72",
+      "after_sha256": "1d53de2316d50f9d832195bb576e1785a012bd06ae0330eb74b84f438fff2795",
+      "comparison_argv": [
+        "/usr/bin/diff",
+        "-w",
+        "-B",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/1-before.swift",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/1-after.swift"
+      ],
+      "comparison_exit_code": 0,
+      "comparison_output": "",
+      "semantic_diff_under_whitespace_blankline_ignore": "empty"
+    },
+    {
+      "path": "Sources/PortraitCore/DrawingArtifactCoding.swift",
+      "before_staged_sha256": "63948d35a4b809a21b0bf5e9477adbc38dd7f0a3cd66e1a7b1164c3b7cc0b72d",
+      "after_sha256": "bd4f44229f659df6453ef76469938a2af26484645a0f4ed47fc2577b06b6e11d",
+      "comparison_argv": [
+        "/usr/bin/diff",
+        "-w",
+        "-B",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/2-before.swift",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/2-after.swift"
+      ],
+      "comparison_exit_code": 0,
+      "comparison_output": "",
+      "semantic_diff_under_whitespace_blankline_ignore": "empty"
+    },
+    {
+      "path": "Tests/PlotterAppTests/PortraitProducerTestFixtures.swift",
+      "before_staged_sha256": "4a742236c93bb4a36b843fb2e8d7e1c9df0a1bc657ff01aa696e785461724945",
+      "after_sha256": "1c304f0eed66c0e1cc7dc60ede23c567ccc34083ba03857d29498ee040a649aa",
+      "comparison_argv": [
+        "/usr/bin/diff",
+        "-w",
+        "-B",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/3-before.swift",
+        "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-whitespace-diff-7xvjpp_0/3-after.swift"
+      ],
+      "comparison_exit_code": 0,
+      "comparison_output": "",
+      "semantic_diff_under_whitespace_blankline_ignore": "empty"
+    }
+  ],
+  "exact_artifact_attributes": [
+    {
+      "path": "Tests/Fixtures/DrawingExchange/drawing-first/observations-2026-11-08/runs/drawing-first-all-tests-compile-lrzhocdk/stdout-stderr.log",
+      "attributes": [
+        "-text",
+        "-whitespace"
+      ],
+      "original_sha256": "1a7036ac4eb0b7479d56e14634d070936232ffc15d6e142346fded45f92628f1"
+    },
+    {
+      "path": "Tests/Fixtures/DrawingExchange/drawing-first/observations-2026-11-08/runs/drawing-first-full-build-z63r61d7/stdout-stderr.log",
+      "attributes": [
+        "-text",
+        "-whitespace"
+      ],
+      "original_sha256": "5d3e5cc20855879571210a55778cd106552fb97903198e3ce8b415a0f9b3c3f2"
+    }
+  ]
+}

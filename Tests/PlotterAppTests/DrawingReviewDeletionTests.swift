@@ -1,4 +1,6 @@
 import Foundation
+import DrawingLibrary
+import PortraitCore
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
@@ -24,10 +26,16 @@ struct DrawingReviewDeletionTests {
       let terminal = try #require(app.drawingRunSnapshot?.terminal)
       let record = terminal.record
       try await waitUntil { app.drawingReviewRecords.contains(record) }
-      #expect(record.attemptEvidence?.intent.context.candidate?.candidateID.hasPrefix("drawing-") == true)
+      let drawing = try #require(app.portraitStudio.projectedDrawing)
+      let ref = try #require(drawing.reference)
       let attempt = try #require(record.attemptEvidence)
       let reference = try #require(attempt.intent.context.candidate)
-      #expect(reference.candidateID == "drawing-" + reference.sourceProgram.contentHash.description)
+      #expect(reference.candidateID == ref.digest.description)
+      #expect(reference.contentHash.description == ref.digest.description)
+      #expect(reference.sourceProgram == drawing.program)
+      #expect(drawing.executionReference(for: attempt.intent.context.program) == reference)
+      let validated = try await app.portraitStudio.library.drawing(ref)
+      #expect(validated.reference == ref && validated.program == drawing.program)
       #expect(reference.matches(attempt.intent.context.program))
       let paper = app.currentPaperRevisionContext
       let noRedraw = app.drawingRunSnapshot?.noRedraw

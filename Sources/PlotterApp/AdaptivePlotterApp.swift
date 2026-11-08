@@ -1,3 +1,4 @@
+import DrawingLibrary
 import PortraitLibrary
 import PortraitStudioUI
 import AppKit
@@ -11,6 +12,7 @@ import SwiftUI
 @MainActor
 struct PlotterEpisodeComposition {
   let application: PlotterApplicationRuntime
+  var ownedDrawingLibrary: DrawingLibrary? = nil
 
   static func production() -> Self {
     let manualMotionComposition = PlotterManualMotionComposition.production
@@ -29,11 +31,13 @@ struct PlotterEpisodeComposition {
       observationSession: CameraComposition.observationSession
     )
     let artifactResetComposition = PlotterArtifactResetComposition.make()
+    let library = DrawingLibrary(directoryURL: FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent("Library/Application Support/AdaptivePlotter/DrawingLibrary", isDirectory: true))
     let application = PlotterApplicationRuntime(
       machineSession: MachineSessionComposition.session,
       observationSession: CameraComposition.observationSession,
       observationRecordingStore: CameraComposition.recordingStore,
-      portraitStudio: PortraitStudioModel(candidateStore: PortraitCandidateStore.defaultStore()),
+      portraitStudio: PortraitStudioModel(library: library),
       drawingMaterials: DrawingMaterialLibrary(store: DrawingMaterialStore.defaultStore()),
       pointSelectionRuntime: PointSelectionComposition.production.runtime,
       pointSelectionRecordingDiagnostic:
@@ -55,7 +59,7 @@ struct PlotterEpisodeComposition {
     )
     boundaryComposition.install(on: application)
     artifactResetComposition.install(on: application)
-    return Self(application: application)
+    return Self(application: application, ownedDrawingLibrary: library)
   }
 }
 
@@ -107,6 +111,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
         return
       }
       await self.applicationRuntime.shutdown()
+      await self.composition.ownedDrawingLibrary?.closeLibrary()
       self.completeTermination(of: sender)
     }
     return .terminateLater

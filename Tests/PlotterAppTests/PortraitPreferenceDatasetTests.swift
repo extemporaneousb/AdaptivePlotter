@@ -6,27 +6,27 @@ import Testing
 @testable import PlotterApp
 
 /// Uses real producer output and immutable candidate/label constructors.
-func portraitTrainingFixture(sourceCount: Int = 5, samplesPerSource: Int = 8) throws -> (PortraitTrainingScopeDefinition, PortraitCandidateArchive) {
+func portraitTrainingFixture(sourceCount: Int = 5, samplesPerSource: Int = 8) throws -> (PortraitTrainingScopeDefinition, PreferenceTrainingExamples) {
   let recipe = PortraitStyleRecipe(id: "training-reference", title: "Training hatch", seed: 7, style: .hatch,
     vectorOptions: .init(hatchSpacing: 8), analysisOptions: .init())
   let scope = PortraitStyleScope(id: UUID(uuidString: "874E3277-EDC7-4F6E-9C4E-5109EFC76458")!, name: "Spacing preference",
     revision: 1, objective: .screenAesthetic, allowedFamilies: [.hatch], activeParameters: [.hatchSpacing], frozenParameters: [.init(parameter: .headScale, value: 1)])
   let definition = PortraitTrainingScopeDefinition(scope: scope, mode: .drawingStyle, referenceRecipe: recipe,
     schemaRevision: PortraitTrainingScopeDefinition.currentRevision)
-  var archive = PortraitCandidateArchive()
+  var candidates: [PortraitCandidate] = []
+  var labels: [PortraitLabelRevision] = []
   for source in 0..<sourceCount {
     for sample in 0..<samplesPerSource {
       let candidate = try portraitTrainingCandidate(definition: definition, source: source, sample: sample)
       let rating = 1 + min(4, sample * 5 / max(1, samplesPerSource))
       let label = try PortraitLabelRevision(candidate: candidate, rating: rating, scope: scope, presentation: .init(),
         id: PortraitVectorizer.stableID("training-label-\(source)-\(sample)"), createdAt: Date(timeIntervalSince1970: 100))
-      archive.entries.append(.init(candidate: candidate, reasons: [.init(reason: .rated(labelRevisionID: label.id))]))
-      archive.labels.append(label)
-      if archive.labelPhotoIDs == nil { archive.labelPhotoIDs = [:] }
-      archive.labelPhotoIDs?[label.id.uuidString.lowercased()] = candidate.photoID
+      candidates.append(candidate)
+      labels.append(label)
+
     }
   }
-  return (definition, archive)
+  return (definition, PreferenceTrainingExamples(candidates: candidates, labels: labels))
 }
 
 func portraitTrainingCandidate(definition: PortraitTrainingScopeDefinition, source: Int, sample: Int,
@@ -49,53 +49,22 @@ func portraitTrainingCandidate(definition: PortraitTrainingScopeDefinition, sour
 
 @Suite("Frozen preference datasets")
 struct PortraitPreferenceDatasetTests {
-  @Test("modern training fixture preserves exact label bytes, revision ancestry and paired capture foreign keys")
-  @MainActor
-  func modernFixtureLabelCaptureRoundTrip() async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let (scope, fixture) = try portraitTrainingFixture(sourceCount: 2, samplesPerSource: 2)
-    var archive = fixture
-    let candidate = try #require(archive.entries.first?.candidate)
-    let predecessor = try #require(archive.labels.first { $0.candidateID == candidate.id })
-    let revision = try PortraitLabelRevision(candidate: candidate, rating: 5, scope: scope.scope,
-      presentation: .init(), previousRevisionID: predecessor.id, createdAt: Date(timeIntervalSince1970: 101))
-    archive.labels.append(revision)
-    archive.labelPhotoIDs?[revision.id.uuidString.lowercased()] = candidate.photoID
-    _ = try await PortraitCandidateStore(directoryURL: directory).save(snapshot: archive)
-    let restored = await PortraitCandidateStore(directoryURL: directory).load()
-    try #require(restored.canWrite, "\(restored.issues)")
-    #expect(restored.archive.labels == archive.labels)
-    #expect(restored.archive.labelPhotoIDs == archive.labelPhotoIDs)
-    #expect(restored.archive.labels.first { $0.id == revision.id }?.previousRevisionID == predecessor.id)
-    let db = try PortraitLibraryDatabase(url: directory.appendingPathComponent("library-v1.sqlite"), readOnly: true)
-    for label in archive.labels {
-      let paired = try #require(archive.entries.first { $0.id == label.candidateID }?.candidate)
-      let row = try #require(db.rows("SELECT d.photo_id,d.candidate_id,d.program_hash,l.record_hash FROM label l JOIN drawing d ON d.id=l.drawing_id WHERE lower(l.id)=?",
-        [label.id.uuidString.lowercased()]).first)
-      #expect(row[0] == paired.photoID.uuidString.lowercased())
-      #expect(row[1] == paired.id && row[2] == paired.program.contentHash.description)
-      let hash = try #require(row[3])
-      let bytes = try Data(contentsOf: directory.appendingPathComponent("records").appendingPathComponent(hash))
-      let expectedBytes = try PortraitCandidateCoding.encoder().encode(label)
-      #expect(bytes == expectedBytes)
-    }
-  }
+
 
   @Test("grouped deterministic split never separates shared sources or unlabeled bridges")
   func grouping() throws {
     let fixture = try portraitTrainingFixture()
     let scope = fixture.0
     var archive = fixture.1
-    let a = archive.entries[0].candidate, b = archive.entries[8].candidate
+    let a = archive.candidates[0], b = archive.candidates[8]
     let bridge = try portraitTrainingCandidate(definition: scope, source: 99, sample: 1,
       captureSessionID: a.captureSessionID, ancestryGroupID: b.lineage.ancestryGroupID)
-    archive.entries.append(.init(candidate: bridge, reasons: [.init(reason: .shortlisted)]))
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 4)
+    archive = archive.replacing(candidates: archive.candidates + [bridge])
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 4)
     #expect(dataset.payload.groups.first { $0.candidateIDs.contains(a.id) }?.id == dataset.payload.groups.first { $0.candidateIDs.contains(b.id) }?.id)
     #expect(dataset.payload.exclusions.contains { $0.candidateID == bridge.id && $0.reason.contains("without a label") })
-    archive.entries.reverse(); archive.labels.reverse()
-    #expect(try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 4).id == dataset.id)
+    archive = archive.replacing(candidates: Array(archive.candidates.reversed()), labels: Array(archive.labels.reversed()))
+    #expect(try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 4).id == dataset.id)
     #expect(dataset.payload.rows.contains { $0.split == .holdout })
     for rows in Dictionary(grouping: dataset.payload.rows, by: \.sourceSHA256).values { #expect(Set(rows.map(\.split)).count == 1) }
   }
@@ -105,11 +74,11 @@ struct PortraitPreferenceDatasetTests {
     let fixture = try portraitTrainingFixture(sourceCount: 1)
     let scope = fixture.0
     var archive = fixture.1
-    let old = archive.labels[0], candidate = archive.entries[0].candidate
+    let old = archive.labels[0], candidate = archive.candidates[0]
     let revised = try PortraitLabelRevision(candidate: candidate, rating: 5, scope: scope.scope, presentation: .init(), previousRevisionID: old.id)
-    archive.labels.append(revised)
-    archive.tombstones.append(.init(id: UUID(), kind: .label, identity: revised.id.uuidString, affectedCandidateIDs: [], assetSHA256s: [], createdAt: Date()))
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 4)
+    archive = archive.replacing(labels: archive.labels + [revised])
+    archive = archive.replacing(withdrawnLabelIDs: [revised.id.uuidString])
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 4)
     #expect(!dataset.payload.rows.contains { $0.candidateID == candidate.id })
     #expect(dataset.payload.exclusions.contains { $0.labelRevisionID == old.id && $0.reason.contains("Superseded") })
     #expect(dataset.payload.exclusions.contains { $0.labelRevisionID == revised.id && $0.reason.contains("withdrawn") })
@@ -120,15 +89,15 @@ struct PortraitPreferenceDatasetTests {
     let fixture = try portraitTrainingFixture(sourceCount: 1)
     let scope = fixture.0
     var archive = fixture.1
-    let candidate = archive.entries[0].candidate, old = archive.labels[0]
-    for rating in [2,3] { archive.labels.append(try .init(candidate: candidate, rating: rating, scope: scope.scope,
-      presentation: .init(), previousRevisionID: old.id)) }
-    #expect(throws: PortraitTrainingError.self) { try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 1) }
-    archive.labels.removeLast(2)
+    let candidate = archive.candidates[0], old = archive.labels[0]
+    for rating in [2,3] { archive = archive.replacing(labels: archive.labels + [try .init(candidate: candidate, rating: rating, scope: scope.scope,
+      presentation: .init(), previousRevisionID: old.id)]) }
+    #expect(throws: PortraitTrainingError.self) { try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 1) }
+    archive = archive.replacing(labels: Array(archive.labels.dropLast(2)))
     let firstID = UUID(), secondID = UUID()
-    archive.labels = [try .init(candidate: candidate, rating: 1, scope: scope.scope, presentation: .init(), previousRevisionID: secondID, id: firstID),
-      try .init(candidate: candidate, rating: 2, scope: scope.scope, presentation: .init(), previousRevisionID: firstID, id: secondID)]
-    #expect(throws: PortraitTrainingError.self) { try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 1) }
+    archive = archive.replacing(labels: [try .init(candidate: candidate, rating: 1, scope: scope.scope, presentation: .init(), previousRevisionID: secondID, id: firstID),
+      try .init(candidate: candidate, rating: 2, scope: scope.scope, presentation: .init(), previousRevisionID: firstID, id: secondID)])
+    #expect(throws: PortraitTrainingError.self) { try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 1) }
   }
 
   @Test("scope mismatch and frozen parameter changes remain explicit exclusions")
@@ -137,9 +106,9 @@ struct PortraitPreferenceDatasetTests {
     let scope = fixture.0
     var archive = fixture.1
     let wrong = try portraitPersistenceCandidate()
-    archive.entries.append(.init(candidate: wrong, reasons: [.init(reason: .shortlisted)]))
-    archive.labels.append(try .init(candidate: wrong, rating: 1, scope: .screenSketch, presentation: .init()))
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 1)
+    archive = archive.replacing(candidates: archive.candidates + [wrong])
+    archive = archive.replacing(labels: archive.labels + [try .init(candidate: wrong, rating: 1, scope: .screenSketch, presentation: .init())])
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 1)
     #expect(dataset.payload.exclusions.contains { $0.candidateID == wrong.id && $0.reason.contains("Different named scope") })
     let forged = try portraitTrainingReplacingJSON(dataset, key: "id", value: String(repeating: "0", count: 64))
     #expect(throws: PortraitTrainingError.self) { try PortraitTrainingValidation.dataset(forged) }

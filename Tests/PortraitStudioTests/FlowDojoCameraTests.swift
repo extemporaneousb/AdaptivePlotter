@@ -1,4 +1,5 @@
 import Foundation
+import DrawingLibrary
 import PlotterModel
 import PlotterRuntime
 import PortraitArtists
@@ -16,8 +17,7 @@ struct FlowDojoCameraTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let driver = DojoCameraDriver()
     let capture = CameraCapture(driver: driver)
-    let camera = PortraitStudioModel(camera: capture, photoAcquirer: DojoPhotoAcquirer(),
-      candidateStore: .init(directoryURL: directory.appendingPathComponent("legacy")))
+    let camera = PortraitStudioModel(camera: capture, library: DrawingLibrary(directoryURL: directory.appendingPathComponent("camera")), photoAcquirer: DojoPhotoAcquirer())
     let dojo = FlowDojoModel(directory: directory.appendingPathComponent("portfolio"), purpose: .validationFixture)
     do {
       await camera.discover(excluding: nil)
@@ -55,8 +55,7 @@ struct FlowDojoCameraTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let clock = DojoAdvancingClock(), frames = DojoMetadataFrames(stalled: true)
-    let camera = PortraitStudioModel(photoAcquirer: DojoPhotoAcquirer(), frameSource: frames,
-      captureClock: clock, candidateStore: .init(directoryURL: directory))
+    let camera = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory), photoAcquirer: DojoPhotoAcquirer(), frameSource: frames, captureClock: clock)
     let pen = FlowDojoModel(directory: directory.appendingPathComponent("unused")).strokeStyle
     #expect(await camera.captureForPortfolio(strokeStyle: pen) == nil)
     #expect(camera.cameraStatus?.contains("fresh video") == true)
@@ -68,15 +67,13 @@ struct FlowDojoCameraTests {
     await camera.shutdown()
 
     let afterReady = DojoMetadataFrames(stalled: false, stallAfterReadiness: true)
-    let interrupted = PortraitStudioModel(photoAcquirer: DojoPhotoAcquirer(), frameSource: afterReady,
-      captureClock: DojoAdvancingClock(), candidateStore: .init(directoryURL: directory.appendingPathComponent("interrupted")))
+    let interrupted = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("interrupted")), photoAcquirer: DojoPhotoAcquirer(), frameSource: afterReady, captureClock: DojoAdvancingClock())
     #expect(await interrupted.captureForPortfolio(strokeStyle: pen) == nil)
     #expect(interrupted.cameraStatus?.contains("Restart Camera") == true)
     #expect(interrupted.cameraStatus?.contains("after the face video appears") != true)
     await interrupted.shutdown()
 
-    let waiting = PortraitStudioModel(frameSource: DojoMetadataFrames(stalled: true),
-      candidateStore: .init(directoryURL: directory.appendingPathComponent("cancelled")))
+    let waiting = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("cancelled")), frameSource: DojoMetadataFrames(stalled: true))
     let task = Task { await waiting.captureForPortfolio(strokeStyle: pen) }
     try await Task.sleep(for: .milliseconds(80))
     #expect(waiting.isCapturing && !waiting.screenIlluminationActive)
@@ -91,8 +88,7 @@ struct FlowDojoCameraTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let frames = DojoMetadataFrames(stalled: false), acquirer = DojoHeldAcquirer()
-    let camera = PortraitStudioModel(photoAcquirer: acquirer, frameSource: frames,
-      candidateStore: .init(directoryURL: directory))
+    let camera = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory), photoAcquirer: acquirer, frameSource: frames)
     let pen = FlowDojoModel(directory: directory.appendingPathComponent("unused")).strokeStyle
     let task = Task { await camera.captureForPortfolio(strokeStyle: pen) }
     for _ in 0..<100 {

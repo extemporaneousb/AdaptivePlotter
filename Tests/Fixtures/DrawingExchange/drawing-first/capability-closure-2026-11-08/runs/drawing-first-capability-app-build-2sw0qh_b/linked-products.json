@@ -1,0 +1,12 @@
+{
+  "PortraitStudio": {
+    "path": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch/x86_64-apple-macosx/debug/PortraitStudio",
+    "bytes": 43253264,
+    "sha256": "0bf8c495772fe827993f8207a1d19a8fa2f780d6db31c84510878c1fd2f2b278"
+  },
+  "AdaptivePlotter": {
+    "path": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch/x86_64-apple-macosx/debug/AdaptivePlotter",
+    "bytes": 130785440,
+    "sha256": "30448a40a55652918c9ea5b027b655295abfcce00d66fe22489a4a683f0c7956"
+  }
+}

@@ -1,0 +1,74 @@
+[0/1] Planning build
+Building for debugging...
+[0/7] Write sources
+[1/7] Write swift-version--1AB21518FC5DEDBE.txt
+[3/14] Compiling PlotterApp OperatorButtonGrammar.swift
+[4/14] Compiling PlotterApp DrawingStudioPhysicalEvidence.swift
+[5/14] Compiling PlotterApp DrawingStudioPreview.swift
+[6/14] Compiling PlotterApp MotionReadout.swift
+[7/14] Compiling PlotterApp DrawingStudioPhysicalGallery.swift
+[8/14] Compiling PlotterApp LearningPathView.swift
+[9/14] Emitting module PlotterApp
+[10/14] Compiling PlotterApp DrawingStudioPresentation.swift
+[11/14] Compiling PlotterApp OperatorWorkspace.swift
+[12/68] Compiling PlotterApp CurrentCameraCalibrationPlanning.swift
+[13/68] Compiling PlotterApp DrawingBorderEvidence.swift
+[14/68] Compiling PlotterApp DrawingFrameInteraction.swift
+[15/68] Compiling PlotterApp DrawingMaterialControls.swift
+[16/69] Compiling PlotterApp WorkbenchCameraCanvas.swift
+[17/69] Compiling PlotterApp WorkbenchCapabilityPresentation.swift
+[18/69] Compiling PlotterApp WorkbenchComputationStatus.swift
+[19/69] Compiling PlotterApp PlotterObservationConfigurationRuntime.swift
+[20/69] Compiling PlotterApp PlotterPenInteractionComposition.swift
+[21/69] Compiling PlotterApp PortraitDrawingActions.swift
+[22/71] Compiling PlotterApp PlotterBoundaryComposition.swift
+[23/71] Compiling PlotterApp PlotterControllerSessionRuntime.swift
+[24/71] Compiling PlotterApp PlotterManualMotionComposition.swift
+[25/71] Compiling PlotterApp AxisMetricLearningTransition.swift
+[26/71] Compiling PlotterApp CalibrationWorkingRegionInteraction.swift
+[27/71] Compiling PlotterApp CameraComposition.swift
+[28/71] Compiling PlotterApp CompletedComparisonReviewPresentation.swift
+[29/71] Compiling PlotterApp WorkbenchDiagnosticMedia.swift
+[30/71] Compiling PlotterApp WorkbenchDiagnostics.swift
+[31/71] Compiling PlotterApp WorkbenchLayout.swift
+[32/71] Compiling PlotterApp PaperCoverageComposition.swift
+[33/71] Compiling PlotterApp DrawingMaterialInspection.swift
+[34/71] Compiling PlotterApp DrawingMaterialLibrary.swift
+[35/71] Compiling PlotterApp DrawingMaterialStore.swift
+[36/71] Compiling PlotterApp DrawingReviewPresentation.swift
+[37/71] Compiling PlotterApp DrawingRunEvidenceComposition.swift
+[38/71] Compiling PlotterApp DrawingStudioActiveRunStatus.swift
+[39/71] Compiling PlotterApp DrawingTransferView.swift
+[40/71] Compiling PlotterApp LearningPathPresentation.swift
+[41/71] Compiling PlotterApp PlotterArtifactResetComposition.swift
+[42/71] Compiling PlotterApp WorkbenchPanels.swift
+[43/71] Compiling PlotterApp WorkbenchRequestTelemetry.swift
+[44/71] Compiling PlotterApp WorkbenchTopBar.swift
+[45/71] Compiling PlotterApp PenCapAppearanceSelection.swift
+[46/71] Compiling PlotterApp PenCapReferenceSelectionOverlay.swift
+[47/71] Compiling PlotterApp PlotterApplicationRuntimeView.swift
+[48/71] Compiling PlotterApp RunningAppPreviewPerformanceGate+Workbench.swift
+[49/71] Compiling PlotterApp RunningAppPreviewPerformanceGate.swift
+[50/71] Compiling PlotterApp TrackingAcquisitionEvidence.swift
+[51/71] Compiling PlotterApp PortraitPlanePreviewSource.swift
+[52/71] Compiling PlotterApp RunningAppNativeInputProbe.swift
+[53/71] Compiling PlotterApp RunningAppPreviewPerformanceGate+Physical.swift
+[54/71] Compiling PlotterApp WorkbenchVideoSettings.swift
+[55/71] Compiling PlotterApp WorkbenchVoiceController.swift
+[56/71] Compiling PlotterApp WorkbenchVoiceView.swift
+[57/71] Compiling PlotterApp LearningPathProjector.swift
+[58/71] Compiling PlotterApp OverlayState.swift
+[59/71] Compiling PlotterApp PassiveProbeComposition.swift
+[60/71] Compiling PlotterApp ActionSurfaceOverlayCanvas.swift
+[61/71] Compiling PlotterApp ActionSurfaceOverlayContent.swift
+[62/71] Compiling PlotterApp AdaptivePlotterApp.swift
+[63/71] Compiling PlotterApp AxisMetricCalibrationView.swift
+[64/71] Compiling PlotterApp AcceptedArtifactCheckpointComposition.swift
+[65/71] Compiling PlotterApp AcceptedLearningPathLegacyMigration.swift
+[66/71] Compiling PlotterApp ActionSurface.swift
+[67/71] Compiling PlotterApp ActionSurfaceInteraction.swift
+[68/71] Compiling PlotterApp PlotterCameraCalibrationComposition.swift
+[68/71] Write Objects.LinkFileList
+[69/71] Linking AdaptivePlotter
+[70/71] Applying AdaptivePlotter
+Build complete! (96.02s)

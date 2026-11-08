@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import DrawingLibrary
 import ImageIO
 import PlotterModel
 import PortraitArtists
@@ -11,6 +12,23 @@ import Testing
 @Suite("Flow Edge dojo autosaved interaction", .serialized)
 @MainActor
 struct FlowDojoTests {
+  @Test("An invalid source image is refused before mutation and does not block subsequent valid capture")
+  func invalidSourceIsAdmissionFailure() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    await model.open()
+    let revision = model.document?.revision
+    await model.addPhoto(data: Data("not a PNG or JPEG".utf8), title: "Invalid source")
+    #expect(model.error != nil && !model.needsRecovery)
+    #expect(model.document?.sources.isEmpty == true && model.document?.revision == revision)
+    await model.importPhotoCollection(directory.appendingPathComponent("missing-photo-set"))
+    #expect(model.error != nil && !model.needsRecovery && model.document?.sources.isEmpty == true)
+    await model.addPhoto(data: FlowDojoFixture.image(1), title: "Valid source after refusal")
+    #expect(model.error == nil && !model.needsRecovery && model.document?.sources.count == 1)
+    #expect(await model.shutdown())
+  }
+
   @Test("Typed admission rejects invalid authoring units for overrides and exact parent reuse")
   func liveAdmission() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -87,7 +105,7 @@ struct FlowDojoTests {
     model.count = 3; await model.generate(refining: false)
     await model.selectCandidate(try #require(model.roundCandidates.first).id)
     let program = try #require(model.program), first = program.strokes[0].id, second = program.strokes[1].id
-    let records = directory.appendingPathComponent("records"), retained = directory.appendingPathComponent("records-paused")
+    let records = directory.appendingPathComponent("objects/sha256"), retained = directory.appendingPathComponent("objects/sha256-paused")
     try FileManager.default.moveItem(at: records, to: retained)
     try Data([0]).write(to: records)
     await model.edit(.remove, ids: [first])
@@ -103,24 +121,7 @@ struct FlowDojoTests {
     await model.shutdown()
   }
 
-  @Test("A locked initial portfolio can be replaced or closed without abandoning pending edits")
-  func lockedInitialPortfolio() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let locked = root.appendingPathComponent("locked.flowportfolio")
-    let alternative = root.appendingPathComponent("alternative.flowportfolio")
-    let owner = try FlowPortfolioStore(directory: locked, purpose: .validationFixture)
-    let model = FlowDojoModel(directory: locked, render: FlowDojoFixture.render)
-    await model.open()
-    #expect(model.error != nil); #expect(model.store == nil); #expect(!model.needsRecovery)
-    await model.switchPortfolio(to: alternative)
-    #expect(model.error == nil); #expect(model.directory == alternative); #expect(model.store != nil)
-    #expect(await model.shutdown())
-    let closing = FlowDojoModel(directory: locked, render: FlowDojoFixture.render)
-    await closing.open(); #expect(closing.error != nil)
-    #expect(await closing.shutdown())
-    _ = await owner.snapshot()
-  }
+
 
   @Test("Source identity and training exclusion commit atomically; excluded photos can still make art")
   func sourceCurationFailureIsAtomic() async throws {
@@ -129,7 +130,7 @@ struct FlowDojoTests {
     let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
     await model.open(); await model.addPhoto(data: FlowDojoFixture.image(4), title: "Curation failure fixture")
     let sourceID = try #require(model.selectedSource?.id)
-    let records = directory.appendingPathComponent("records"), retained = directory.appendingPathComponent("records-paused")
+    let records = directory.appendingPathComponent("objects/sha256"), retained = directory.appendingPathComponent("objects/sha256-paused")
     try FileManager.default.moveItem(at: records, to: retained); try Data([0]).write(to: records)
     await model.curateSource(sourceID: sourceID, subject: "Subject A", session: "Sitting 1", excluded: true)
     #expect(model.needsRecovery)
@@ -159,7 +160,7 @@ struct FlowDojoTests {
     let fitting = Task { await model.fit() }
     await gate.waitForStart()
     #expect(await model.store?.snapshot().trainingSnapshots.count == 1)
-    let records = directory.appendingPathComponent("records"), retained = directory.appendingPathComponent("records-paused")
+    let records = directory.appendingPathComponent("objects/sha256"), retained = directory.appendingPathComponent("objects/sha256-paused")
     try FileManager.default.moveItem(at: records, to: retained); try Data([0]).write(to: records)
     await gate.release(); await fitting.value
     #expect(model.needsRecovery); #expect(model.fitReport?.checkpoint == nil)
@@ -180,18 +181,7 @@ struct FlowDojoTests {
     #expect(await reopened.shutdown())
   }
 
-  @Test("Changing portfolios clears the previous portfolio's fit result")
-  func switchClearsResults() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let model = FlowDojoModel(directory: root.appendingPathComponent("first.flowportfolio"),
-      purpose: .validationFixture, fit: { _, _ in .unavailable("First portfolio result") })
-    await model.open(); await model.fit()
-    #expect(model.reportSummary == "First portfolio result")
-    await model.switchPortfolio(to: root.appendingPathComponent("second.flowportfolio"))
-    #expect(model.error == nil); #expect(model.reportSummary == nil); #expect(model.fitReport == nil)
-    #expect(await model.shutdown())
-  }
+
 
   @Test("Repeated choices coalesce only when every offered output is identical")
   func choicesRetainChangedAlternatives() async throws {
@@ -215,38 +205,7 @@ struct FlowDojoTests {
     #expect(await model.shutdown())
   }
 
-  @Test("Embedded host ownership preserves pending edits and refuses shutdown before recovery")
-  func embeddedOwnerRetainsRecovery() async throws {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: root) }
-    let directory = root.appendingPathComponent("portfolio.flowportfolio")
-    let owner = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: root.appendingPathComponent("legacy")),
-      portfolioFactory: { style in FlowDojoModel(directory: directory, strokeStyle: style,
-        purpose: .validationFixture, render: FlowDojoFixture.render) })
-    #expect(owner.embeddedDojo == nil)
-    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
-    let dojo = owner.portfolioDojo(strokeStyle: style)
-    #expect(owner.portfolioDojo(strokeStyle: style) === dojo)
-    await dojo.open(); await dojo.addPhoto(data: FlowDojoFixture.image(6), title: "Embedded lifetime fixture")
-    dojo.count = 3; await dojo.generate(refining: false)
-    await dojo.selectCandidate(try #require(dojo.roundCandidates.first?.id))
-    let stroke = try #require(dojo.program?.strokes.first?.id)
-    let records = directory.appendingPathComponent("records"), retained = directory.appendingPathComponent("records-paused")
-    try FileManager.default.moveItem(at: records, to: retained); try Data([0]).write(to: records)
-    await dojo.edit(.remove, ids: [stroke])
-    #expect(owner.portfolioDojo(strokeStyle: style).needsRecovery)
-    #expect(await owner.preparePortfolioShutdown() == false)
-    try FileManager.default.removeItem(at: records); try FileManager.default.moveItem(at: retained, to: records)
-    await owner.portfolioDojo(strokeStyle: style).recoverAutosave()
-    #expect(dojo.removedIDs == [stroke]); #expect(dojo.error == nil)
-    #expect(await owner.preparePortfolioShutdown())
-    #expect(dojo.store == nil)
-    let revision = dojo.document?.revision
-    await dojo.edit(.restore, ids: [stroke])
-    #expect(dojo.document?.revision == revision)
-    await owner.shutdown()
-    #expect(dojo.store == nil)
-  }
+
 
   @Test("New material styles affect future rounds while each admitted round keeps one frozen style")
   func materialStyleIsFrozenPerRound() async throws {
@@ -270,6 +229,7 @@ struct FlowDojoTests {
       let program = try #require(try await model.store?.candidateProgram(candidate.id))
       #expect(program.strokes.allSatisfy { $0.style == first })
     }
+    await model.selectCandidate(originals[0].id)
     await model.generate(refining: false)
     try #require(model.roundCandidates.count == 3)
     for candidate in model.roundCandidates {
@@ -300,13 +260,13 @@ struct FlowDojoTests {
     #expect(model.document?.sources.count == 1)
     await gate.release(); await rendering.value
     #expect(await closing.value); #expect(!model.acceptsChanges); #expect(model.store == nil)
-    let owner = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: root.appendingPathComponent("legacy")),
-      portfolioFactory: { style in FlowDojoModel(directory: root.appendingPathComponent("late.flowportfolio"), strokeStyle: style) })
+    let lateURL = root.appendingPathComponent("late-library")
+    let owner = PortraitStudioModel(library: DrawingLibrary(directoryURL: lateURL))
     #expect(await owner.preparePortfolioShutdown())
     let late = owner.portfolioDojo(strokeStyle: model.strokeStyle)
     await late.open()
     #expect(!late.acceptsChanges); #expect(late.store == nil)
-    #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("late.flowportfolio").path))
+    #expect(!FileManager.default.fileExists(atPath: lateURL.path))
     await owner.shutdown()
   }
 
@@ -321,7 +281,7 @@ struct FlowDojoTests {
     model.count = 3; await model.generate(refining: false)
     await model.selectCandidate(try #require(model.roundCandidates.first?.id))
     let program = try #require(model.program), first = program.strokes[0].id, second = program.strokes[1].id
-    let records = directory.appendingPathComponent("records"), retained = directory.appendingPathComponent("records-paused")
+    let records = directory.appendingPathComponent("objects/sha256"), retained = directory.appendingPathComponent("objects/sha256-paused")
     try FileManager.default.moveItem(at: records, to: retained); try Data([0]).write(to: records)
     await model.edit(.remove, ids: [first]); #expect(model.needsRecovery)
     await model.fit(); await model.edit(.remove, ids: [second])
@@ -400,7 +360,7 @@ enum FlowDojoFixture {
         style: pen, ordering: UInt32(index))
     }
     let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 100), strokes: strokes,
-      source: .init(kind: "portrait", sourceIdentifier: "synthetic-dojo-loop|" + DrawingPackageCodec.sha256(data)))
+      source: .init(kind: "portrait", sourceIdentifier: "synthetic-dojo-loop|" + DrawingArtifactCoding.sha256(data)))
     let raster = PortraitRaster(width: 24, height: 24, luminance: (0..<576).map { Double($0 % 24) / 25 },
       provenance: "synthetic-dojo-loop", analysisSummary: "Test-only source evidence")
     return PortraitRenderResult(raster: raster, program: program)

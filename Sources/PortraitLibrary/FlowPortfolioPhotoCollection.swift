@@ -23,7 +23,7 @@ package struct FlowPortfolioCaptureProvenance: Codable, Equatable, Sendable {
     frameID = photo.frameID; captureNanoseconds = photo.captureNanoseconds; pose = photo.pose
     sourcePixelExtent = photo.sourcePixelExtent; captureSessionID = photo.captureSessionID
     selectionProvenance = photo.selectionProvenance
-    imageSHA256 = DrawingPackageCodec.sha256(photo.data)
+    imageSHA256 = DrawingArtifactCoding.sha256(photo.data)
   }
 }
 
@@ -76,7 +76,7 @@ package struct FlowPhotoCollection: Sendable {
     var images: [String: Data] = [:], total = 0
     for entry in manifest.entries {
       guard !entry.id.isEmpty, entry.id.utf8.count <= 256, !entry.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-        entry.title.utf8.count <= 1024, FlowPortfolioStorage.validHash(entry.sha256),
+        entry.title.utf8.count <= 1024, FlowPortfolioValidation.validHash(entry.sha256),
         entry.filename == "images/" + entry.sha256 + ".asset", (1...64_000_000).contains(entry.byteCount),
         (entry.sessionID?.utf8.count ?? 0) <= 256, entry.provenanceJSON.count <= 256_000,
         (try? JSONSerialization.jsonObject(with: entry.provenanceJSON)) != nil else {
@@ -89,8 +89,8 @@ package struct FlowPhotoCollection: Sendable {
       let info = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
       guard info.isRegularFile == true, info.fileSize == entry.byteCount else { throw FlowPortfolioError.invalid("Photo collection asset size differs from its manifest.") }
       let bytes = try Data(contentsOf: url)
-      guard DrawingPackageCodec.sha256(bytes) == entry.sha256 else { throw FlowPortfolioError.invalid("Photo collection image hash differs from its manifest.") }
-      _ = try DrawingPackageLibraryValidation.sourceAsset(bytes)
+      guard DrawingArtifactCoding.sha256(bytes) == entry.sha256 else { throw FlowPortfolioError.invalid("Photo collection image hash differs from its manifest.") }
+      _ = try FlowPortfolioStore.validatedSourceAsset(bytes)
       images[entry.id] = bytes
     }
     return Self(manifest: manifest, manifestData: data, images: images)
@@ -100,7 +100,9 @@ package struct FlowPhotoCollection: Sendable {
 extension FlowPortfolioStore {
   /// The photo identity makes an uncertain autosave retry idempotent. Separate
   /// capture identities remain separate observations even when pixels match.
-  @discardableResult package func addCapturedSource(photo: PortraitPhoto, title: String) throws -> FlowPortfolioSource {
+  @discardableResult package func addCapturedSource(photo: PortraitPhoto, title: String) async throws -> FlowPortfolioSource {
+    try requireArtifactMutationAdmission()
+    defer { trimTransientCaches() }
     let provenance = FlowPortfolioCaptureProvenance(photo: photo)
     if let existing = state.sources.first(where: { $0.captureProvenance?.photoID == photo.id }) {
       guard existing.captureProvenance == provenance, existing.image.sha256 == provenance.imageSHA256 else {
@@ -111,47 +113,51 @@ extension FlowPortfolioStore {
     guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.utf8.count <= 1024 else {
       throw FlowPortfolioError.invalid("Name the captured photograph.")
     }
-    let asset = try DrawingPackageLibraryValidation.sourceAsset(photo.data)
-    let source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: title,
+    let asset = try FlowPortfolioStore.validatedSourceAsset(photo.data)
+    var source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: title,
       image: try storage.retain(photo.data, mediaType: asset.mediaType), subjectID: nil,
       sessionID: "capture:" + photo.captureSessionID.uuidString, captureProvenance: provenance)
+    try attachPhoto(to: &source, data: photo.data, capturedPhoto: photo)
     var next = state; next.sources.append(source); next.selectedSourceID = source.id
     next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
-    try commit(next, operation: "cameraPhotoCaptured", subjectID: source.id)
+    try await commit(next, operation: "cameraPhotoCaptured", subjectID: source.id)
     return source
   }
 
   /// Atomic, source-only import; an uncertain commit can be retried by source hash.
   /// Existing sources, labels, selections and groups are never rewritten.
-  @discardableResult package func importPhotoCollection(_ collection: FlowPhotoCollection) throws -> [FlowPortfolioSource] {
+  @discardableResult package func importPhotoCollection(_ collection: FlowPhotoCollection) async throws -> [FlowPortfolioSource] {
+    try requireArtifactMutationAdmission()
+    defer { trimTransientCaches() }
     var next = state, result: [FlowPortfolioSource] = []
     let manifest = try storage.retain(collection.manifestData, mediaType: "application/json")
     for entry in collection.manifest.entries {
       if let existing = next.sources.first(where: { $0.image.sha256 == entry.sha256 }) { result.append(existing); continue }
-      guard let bytes = collection.images[entry.id], DrawingPackageCodec.sha256(bytes) == entry.sha256 else {
+      guard let bytes = collection.images[entry.id], DrawingArtifactCoding.sha256(bytes) == entry.sha256 else {
         throw FlowPortfolioError.invalid("Photo collection has lost a verified source image.")
       }
-      let asset = try DrawingPackageLibraryValidation.sourceAsset(bytes)
-      let source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: entry.title,
+      let asset = try FlowPortfolioStore.validatedSourceAsset(bytes)
+      var source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: entry.title,
         image: try storage.retain(bytes, mediaType: asset.mediaType), subjectID: nil, sessionID: entry.sessionID,
         importProvenance: .init(collectionID: collection.manifest.id, entryID: entry.id, manifest: manifest))
+      try attachPhoto(to: &source, data: bytes)
       next.sources.append(source); result.append(source)
     }
-    if next.sources.count != state.sources.count { try commit(next, operation: "photoCollectionImported") }
+    if next.sources.count != state.sources.count { try await commit(next, operation: "photoCollectionImported") }
     return result
   }
 
-  package func renameSource(sourceID: UUID, title: String) throws {
+  package func renameSource(sourceID: UUID, title: String) async throws {
     let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty, title.utf8.count <= 1024, let index = state.sources.firstIndex(where: { $0.id == sourceID }) else {
       throw FlowPortfolioError.invalid("A photograph needs a nonempty name of at most 1024 bytes.")
     }
     guard state.sources[index].title != title else { return }
     var next = state; next.sources[index].title = title
-    try commit(next, operation: "sourceRenamed", subjectID: sourceID)
+    try await commit(next, operation: "sourceRenamed", subjectID: sourceID)
   }
 
-  package func renameCandidate(candidateID: UUID, title: String) throws {
+  package func renameCandidate(candidateID: UUID, title: String) async throws {
     let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard value.utf8.count <= 1024, let index = state.candidates.firstIndex(where: { $0.id == candidateID }) else {
       throw FlowPortfolioError.invalid("Drawing name is unavailable or too long.")
@@ -159,14 +165,14 @@ extension FlowPortfolioStore {
     let title: String? = value.isEmpty ? nil : value
     guard state.candidates[index].title != title else { return }
     var next = state; next.candidates[index].title = title
-    try commit(next, operation: "candidateRenamed", subjectID: candidateID)
+    try await commit(next, operation: "candidateRenamed", subjectID: candidateID)
   }
 
   /// Navigation cannot create a choice or a training preference.
-  package func selectCandidate(_ id: UUID) throws {
+  package func selectCandidate(_ id: UUID) async throws {
     guard let candidate = state.candidates.first(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Drawing is unavailable.") }
     var next = state; next.selectedSourceID = candidate.sourceID; next.currentRoundID = candidate.roundID
     next.currentCandidateID = id; next.currentPruneRevisionID = next.latestPrune(candidateID: id)?.id
-    if next != state { try commit(next, operation: "candidateViewed", subjectID: id) }
+    if next != state { try await commit(next, operation: "candidateViewed", subjectID: id) }
   }
 }

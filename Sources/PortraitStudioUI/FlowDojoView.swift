@@ -13,7 +13,7 @@ package struct FlowDojoView: View {
   @Bindable package var camera: PortraitStudioModel
   package var selectCamera: () async -> String? = { nil }
   package var handoffTitle = "Export Drawing"
-  package var handoff: ((Data) async -> String?)? = nil
+  package var handoff: ((Drawing) async -> String?)? = nil
   @State private var importing = false
   @State private var showingCamera = false
   @State private var curating = false
@@ -25,7 +25,7 @@ package struct FlowDojoView: View {
 
   package init(model: FlowDojoModel, camera: PortraitStudioModel,
     selectCamera: @escaping () async -> String? = { nil }, handoffTitle: String = "Export Drawing",
-    handoff: ((Data) async -> String?)? = nil) {
+    handoff: ((Drawing) async -> String?)? = nil) {
     self.model = model; self.camera = camera; self.selectCamera = selectCamera
     self.handoffTitle = handoffTitle; self.handoff = handoff
   }
@@ -97,18 +97,12 @@ package struct FlowDojoView: View {
       Button("Capture Photo", systemImage: "camera") { showingCamera = true }
         .accessibilityIdentifier("flowDojo.openCamera")
       Spacer()
-      Menu("Portfolio") {
-        Button("Import Photo Set…") { Task { if let url = await FlowDojoFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } }
-        Divider()
-        Button("Open Portfolio…") { Task { if let url = await FlowDojoFiles.openPortfolio() { await model.switchPortfolio(to: url) } } }
-        Button("New Portfolio…") { Task { if let url = await FlowDojoFiles.newPortfolio() { await model.switchPortfolio(to: url) } } }
-      }
+      Button("Import Photo Set…") { Task { if let url = await FlowDojoFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } }
       Button(handoffTitle, systemImage: "square.and.arrow.up") {
         Task {
           do {
-            let bytes = try await model.exportPackage()
-            if let handoff { message = await handoff(bytes) }
-            else if let url = await FlowDojoFiles.exportDrawing() { try await Task.detached { try bytes.write(to: url, options: .atomic) }.value }
+            if let handoff { message = await handoff(try await model.retainedDrawing()) }
+            else if let url = await FlowDojoFiles.exportDrawing() { try await model.exportDrawing(to: url) }
           } catch { message = error.localizedDescription }
         }
       }.disabled(model.candidate == nil || model.program?.strokes.count == model.removedIndices.count)

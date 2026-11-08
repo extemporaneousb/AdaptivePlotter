@@ -1,0 +1,43 @@
+{
+  "argv": [
+    "swift",
+    "build",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T07:39:39.076456+00:00",
+  "cache": "cached all-products retry",
+  "predecessor": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-full-build-z63r61d7/process.json",
+  "reviewed_source_delta": {
+    "Sources/PlotterApp/OperatorWorkspace.swift": {
+      "before": "6331c06c104b904afb880ff2812e044a71952c2000fc5d853c1267a5f73caa44",
+      "after": "14f3b0d34158248bdec2dfeec390e7317fc1ff196eda4432145af3ff4d91f83a"
+    },
+    "Sources/PortraitStudioUI/PortraitStudioModel.swift": {
+      "before": "2b4ffe2b409799eb295f02d8552ad3d451c8a295e7154778d509469a6b7c6e13",
+      "after": "a56ede1022c4b7ee960c20e2c92426b4bf75e2e92bbefe52909ad780c671f185"
+    },
+    "Sources/PlotterApp/PortraitDrawingActions.swift": {
+      "before": "52cc1ee4aee6717744f112006d6427fc2c7b9ecd7a1db857fe5912120e25bfc7",
+      "after": "07f739cfda82be1ea8f8809fdbf2ae4d9ea555433c3425f394487ffce81bf3a3"
+    },
+    "Sources/PortraitLibrary/PortraitSketchCollection.swift": {
+      "before": "d2e9bd25fac91b998171c713a8bcec7164584594ee6f5ce825b706d15536d985",
+      "after": "621d6b085189573700936d0caaf15a125e432cb762b794da66df72f47d80a635"
+    },
+    "Sources/PortraitLibrary/FlowPortfolioRetention.swift": {
+      "before": "7d31fa3028da400c57f2735f7078c06b71086e879355cffaa7d4472de8093ba8",
+      "after": "2b6ca67f7fc858ecd881402ea4debdc80746f1d1c68b1e3d03d55e272cc8efc0"
+    },
+    "Tests/PortraitStudioTests/DrawingProjectionRaceTests.swift": {
+      "before": null,
+      "after": "8341dc69736af8c4af677594c979b57559fee3c3b5003f2b01ff7c477c1b4afa"
+    },
+    "Sources/PortraitStudioUI/PortraitStudioView.swift": {
+      "before": "ec484f7847ca965ce208e54088655dc95b1fa4022c229c2b4032bc712d301e38",
+      "after": "4da19fc0caf65d73d9ce2644204bf1da8d83c3e0ce55abf9fe925f8a4db3278c"
+    }
+  },
+  "writer_state": "root-confirmed-all-writers-frozen"
+}

@@ -1,0 +1,24 @@
+{
+  "argv": [
+    "swift",
+    "build",
+    "--build-tests",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T08:15:59.792529+00:00",
+  "cache": "existing Common scratch, first all-tests compile only",
+  "cleared_environment_keys": [],
+  "cleared_prefix_policy": [
+    "FLOW_",
+    "PORTRAIT_",
+    "DX0",
+    "DRAW_",
+    "PLOTTER_",
+    "ADAPTIVEPLOTTER_",
+    "RUNNING_APP_",
+    "PREVIEW_PERFORMANCE_"
+  ],
+  "writer_state": "root-confirmed-all-writers-frozen"
+}

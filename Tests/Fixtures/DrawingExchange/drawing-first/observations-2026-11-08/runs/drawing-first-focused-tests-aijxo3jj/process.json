@@ -1,0 +1,39 @@
+{
+  "argv": [
+    "swift",
+    "test",
+    "--skip-build",
+    "--no-parallel",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--xunit-output",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-focused-tests-aijxo3jj/results.xml",
+    "--filter",
+    "DrawingLibrary|LibraryExchange|FlowPortfolio|FlowAuthoringCache|FlowPhotoCollection|FlowDojoCamera|DrawingProjectionRace|DrawingStudioPhysicalAssociation|PortraitCaptureTests|PortraitHandoffTests|PortraitMaterialIntegrationTests|DrawingTransferAdmission|DrawingDependencyContract"
+  ],
+  "start_utc": "2026-11-08T08:35:04.953094+00:00",
+  "stop_utc": "2026-11-08T08:36:51.972792+00:00",
+  "elapsed_seconds": 107.01880509359762,
+  "exit_code": 1,
+  "input_count": 769,
+  "changed_inputs": [],
+  "before_sha256": "3de14170f23bfc58a5ff6df77f1fcc92ad6ada8f5876d846ef861115b455654a",
+  "after_sha256": "3de14170f23bfc58a5ff6df77f1fcc92ad6ada8f5876d846ef861115b455654a",
+  "log_sha256": "a4df0be1bc69e999b75ce6233e8e38cc0ad4ffbddbb5b1871fab4fd9b8d81f7b",
+  "xml_counts": {
+    "testcase_elements": 90,
+    "skips": 1,
+    "failures": 10,
+    "errors": 0,
+    "executed_passes": 79,
+    "xml_sha256": "ffb9b54654452e635f22a4c0c61694a61047b6d98521efd3c84cc979365d69b5"
+  },
+  "owned_temp_cleanup": [
+    {
+      "path": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-test-process-4D4A8122-E16C-4A42-9F88-3A4340839A97",
+      "safe_owned_prefix_and_temp_parent": true,
+      "existed_after_process": true,
+      "removed": true
+    }
+  ]
+}

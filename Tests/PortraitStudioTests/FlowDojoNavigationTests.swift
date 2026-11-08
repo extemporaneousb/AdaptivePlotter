@@ -57,11 +57,11 @@ struct FlowDojoNavigationTests {
       await model.compare(preferred: nil)
       #expect(model.trainingProgress?.tieComparisonCount == 1)
       await model.declineRanking(neither: false)
-      #expect(model.trainingProgress?.rankingComparisonCount == 0)
+      #expect(model.trainingProgress?.rankingComparisonCount == 2)
       await model.rankCurrentSet()
       #expect(model.presentation?.items.count == 3)
       for (index, item) in (model.presentation?.items ?? []).enumerated() { await model.rank(item: item.id, position: index + 1) }
-      #expect(model.trainingProgress?.rankingComparisonCount == 3)
+      #expect(model.trainingProgress?.rankingComparisonCount == 5)
       #expect(model.document?.choices.isEmpty == true)
       #expect(model.trainingProgress?.latestFitRevision == nil)
       await model.presentRanking(scope: .round(round.id), count: 2)

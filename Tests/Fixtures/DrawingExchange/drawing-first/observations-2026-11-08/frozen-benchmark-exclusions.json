@@ -1,0 +1,37 @@
+[
+  {
+    "path": "Tests/PlotterAppTests/DrawingExchangeBaselineTests.swift",
+    "base": "707212cb5f193f6fd7fa1faba4eab1de74a3a33a",
+    "sha256": "8a3071d897d7cf820c4e99b985b278464c3e1c466c190801732700d88bd60a1d",
+    "bytes": 20210,
+    "current_test_membership": "excluded; frozen historical benchmark ABI only"
+  },
+  {
+    "path": "Tests/PortraitStudioTests/DrawingExchangeFlowBaselineTests.swift",
+    "base": "707212cb5f193f6fd7fa1faba4eab1de74a3a33a",
+    "sha256": "db360716699ce491fdb031e65ff0ad0a6a04358e896254bf13f6706ea822fb97",
+    "bytes": 26099,
+    "current_test_membership": "excluded; frozen historical benchmark ABI only"
+  },
+  {
+    "path": "Tests/PlotterAppTests/DrawingExchangeDX04ProbeTests.swift",
+    "base": "707212cb5f193f6fd7fa1faba4eab1de74a3a33a",
+    "sha256": "9ca31259a81d6cfd5842cf31e7715714eae46aeb0a2bcc48fc29d3278c18757e",
+    "bytes": 16468,
+    "current_test_membership": "excluded; frozen historical benchmark ABI only"
+  },
+  {
+    "path": "Tests/PlotterAppTests/DrawingExchangeDX04ReaderProbeTests.swift",
+    "base": "707212cb5f193f6fd7fa1faba4eab1de74a3a33a",
+    "sha256": "6992cf8591fcac5f82499924dd45918b16b74081273e75e0829975d8bf3ba615",
+    "bytes": 9365,
+    "current_test_membership": "excluded; frozen historical benchmark ABI only"
+  },
+  {
+    "path": "Tests/PlotterAppTests/DrawingExchangeCounterControlsTests.swift",
+    "base": "707212cb5f193f6fd7fa1faba4eab1de74a3a33a",
+    "sha256": "99395ab92719c3ed6c98a4cca5ffa3c18ec4281794bee728281e4d6e0ddda8bc",
+    "bytes": 3591,
+    "current_test_membership": "excluded; frozen historical benchmark ABI only"
+  }
+]

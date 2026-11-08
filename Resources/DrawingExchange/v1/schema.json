@@ -1065,7 +1065,7 @@
         "programHash"
       ],
       "additionalProperties": true,
-      "description": "Object is existing DrawingProgram bytes; verify its APCB canonical semantic contentHash independently. Field units are abstract, lower-left origin, X right/Y up in closed field extent. New exports declare nominalPenWidthMillimeters; historical fixture/legacy bytes do not gain invented units. Nominal width is not measured ink width."
+      "description": "Object is existing DrawingProgram bytes; verify its APCB canonical semantic contentHash independently. Field units are abstract, lower-left origin, X right/Y up in closed field extent. Nominal pen width may be unknown for any newly authored or retained Drawing and is then omitted. No units are inferred from style or pen identity. Nominal width is not measured ink width."
     },
     "Representation": {
       "oneOf": [

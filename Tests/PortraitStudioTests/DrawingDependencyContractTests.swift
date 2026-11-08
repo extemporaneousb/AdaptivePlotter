@@ -57,6 +57,13 @@ struct DrawingDependencyContractTests {
       pending.append(contentsOf: graph[target] ?? [])
     }
     #expect(visited == ["PortraitCore", "PlotterModel"])
+    #expect(Set(graph["DrawingLibrary"] ?? []) == ["PortraitCore", "PlotterModel", "CSQLite"])
+    var libraryClosure = Set<String>(), libraryPending = ["DrawingLibrary"]
+    while let target = libraryPending.popLast() {
+      guard libraryClosure.insert(target).inserted else { continue }
+      libraryPending.append(contentsOf: graph[target] ?? [])
+    }
+    #expect(libraryClosure == ["DrawingLibrary", "PortraitCore", "PlotterModel", "CSQLite"])
     #expect(graph["PortraitStudioUI"]?.contains("PortraitCore") == true)
     #expect(graph["PortraitStudio"]?.contains("PortraitStudioUI") == true)
     #expect(graph["PlotterApp"]?.contains("PortraitStudioUI") == true)

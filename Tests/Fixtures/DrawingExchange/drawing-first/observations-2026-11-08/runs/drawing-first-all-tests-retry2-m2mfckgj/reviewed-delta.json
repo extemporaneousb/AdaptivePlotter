@@ -1,0 +1,54 @@
+{
+  "Tests/PlotterAppTests/PortraitParameterPreferenceTests.swift": {
+    "before": "28f1f060d0a0ed09ee13a8789de7e1e071960977a6164b98d29c94c7fdb6753f",
+    "after": "670f8e0e44c633f20581c74db0ebec256f643f44c2e4e2f7bddc80fffb54ddfa"
+  },
+  "docs/SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md": {
+    "before": "df75ed8e69a79505fc4f134baf2dc52c8eb91e9df32378a4ad9d331e6bbb8de5",
+    "after": "9f2a08effaf01902af519b766565bc91cef9b774fe96ae995a82f0394fa73caf"
+  },
+  "Tests/PlotterAppTests/PortraitStudioNativeLayoutTests.swift": {
+    "before": "fb407c1f40737d8430e95d21feb2a02969e023bf66042abc3443079bd37f5c3f",
+    "after": "071c3e71e84ac73c745aedcb84166207c0fc958db40a832fb99c7b694a44c678"
+  },
+  "Tests/PlotterAppTests/PortraitPreferenceDatasetTests.swift": {
+    "before": "0951af31133d24cc61beed1602c958e4335e21bfea950b085461f4b1129157b8",
+    "after": "db660e4ca49490fec080806a1e239211ae5acc78ad68a41dabbcc6ee0b212078"
+  },
+  "docs/INDEX.md": {
+    "before": "1969dfb11c08918391d9376a51e990a9ad058371948fea983d98655ca7348d2e",
+    "after": "bf4053dbd51aecc7cba525d982488533de5172a7add7fc5b2ddb01a8a7dcf376"
+  },
+  "Tests/PlotterAppTests/PortraitExchangeMetadataBackupTests.swift": {
+    "before": "8a69bc909dab98e0fc042940a5ce80e78de15a9e65fee370de9d804d7652e5ac",
+    "after": "6247a3627702dec8469c7bb496122ca64c4f6602e2bdf7171874dfea79b25ec3"
+  },
+  "Package.swift": {
+    "before": "cb067b1d66ccecefdb1d585159a4682a33d7990ae13cb950f5cc8905d7b8c92d",
+    "after": "4ddc09003494199a9c0c5e467853c5c606ad739b2c88150707ff9a392f0ab4ff"
+  },
+  "docs/PRODUCT_CONTRACT.md": {
+    "before": "b82639ec24c6a96866c6422b43ef70e81b7b8faf3b69cecdb2bfb0b8a99ad7d8",
+    "after": "7e2edd89fb1383620977b73cc79ef94c1f305abfb5eafe2ebf4335b14edf3f9d"
+  },
+  "Tests/PlotterAppTests/PortraitOrdinalTrainingTests.swift": {
+    "before": "32dd337beb57d4eb3facc609647abfb3d944232644aa19cb14118da14a50883d",
+    "after": "148587f015da772c8a18a3ec1ac22560cca3cd683f8d46ad15f568105117711e"
+  },
+  "Tests/PlotterAppTests/LegacyPortraitPreferenceDatasetBuilderFixture.swift": {
+    "before": "1e15b32c455d32e6ba078f0c7e85bbf7fa94a16aa6e2f39ab20cc7256b6334bb",
+    "after": null
+  },
+  "docs/PORTRAIT_STUDIO.md": {
+    "before": "5512f8e2f6c4e9fa5d53efd8f9c951a06a49cb5da63d83beb07a01d65b6dcbb9",
+    "after": "2a30a7882f172ce4681cebebaf8164090247b9d47169c22a5b2fccce0f0d2665"
+  },
+  "Tests/PlotterAppTests/PortraitTrainingExampleBuilder.swift": {
+    "before": null,
+    "after": "60545661fb94859aa765a76942030577c4d892a880fdc5b5aa62b70be8a524bb"
+  },
+  "Tests/PlotterAppTests/PortraitExchangeStorageTests.swift": {
+    "before": "1b244748d313893368f0e0f45d1b4f7d6f7e888dfc381802090dcbd56cf5f046",
+    "after": "e2382ee1f69cb4e7904f379c4d1124f36f2a9452826ed2f692024657ec451c00"
+  }
+}

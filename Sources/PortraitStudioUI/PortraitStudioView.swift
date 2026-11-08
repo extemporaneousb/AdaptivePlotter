@@ -1,79 +1,28 @@
-import PortraitArtists
-import PortraitLibrary
+import SwiftUI
+import PortraitCore
 import PlotterModel
 import PlotterRuntime
-import SwiftUI
-import UniformTypeIdentifiers
 
-/// The embedded host enters the same portfolio dojo and retains its canonical drawing handoff.
 package struct PortraitStudioView: View {
-  @Environment(\.portraitActionTelemetry) private var recordAction
   @Bindable package var model: PortraitStudioModel
-  package let strokeStyle: PlotterModel.StrokeStyle
-  package var previewSource = PortraitPlanePreviewSource()
-  package let showOnPlotter: (PortraitCandidate) async -> String?
-  package var showEditedOnPlotter: ((SavedDrawing) async -> String?)? = nil
-  package var selectCamera: () async -> String? = { nil }
-  package var openReviewer: (UUID?) -> Void = { _ in }
-
-  package let handoffTitle: String
-  package let handoffErrorTitle: String
-  package let handoffActionID: String
-  package let handoffHelp: String
-
-  @State package var showsAdjustments = false
-
+  private let strokeStyle: PlotterModel.StrokeStyle
   private let nominalPenWidthMM: Double?
+  private let handoff: (Drawing) async -> String?
+  private let selectCamera: () async -> String?
+  private let handoffTitle: String
   @State private var dojo: FlowDojoModel
-
-  private var authoringContext: FlowDojoAuthoringContext {
-    FlowDojoAuthoringContext(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
-  }
-
-  package var body: some View {
-    FlowDojoView(model: dojo, camera: model, selectCamera: selectCamera,
-      handoffTitle: handoffTitle, handoff: { bytes in
-        guard let showEditedOnPlotter else { return "Drawing handoff is unavailable in this host." }
-        do {
-          let drawing = try await model.sketches.importDrawingPackage(bytes, restoreDeleted: false)
-          return await showEditedOnPlotter(drawing)
-        } catch { return error.localizedDescription }
-      })
-      .task(id: authoringContext) {
-        dojo.updateStrokeStyle(authoringContext.strokeStyle, nominalPenWidthMM: authoringContext.nominalPenWidthMM)
-      }
-      .onDisappear { dojo.cancel() }
-  }
-
-  package init(
-    model: PortraitStudioModel,
-    strokeStyle: PlotterModel.StrokeStyle,
-    nominalPenWidthMM: Double? = nil,
-    previewSource: PortraitPlanePreviewSource = PortraitPlanePreviewSource(),
-    showOnPlotter: @escaping (PortraitCandidate) async -> String?,
-    showEditedOnPlotter: ((SavedDrawing) async -> String?)? = nil,
-    selectCamera: @escaping () async -> String? = { nil },
-    openReviewer: @escaping (UUID?) -> Void = { _ in },
-    showsAdjustments: Bool = false,
-    handoffTitle: String = "Send to Drawing",
-    handoffErrorTitle: String = "Drawing projection failed",
-    handoffActionID: String = "portrait.showOnPlotter",
-    handoffHelp: String = "Send to Drawing places it in Drawing; Draw there starts execution."
-  ) {
-    self.model = model
+  package init(model: PortraitStudioModel, strokeStyle: PlotterModel.StrokeStyle, nominalPenWidthMM: Double? = nil,
+    showOnPlotter: @escaping (Drawing) async -> String?, selectCamera: @escaping () async -> String? = { nil },
+    handoffTitle: String = "Send to Drawing") {
+    self.model = model; self.strokeStyle = strokeStyle; self.nominalPenWidthMM = nominalPenWidthMM
+    self.handoff = showOnPlotter; self.selectCamera = selectCamera; self.handoffTitle = handoffTitle
     _dojo = State(initialValue: model.portfolioDojo(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM))
-    self.strokeStyle = strokeStyle
-    self.nominalPenWidthMM = nominalPenWidthMM
-    self.previewSource = previewSource
-    self.showOnPlotter = showOnPlotter
-    self.showEditedOnPlotter = showEditedOnPlotter
-    self.selectCamera = selectCamera
-    self.openReviewer = openReviewer
-    self.showsAdjustments = showsAdjustments
-    self.handoffTitle = handoffTitle
-    self.handoffErrorTitle = handoffErrorTitle
-    self.handoffActionID = handoffActionID
-    self.handoffHelp = handoffHelp
+  }
+  package var body: some View {
+    FlowDojoView(model: dojo, camera: model, selectCamera: selectCamera, handoffTitle: handoffTitle, handoff: handoff)
+      .task(id: FlowDojoAuthoringContext(strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM)) {
+        dojo.updateStrokeStyle(strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
+      }.onDisappear { dojo.cancel() }
   }
 }
 

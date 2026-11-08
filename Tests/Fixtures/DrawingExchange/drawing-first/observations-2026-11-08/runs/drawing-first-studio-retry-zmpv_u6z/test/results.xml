@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="38" failures="0" skipped="0" time="138.104080764">
+    <testcase classname="PlotterAppTests.PortraitStudioWorkspaceLayoutTests" name="controlsFit(stage:)" time="68.596095494" />
+    <testcase classname="PlotterAppTests.PortraitStudioWorkspaceLayoutTests" name="cameraPanelLayout()" time="1.221691318" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="previewOrientation()" time="0.007190323" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="nativeEvents()" time="0.015188933" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="geometry()" time="0.000861785" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="immutableEdit()" time="0.60377506" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="renderedPoints()" time="7.448115998" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="rejectedMembership()" time="0.000752107" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="pendingPublicationSnapshot()" time="0.533533707" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="pinnedLimit()" time="3.211440608" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="expiry()" time="0.751342807" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="fitInstallFailureRetainsReport()" time="0.219020285" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="shutdownJoinsRecoveryDrain()" time="3.114649264" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="trainingSemantics()" time="2.807239612" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="shutdownAdmissionIsClosedBeforeAwait()" time="0.34822966" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="autosavedJourney()" time="4.181665434" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="sourceCurationFailureIsAtomic()" time="0.620713957" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="invalidSourceIsAdmissionFailure()" time="0.128192186" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="autosaveFailureRecovery()" time="2.878031177" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="choicesRetainChangedAlternatives()" time="2.422400898" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="trainingBudgetBeforeAllocation()" time="0.000585909" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="materialStyleIsFrozenPerRound()" time="1.826176243" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="liveAdmission()" time="2.101524301" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="feedbackSemantics()" time="2.249736287" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="fitCutoffs()" time="2.797144158" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="transitiveGroups()" time="2.255511927" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="supervisionProjection()" time="1.771998522" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="browsingAndRepresentative()" time="2.971135956" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="explicitComparisons()" time="1.761256153" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="localAndPortfolioFeedback()" time="14.008460304" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="nameDraftShutdown()" time="0.258673891" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="branchOrder()" time="1.299152663" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="completedMetadataJoinRace()" time="0.260288053" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="retainedSelectionRequests()" time="1.414939064" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="portableRound()" time="1.729177433" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="exactPruning()" time="2.275812654" />
+    <testcase classname="PortraitStudioTests.PortraitStudioFaceInputTests" name="exifOrientation()" time="0.002435051" />
+    <testcase classname="PortraitStudioTests.PortraitStudioFaceInputTests" name="maskAlignment()" time="0.002338112" />
+  </testsuite>
+</testsuites>

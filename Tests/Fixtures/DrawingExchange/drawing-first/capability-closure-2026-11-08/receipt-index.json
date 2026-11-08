@@ -1,0 +1,121 @@
+[
+  {
+    "compression": "gzip",
+    "original_bytes": 122071,
+    "original_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/build/inputs-after.json",
+    "stored": "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz"
+  },
+  {
+    "compression": "gzip",
+    "original_bytes": 122071,
+    "original_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/build/inputs-before.json",
+    "stored": "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 649,
+    "original_sha256": "0c92dd76b8f1f0381c6fe0c9a495862b807ab2460e06791da35711d7a0d62a45",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/build/process.json",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/build/process.json"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 2257,
+    "original_sha256": "5c0bcb69280cf3cc8c246d684817b890efb69ceb98404530168a528605691cf5",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/build/start.json",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/build/start.json"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 1009,
+    "original_sha256": "631e5fb3891fc6836132910cf2f8a4dc986739e473b69c56f306c9a70dfa3f96",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/build/stdout-stderr.log",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/build/stdout-stderr.log"
+  },
+  {
+    "compression": "gzip",
+    "original_bytes": 122071,
+    "original_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/inputs-after.json",
+    "stored": "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz"
+  },
+  {
+    "compression": "gzip",
+    "original_bytes": 122071,
+    "original_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/inputs-before.json",
+    "stored": "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 1501,
+    "original_sha256": "b81edca9cbcba7022a3aeecb2d5e8199f13295768b816f1ffea9a4395e86c949",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/process.json",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/test/process.json"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 1616,
+    "original_sha256": "2d26bd9d8792f7cfccd0bbbfe06a1621121f5d60b98decf8be418cff48ddeb75",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/results.xml",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/test/results.xml"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 2610,
+    "original_sha256": "4e519c578495467bc703984484518cb9d453c53899a64defe67d83bbfdcc4927",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/start.json",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/test/start.json"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 4279,
+    "original_sha256": "043f5750bf3d9deeed0bf8abd4657ac04fb625fd366fcb4d6edba5b95ee837cc",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/stdout-stderr.log",
+    "stored": "runs/drawing-first-capability-tests-rjtjum1e/test/stdout-stderr.log"
+  },
+  {
+    "compression": "gzip",
+    "original_bytes": 122071,
+    "original_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-app-build-2sw0qh_b/build/inputs-after.json",
+    "stored": "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz"
+  },
+  {
+    "compression": "gzip",
+    "original_bytes": 122071,
+    "original_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-app-build-2sw0qh_b/build/inputs-before.json",
+    "stored": "inputs/0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d.json.gz"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 629,
+    "original_sha256": "b58b1c38e4910062b98129ddf6896c5312173c8d08d50dbc86cbaf5604a4cd16",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-app-build-2sw0qh_b/build/process.json",
+    "stored": "runs/drawing-first-capability-app-build-2sw0qh_b/build/process.json"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 2236,
+    "original_sha256": "ce6ad7b0d8488d13c6f7f6a1b12cd70d8fca9434a768b6a9e4975e0926d3e23b",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-app-build-2sw0qh_b/build/start.json",
+    "stored": "runs/drawing-first-capability-app-build-2sw0qh_b/build/start.json"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 119,
+    "original_sha256": "f6b1e5d207969a2b8c6d8de93a1515db96820b5bf48ccb282befbaf6223c82a2",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-app-build-2sw0qh_b/build/stdout-stderr.log",
+    "stored": "runs/drawing-first-capability-app-build-2sw0qh_b/build/stdout-stderr.log"
+  },
+  {
+    "compression": "none",
+    "original_bytes": 566,
+    "original_sha256": "0bdca909ac671b74af64adc599e56507c14559356a05c3afb07c7a285988e3f7",
+    "source": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-app-build-2sw0qh_b/linked-products.json",
+    "stored": "runs/drawing-first-capability-app-build-2sw0qh_b/linked-products.json"
+  }
+]

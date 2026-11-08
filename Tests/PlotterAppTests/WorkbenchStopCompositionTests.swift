@@ -38,7 +38,7 @@ struct WorkbenchStopCompositionTests {
   func heldDrawingStopAcknowledgesBeforeSettlement() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let studio = PortraitStudioModel(library: DrawingFirstTestStorage.library())
     let fixture = try await DrawingWorkbenchApplicationFixture.make(releasePlanOnStop: false, portraitStudio: studio)
     defer { fixture.stores.remove() }
     let application = fixture.application
@@ -52,13 +52,10 @@ struct WorkbenchStopCompositionTests {
         recipe: .init(id: "stop-contours", title: "Stop fixture", seed: 0, style: .contours,
           vectorOptions: .init(), analysisOptions: .init()),
         program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
-      studio.sketches.retainSourcePhoto(.init(id: candidate.photoID, data: candidate.sourceData,
-        label: "Stop fixture source", capturedAt: candidate.createdAt, frameID: nil,
-        captureNanoseconds: nil, pose: .front, sourcePixelExtent: candidate.sourcePixelExtent,
-        captureSessionID: candidate.captureSessionID))
-      let handoffFailure = await application.projectPortrait(candidate)
+
+      let handoffFailure = await application.projectDrawing(try drawingTestValue(program: candidate.program))
       try #require(handoffFailure == nil)
-      #expect(studio.projectedDrawing?.sourcePhotoID == candidate.photoID)
+      #expect(studio.projectedDrawing?.program == candidate.program && studio.projectedDrawing?.reference != nil)
       #expect(application.drawingDraftSnapshot.authoredProgram == program)
       let showProjection = application.plotterUIProjection(
         selectedItemID: application.testCurrentLearningPathItemID, manualDraft: ManualMotionDraft(),

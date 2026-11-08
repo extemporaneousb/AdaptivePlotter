@@ -1,0 +1,39 @@
+{
+  "after_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+  "argv": [
+    "swift",
+    "test",
+    "--skip-build",
+    "--no-parallel",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--xunit-output",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-capability-tests-rjtjum1e/test/results.xml",
+    "--filter",
+    "DrawingCapabilityAdmissionTests|DrawingProjectionRaceTests|PortraitHandoffTests|DrawingStudioPhysicalAssociationTests|PortraitMaterialIntegrationTests|DrawingTransferAdmission"
+  ],
+  "before_sha256": "0c57edb07909ad76896a124a6d3ff44ca6f9b71d3165a9619797c63b345cdd4d",
+  "changed_inputs": [],
+  "elapsed_seconds": 101.75292792310938,
+  "exit_code": 0,
+  "input_count": 875,
+  "log_sha256": "043f5750bf3d9deeed0bf8abd4657ac04fb625fd366fcb4d6edba5b95ee837cc",
+  "owned_temp_cleanup": [
+    {
+      "existed_after_process": true,
+      "path": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-test-process-23A3A466-3E0D-430F-B64B-AB706A8B5F77",
+      "removed": true,
+      "safe_owned_prefix_and_temp_parent": true
+    }
+  ],
+  "start_utc": "2026-11-08T10:00:06.598038+00:00",
+  "stop_utc": "2026-11-08T10:01:48.223825+00:00",
+  "xml_counts": {
+    "errors": 0,
+    "executed_passes": 11,
+    "failures": 0,
+    "skips": 0,
+    "testcase_elements": 11,
+    "xml_sha256": "2d26bd9d8792f7cfccd0bbbfe06a1621121f5d60b98decf8be418cff48ddeb75"
+  }
+}

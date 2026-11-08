@@ -25,7 +25,7 @@ struct DrawingWorkbenchCompositionTests {
       sourcePixelExtent: portraitTestRaster().sourceCropExtent,
       raster: portraitTestRaster(), recipe: recipe, program: program,
       photoID: UUID(), captureSessionID: UUID(), pose: .front)
-    #expect(await app.projectPortrait(candidate) == nil)
+    #expect(await app.projectDrawing(try drawingTestValue(program: candidate.program)) == nil)
     try await f.submit(.fitInDrawableRegion)
     #expect(app.drawingTargetIsVisible)
     let target = try #require(app.testPlotterUIProjection().actionSurface.drawingStudioCanvas?.targetPreview)

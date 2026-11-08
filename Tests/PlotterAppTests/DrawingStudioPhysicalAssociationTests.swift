@@ -1,3 +1,4 @@
+import PortraitCore
 @testable import PortraitArtists
 @testable import PortraitLibrary
 @testable import PortraitStudioUI
@@ -12,22 +13,23 @@ import Testing
 struct DrawingStudioPhysicalAssociationTests {
   @Test("successful projection pins exact candidate despite gallery selection with identical vectors")
   func exactProjection() async throws {
-    let model = PortraitStudioModel()
-    let first = try portraitPersistenceCandidate()
-    let sibling = try portraitPersistenceCandidate(lineage: .init(parentID: first.id,
-      parentProgramHash: first.program.contentHash.description, parentRecipe: first.recipe,
-      ancestryGroupID: UUID()))
-    #expect(first.program == sibling.program)
-    #expect(first.id != sibling.id)
-    #expect(await model.acceptProjection(first, perform: { nil }) == nil)
-    #expect(model.sketches.retain(candidate: sibling, reason: .shortlisted) == nil)
-    #expect(model.selectedCandidate?.id == sibling.id)
-    #expect(model.projectedDrawing?.executionReference(for: first.program)?.candidateID == first.id)
-    #expect(await model.acceptProjection(sibling, perform: { "projection failed" }) == "projection failed")
-    #expect(model.projectedDrawing?.executionReference(for: first.program)?.candidateID == first.id)
-    #expect(await model.acceptProjection(sibling, perform: { nil }) == nil)
-    #expect(model.projectedDrawing?.executionReference(for: first.program)?.candidateID == sibling.id)
-    await model.shutdown()
+    let library = DrawingFirstTestStorage.library()
+    let model = PortraitStudioModel(library: library)
+    let program = try DrawingProgramCatalog.program(for: .line, style: portraitTestStyle())
+    let receipt = try DrawingProducerReceipt(id: "example.physical-association", version: "1", recordJSON: Data("{}".utf8))
+    let value = try Drawing(program: program, input: .none, parent: .none, producer: receipt)
+    let a = try await library.retain(value, reason: "save"), b = try await library.retain(value, reason: "save")
+    let first = try await library.drawing(a.reference), sibling = try await library.drawing(b.reference)
+    #expect(first.program == sibling.program && first.reference != sibling.reference)
+    #expect(await model.acceptDrawingProjection(first, operation: {}) == nil)
+    try await model.sketches.select(b.reference)
+    #expect(model.projectedDrawing?.executionReference(for: program)?.candidateID == a.reference.digest.description)
+    enum Refused: Error { case projection }
+    #expect(await model.acceptDrawingProjection(sibling) { throw Refused.projection } != nil)
+    #expect(model.projectedDrawing?.reference == a.reference)
+    #expect(await model.acceptDrawingProjection(sibling, operation: {}) == nil)
+    #expect(model.projectedDrawing?.executionReference(for: program)?.candidateID == b.reference.digest.description)
+    await model.shutdown(); await library.closeLibrary()
   }
 
   @Test("physical rating requires a result identity and round trips without changing screen context")

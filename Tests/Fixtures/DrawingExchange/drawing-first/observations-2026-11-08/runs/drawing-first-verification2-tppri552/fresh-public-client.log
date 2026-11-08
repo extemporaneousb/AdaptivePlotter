@@ -1,0 +1,69 @@
+Building for debugging...
+[0/9] Write sources
+[3/9] Write DrawingLibraryPublicClient-entitlement.plist
+[4/9] Write sources
+[5/9] Write swift-version--1AB21518FC5DEDBE.txt
+[7/31] Compiling PlotterModel PlotterModel.swift
+[8/31] Compiling PlotterModel DrawingRegionContainmentPolicy.swift
+[9/31] Compiling PlotterModel PlotterMotionThroughput.swift
+[10/31] Compiling PlotterModel RegistrationAndModel.swift
+[11/32] Compiling PlotterModel Identifiers.swift
+[12/32] Compiling PlotterModel DrawingProgramCatalog.swift
+[13/32] Compiling PlotterModel DrawingOriginReference.swift
+[14/32] Compiling PlotterModel DrawingPlacement.swift
+[15/32] Compiling PlotterModel DrawingMotionPolicy.swift
+[16/32] Compiling PlotterModel DrawingMotionRecipe.swift
+[17/32] Compiling PlotterModel DrawingProgram.swift
+[18/32] Compiling PlotterModel DrawingMaterialProfile.swift
+[19/32] Compiling PlotterModel DrawingMotionCost.swift
+[20/32] Compiling PlotterModel DrawingReadiness.swift
+[21/32] Compiling PlotterModel DrawingFrameGeometry.swift
+[22/32] Compiling PlotterModel DrawingMaterialFeasibility.swift
+[23/32] Compiling PlotterModel CanonicalEncoding.swift
+[24/32] Compiling PlotterModel CrossTrackResidualModel.swift
+[25/32] Emitting module PlotterModel
+[26/32] Compiling PlotterModel Geometry.swift
+[27/32] Compiling PlotterModel DrawingCameraGeometry.swift
+[28/32] Compiling PlotterModel DrawingExecutionPlan.swift
+[29/32] Compiling PlotterModel Residual.swift
+[30/49] Compiling PortraitCore DrawingExchangeReferences.swift
+[31/49] Compiling PortraitCore DrawingExchangeVerifiedFiles.swift
+[32/49] Compiling PortraitCore DrawingImageRecords.swift
+[33/49] Compiling PortraitCore DrawingExchangeTime.swift
+[34/49] Compiling PortraitCore DrawingExchangeImageProof.swift
+[35/49] Compiling PortraitCore DrawingExchangeEnvelope.swift
+[36/49] Compiling PortraitCore DrawingExchangeImages.swift
+[37/49] Compiling PortraitCore DrawingExchangeJSON.swift
+[38/49] Compiling PortraitCore DrawingExchangeCodec.swift
+[39/49] Compiling PortraitCore DrawingExchangeZIP.swift
+[40/50] Compiling PortraitCore SwiftSketchProtocol.swift
+[41/50] Compiling PortraitCore DrawingExchangeCarrier.swift
+[42/50] Compiling PortraitCore DrawingArtifactCoding.swift
+[43/50] Compiling PortraitCore CatalogDrawingProducer.swift
+[44/50] Compiling PortraitCore Drawing.swift
+[45/50] Compiling PortraitCore DrawingExchangeClosure.swift
+[46/50] Compiling PortraitCore DrawingExchangeAssets.swift
+[47/50] Emitting module PortraitCore
+[48/66] Compiling DrawingLibrary DrawingLibraryReads.swift
+[49/66] Compiling DrawingLibrary DrawingLibraryWriterLease.swift
+[50/66] Compiling DrawingLibrary DrawingLibraryExchange.swift
+[51/66] Compiling DrawingLibrary DrawingLibraryStorage.swift
+[52/66] Compiling DrawingLibrary DrawingLibraryMetadataBackup.swift
+[53/66] Compiling DrawingLibrary DrawingLibraryWrites.swift
+[54/66] Compiling DrawingLibrary DrawingLibraryPublication.swift
+[55/66] Compiling DrawingLibrary DrawingLibraryRecords.swift
+[56/66] Compiling DrawingLibrary DrawingLibraryFileState.swift
+[57/66] Compiling DrawingLibrary DrawingLibraryDatabase.swift
+[58/66] Compiling DrawingLibrary DrawingLibraryBatchPublication.swift
+[59/66] Compiling DrawingLibrary DrawingLibraryAuthoring.swift
+[60/66] Compiling DrawingLibrary DrawingLibraryBackup.swift
+[61/66] Emitting module DrawingLibrary
+[62/66] Compiling DrawingLibrary DrawingLibraryCatalog.swift
+[63/66] Compiling DrawingLibrary DrawingLibrary.swift
+[64/68] Emitting module DrawingLibraryPublicClient
+[65/68] Compiling DrawingLibraryPublicClient PublicClient.swift
+[65/68] Write Objects.LinkFileList
+[66/68] Linking DrawingLibraryPublicClient
+[67/68] Applying DrawingLibraryPublicClient
+Build of product 'DrawingLibraryPublicClient' complete! (75.20s)
+Swift/ErrorType.swift:254: Fatal error: Error raised at top level: PortraitCore.DrawingExchangeError.malformed("Preservation destination is inside verified carrier")

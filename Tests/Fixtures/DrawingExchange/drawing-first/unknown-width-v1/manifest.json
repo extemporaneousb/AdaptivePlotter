@@ -1,0 +1,14 @@
+{
+  "drawing": {
+    "issuer": "dc736811-36cb-4ba8-845a-417471a70d33",
+    "revision": "930d9cba-4972-4814-b0b0-08e97a9da100",
+    "digest": "747256fad8217f1d4d5eaec888d69cf9370df3874ec4791bdb83c762fc1f65c4"
+  },
+  "older_reader_commit": "707212cb5f193f6fd7fa1faba4eab1de74a3a33a",
+  "scope": "Expected current freeze output with unknown width; current-writer byte-equality test must pass before older-reader verification. Older reader decodes and encodes frozen bytes, never mints widthless revisions.",
+  "files": {
+    "drawing.json": "747256fad8217f1d4d5eaec888d69cf9370df3874ec4791bdb83c762fc1f65c4",
+    "objects/20e72ed1a6ea86a0fff6ed88be9df8eb4756dcb9774618a09ea1f3aa68e7de33": "20e72ed1a6ea86a0fff6ed88be9df8eb4756dcb9774618a09ea1f3aa68e7de33",
+    "objects/6fb592aedc29e2909cc9eb7106fa40699c53ef5783695a8ef8a663c6e11d89b1": "6fb592aedc29e2909cc9eb7106fa40699c53ef5783695a8ef8a663c6e11d89b1"
+  }
+}

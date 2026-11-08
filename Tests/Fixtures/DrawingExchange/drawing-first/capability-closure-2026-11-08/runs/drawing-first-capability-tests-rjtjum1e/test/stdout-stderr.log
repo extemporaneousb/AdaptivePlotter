@@ -1,0 +1,43 @@
+[0/1] Planning build
+◇ Test run started.
+↳ Testing Library Version: 124.4
+↳ Target Platform: x86_64-apple-macos14.0
+◇ Suite "Per-Drawing capability admission at App boundaries" started.
+◇ Test "Unknown Drawing requirements preserve bytes and browsing but refuse preview and handoff without changing selection" started.
+DRAWING_FIRST_TEST_ROOT=/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-test-process-23A3A466-3E0D-430F-B64B-AB706A8B5F77
+✔ Test "Unknown Drawing requirements preserve bytes and browsing but refuse preview and handoff without changing selection" passed after 1.716 seconds.
+◇ Test "A known unsupported authored value cannot fall back to a fresh source-free drawing at Run" started.
+◇ Passing 1 argument border → false to "A known unsupported authored value cannot fall back to a fresh source-free drawing at Run"
+◇ Passing 1 argument border → true to "A known unsupported authored value cannot fall back to a fresh source-free drawing at Run"
+✔ Test "A known unsupported authored value cannot fall back to a fresh source-free drawing at Run" passed after 2.869 seconds.
+✔ Suite "Per-Drawing capability admission at App boundaries" passed after 4.585 seconds.
+◇ Suite "Studio physical attempt association" started.
+◇ Test "successful projection pins exact candidate despite gallery selection with identical vectors" started.
+✔ Test "successful projection pins exact candidate despite gallery selection with identical vectors" passed after 0.536 seconds.
+◇ Test "physical rating requires a result identity and round trips without changing screen context" started.
+✔ Test "physical rating requires a result identity and round trips without changing screen context" passed after 0.001 seconds.
+◇ Test "material context extends plan provenance while absent metadata preserves old encoding" started.
+✔ Test "material context extends plan provenance while absent metadata preserves old encoding" passed after 0.001 seconds.
+✔ Suite "Studio physical attempt association" passed after 0.539 seconds.
+◇ Suite "Portrait immutable drawing handoff" started.
+◇ Test "Re-showing the same artwork retains placement with and without a border" started.
+◇ Passing 1 argument drawBorder → false to "Re-showing the same artwork retains placement with and without a border"
+◇ Passing 1 argument drawBorder → true to "Re-showing the same artwork retains placement with and without a border"
+✔ Test "Re-showing the same artwork retains placement with and without a border" passed after 3.112 seconds.
+✔ Suite "Portrait immutable drawing handoff" passed after 3.112 seconds.
+◇ Suite "Current Drawing material adaptation" started.
+◇ Test "Adaptation creates an exact child while retaining the original drawing and source" started.
+2026-11-08 02:00:17.707 swiftpm-testing-helper[43759:30053111] FBBA: creating VNFaceBBoxAligner from VNFaceDetectorRevision2: VNFaceDetectorRevision2
+✔ Test "Adaptation creates an exact child while retaining the original drawing and source" passed after 87.758 seconds.
+✔ Suite "Current Drawing material adaptation" passed after 87.758 seconds.
+◇ Suite "Exact drawing projection arbitration" started.
+◇ Test "Unsupported per-record plot requirements remain inspectable but cannot replace projected selection" started.
+✔ Test "Unsupported per-record plot requirements remain inspectable but cannot replace projected selection" passed after 0.540 seconds.
+◇ Test "An older delayed read cannot overwrite a newer equal-geometry exact ref" started.
+✔ Test "An older delayed read cannot overwrite a newer equal-geometry exact ref" passed after 0.346 seconds.
+◇ Test "Save, explicit clear and a loaded collection selection invalidate an older projection read" started.
+✔ Test "Save, explicit clear and a loaded collection selection invalidate an older projection read" passed after 1.061 seconds.
+◇ Test "Cancellation, shutdown and a changed caller predicate cannot publish a delayed selection" started.
+✔ Test "Cancellation, shutdown and a changed caller predicate cannot publish a delayed selection" passed after 0.994 seconds.
+✔ Suite "Exact drawing projection arbitration" passed after 2.943 seconds.
+✔ Test run with 11 tests passed after 98.940 seconds.

@@ -5,14 +5,15 @@ import PlotterModel
 import PortraitArtists
 import PortraitCore
 import PortraitLibrary
+import DrawingLibrary
 
 /// A physical authoring declaration, independent of preview geometry units.
 package struct FlowDojoAuthoringContext: Equatable, Sendable {
   package let strokeStyle: StrokeStyle
-  package let nominalPenWidthMM: Double
+  package let nominalPenWidthMM: Double?
   package init(strokeStyle: StrokeStyle, nominalPenWidthMM: Double?) {
     self.strokeStyle = strokeStyle
-    self.nominalPenWidthMM = nominalPenWidthMM ?? 0.4
+    self.nominalPenWidthMM = nominalPenWidthMM
   }
 }
 
@@ -20,7 +21,7 @@ package struct FlowDojoAuthoringContext: Equatable, Sendable {
 package final class FlowDojoModel {
   package enum Stage: String, CaseIterable { case explore = "Explore", prune = "Prune", rank = "Rank", fit = "Fit & deploy" }
   package nonisolated static var defaultDirectory: URL {
-    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Flow Edge Portfolio.flowportfolio", isDirectory: true)
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/AdaptivePlotter/DrawingLibrary", isDirectory: true)
   }
   package private(set) var directory: URL
   package private(set) var document: FlowPortfolioSnapshot?
@@ -47,6 +48,7 @@ package final class FlowDojoModel {
   package private(set) var activeModelIssue: String?
   package private(set) var activeCheckpoint: FlowArtistCheckpoint?
   package private(set) var trainingProgress: FlowDojoTrainingProgress?
+  @ObservationIgnored private let library: DrawingLibrary?
   @ObservationIgnored package private(set) var store: FlowPortfolioStore?
   @ObservationIgnored private let renderer = FlowDojoRenderer()
   @ObservationIgnored private var work: Task<Void, Never>?
@@ -77,14 +79,14 @@ package final class FlowDojoModel {
   @ObservationIgnored private let renderOverride: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)?
   @ObservationIgnored private let fitOverride: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)?
   package private(set) var strokeStyle: StrokeStyle
-  package private(set) var nominalPenWidthMM: Double
+  package private(set) var nominalPenWidthMM: Double?
 
-  package init(directory: URL = FlowDojoModel.defaultDirectory,
-    strokeStyle: StrokeStyle? = nil, nominalPenWidthMM: Double = 0.4, purpose: FlowPortfolioPurpose? = nil,
+  package init(directory: URL = FlowDojoModel.defaultDirectory, library: DrawingLibrary? = nil,
+    strokeStyle: StrokeStyle? = nil, nominalPenWidthMM: Double? = nil, purpose: FlowPortfolioPurpose? = nil,
     render: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)? = nil,
     fit: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)? = nil,
     metadataJoinHook: (@MainActor () async -> Void)? = nil) {
-    self.directory = directory; self.purpose = purpose
+    self.directory = library?.directoryURL ?? directory; self.library = library; self.purpose = purpose
     self.nominalPenWidthMM = nominalPenWidthMM
     self.strokeStyle = strokeStyle ?? (try! StrokeStyle(nominalLineWidth: 0.4,
       penProfileID: PenProfileID(UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)))
@@ -115,25 +117,8 @@ package final class FlowDojoModel {
     guard store == nil, !isBusy, !closed else { return }
     await perform("Opening portfolio…", autosave: false) {
       let location = self.directory, purpose = self.purpose
-      self.store = try await Task.detached { try FlowPortfolioStore(directory: location, purpose: purpose) }.value
-      try await self.store?.markInterruptedRounds()
-      try await self.refresh()
-      try await self.restoreRanking()
-    }
-  }
-
-  package func switchPortfolio(to url: URL) async {
-    guard !isBusy, url.standardizedFileURL != directory.standardizedFileURL else { return }
-    await flushMetadataEdits()
-    await perform("Opening portfolio…", autosave: false) {
-      let next = try await Task.detached { try FlowPortfolioStore(directory: url) }.value
-      self.store = next; self.directory = url; self.document = nil
-      self.previews = [:]; self.previewKeys = [:]; self.loadedSourceHash = nil; self.loadedProgramID = nil
-      self.rankingPreviews = [:]; self.presentation = nil; self.ranks = [:]
-      self.reportSummary = nil; self.fitReport = nil; self.activeCheckpoint = nil; self.activeModelIssue = nil; self.selection = []
-      self.fittedDocument = nil; self.activeTrainingDocument = nil
-      self.fittedSnapshotID = nil; self.activeSnapshotID = nil
-      self.stage = .explore
+      self.store = FlowPortfolioStore(directory: location, purpose: purpose, library: self.library)
+      try await self.store?.loadRecords()
       try await self.store?.markInterruptedRounds()
       try await self.refresh()
       try await self.restoreRanking()
@@ -158,11 +143,15 @@ package final class FlowDojoModel {
   package func importPhotoCollection(_ directory: URL) async {
     guard let store else { return }
     await perform("Importing photo set…") {
-      let collection = try await Task.detached {
-        let scoped = directory.startAccessingSecurityScopedResource()
-        defer { if scoped { directory.stopAccessingSecurityScopedResource() } }
-        return try FlowPhotoCollection.load(directory: directory)
-      }.value
+      let collection: FlowPhotoCollection
+      do {
+        collection = try await Task.detached {
+          let scoped = directory.startAccessingSecurityScopedResource()
+          defer { if scoped { directory.stopAccessingSecurityScopedResource() } }
+          return try FlowPhotoCollection.load(directory: directory)
+        }.value
+      } catch is CancellationError { throw CancellationError() }
+      catch { throw FlowPortfolioError.invalid("The photo set could not be admitted: " + error.localizedDescription) }
       _ = try await store.importPhotoCollection(collection)
       try await self.refresh()
     }
@@ -309,7 +298,6 @@ package final class FlowDojoModel {
         parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: FlowDojoRenderer.analysisOptions)
       self.stage = .explore; try await self.refresh()
       var scores: [(UUID, Double)] = []
-      var seenPreviews = Set<String>()
       var cancelled = false
       let inheritedRevision = parent.flatMap { self.document?.latestPrune(candidateID: $0.id) }
       for (slot, recipe) in recipes.enumerated() {
@@ -324,9 +312,11 @@ package final class FlowDojoModel {
         let score: Double
         do {
           let renderer = self.renderer, override = self.renderOverride
-          let parentLink: SourceLink<DrawingRef> = parent == nil ? .none
-            : .unavailable(reason: "Legacy portfolio parent has no retained DrawingRef", knownRef: nil)
-          let input = PortraitFlowDrawingProducer.Input(data: data, parent: parentLink)
+          let parentLink: SourceLink<DrawingRef>
+          if let parent { parentLink = .present(try await store.retainedDrawing(candidateID: parent.id).reference!) }
+          else { parentLink = .none }
+          let photo = try await store.sourcePhoto(source.id)
+          let input = PortraitFlowDrawingProducer.Input(data: data, parent: parentLink, photo: photo)
           let settings = PortraitFlowDrawingProducer.Settings(recipe: recipe,
             analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: pen, nominalPenWidthMM: nominalWidth)
           if slot == 0, let parent {
@@ -346,7 +336,7 @@ package final class FlowDojoModel {
                   input: input, settings: settings, origin: .providedArtifacts)
               }
               return try await renderer.produce(data: data, recipe: recipe, strokeStyle: pen,
-                nominalPenWidthMM: nominalWidth, parent: parentLink)
+                nominalPenWidthMM: nominalWidth, parent: parentLink, photo: photo)
             }
             self.rendering = worker
             production = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
@@ -369,10 +359,6 @@ package final class FlowDojoModel {
             try checkpoint?.score(features: FlowArtistFeatures.drawing(recipe: recipe,
               program: admittedProgram, raster: result.raster, removedIndices: mask)) ?? 0
           }.value
-          let fingerprint = DrawingPackageCodec.sha256(preview)
-          guard seenPreviews.insert(fingerprint).inserted else {
-            throw FlowPortfolioError.unavailable("This recipe reproduced an existing drawing in the round; duplicate omitted.")
-          }
         } catch is CancellationError {
           self.rendering = nil; cancelled = true
           try await store.failCandidate(roundID: round.id, slot: slot, message: "Cancelled")
@@ -385,7 +371,7 @@ package final class FlowDojoModel {
         // Storage failures are not renderer failures. Stop without overwriting a
         // completed slot; recovery marks any unfinished round interrupted.
         let saved = try await store.completeCandidate(roundID: round.id, slot: slot,
-          program: admittedProgram, raster: result.raster, previewPNG: preview)
+          production: production, previewPNG: preview)
         if slot == 0, parent != nil, let inheritedRevision {
           _ = try await store.applyPrune(candidateID: saved.id, action: .inheritedSelection,
             indices: removed.sorted(), inheritedFromRevisionID: inheritedRevision.id)
@@ -401,7 +387,7 @@ package final class FlowDojoModel {
       try await store.finishRound(round.id, cancelled: cancelled, displayOrder: ordered,
         recommendedCandidateID: checkpoint?.ranker == nil ? nil : ordered.first)
       try await self.refresh()
-      self.progress = cancelled ? "Generation cancelled; completed drawings retained." : "Round saved. Choose a drawing to refine or prune."
+      self.progress = cancelled ? "Generation cancelled; completed previews remain in this session." : "Choose a drawing to retain and refine or prune."
     }
   }
 
@@ -458,6 +444,7 @@ package final class FlowDojoModel {
       self.ranks = [:]
       for (index, tier) in tiers.enumerated() { for id in tier { self.ranks[id] = index + 1 } }
       try await self.refresh()
+      try await self.advanceComparison(after: presentation)
     }
   }
 
@@ -466,7 +453,16 @@ package final class FlowDojoModel {
     await perform("Saving comparison outcome…") {
       _ = try await store.recordRanking(presentationID: presentation.id, orderedGroups: [], skipped: !neither, neither: neither)
       self.ranks = [:]; try await self.refresh()
+      try await self.advanceComparison(after: presentation)
     }
+  }
+  private func advanceComparison(after previous: FlowPortfolioPresentation) async throws {
+    guard let store, previous.items.count == 2 else { return }
+    do {
+      let next = try await store.presentRanking(scope: previous.scope, count: 2, seed: UInt64.random(in: 1...UInt64.max))
+      presentation = next; ranks = [:]; rankingPreviews = [:]
+      try await loadRankingPreviews(); try await refresh()
+    } catch FlowPortfolioError.unavailable { progress = "Comparison saved. Every available pair has a current ranking." }
   }
   package func curateSource(sourceID: UUID? = nil, subject: String, session: String, excluded: Bool) async {
     guard let store, let id = sourceID ?? selectedSource?.id else { return }
@@ -510,7 +506,7 @@ package final class FlowDojoModel {
       }
       guard let report = retainedReport else { return }
       self.reportSummary = report.summary; self.fitReport = report
-      let encoder = DrawingPackageCodec.encoder()
+      let encoder = DrawingArtifactCoding.encoder()
       _ = try await store.installFit(checkpoint: try report.checkpoint.map { try encoder.encode($0) },
         report: encoder.encode(report), snapshotID: frozen.id)
       try await self.refresh()
@@ -534,9 +530,16 @@ package final class FlowDojoModel {
       self.reportSummary = report.summary; self.fitReport = report
     }
   }
-  package func exportPackage() async throws -> Data {
+  package func retainedDrawing() async throws -> Drawing {
     guard let store, let candidate else { throw FlowPortfolioError.unavailable("Choose a drawing first.") }
-    return try await store.exportPackage(candidateID: candidate.id, revisionID: prune?.id)
+    let drawing = try await store.retainedDrawing(candidateID: candidate.id, revisionID: prune?.id)
+    try await refresh()
+    return drawing
+  }
+  package func exportDrawing(to url: URL) async throws {
+    guard let store else { throw FlowPortfolioError.unavailable("Library is unavailable.") }
+    let drawing = try await retainedDrawing()
+    try await store.exportDrawing(drawing, to: url)
   }
 
   package func cancel() { cancelRequested = true; rendering?.cancel(); fitting?.cancel() }
@@ -554,6 +557,7 @@ package final class FlowDojoModel {
   }
   @discardableResult package func shutdown() async -> Bool {
     guard await prepareForShutdown() else { return false }
+    if library == nil { await store?.closeLibrary() }
     closed = true; store = nil
     return true
   }
@@ -582,8 +586,8 @@ package final class FlowDojoModel {
         self.error = error.localizedDescription
         var rejected = false
         if case FlowPortfolioError.invalid = error { rejected = true }
-        if case DrawingTransferError.invalid = error { rejected = true }
-        if case DrawingTransferError.limit = error { rejected = true }
+        // Raw command/image validation is classified by the domain before
+        // mutation. Core admission failures can instead originate in storage.
         if autosave && !rejected {
           self.failedIntent = (status, baseline, replayAfterPartialCommit, operation); self.needsRecovery = true
         }
@@ -647,7 +651,7 @@ package final class FlowDojoModel {
       }
     } else { sourceData = nil; loadedSourceHash = nil }
     if let candidate {
-      if loadedProgramID != candidate.id { program = try await store.candidateProgram(candidate.id); loadedProgramID = candidate.id }
+      if loadedProgramID != candidate.id { program = try? await store.candidateProgram(candidate.id); loadedProgramID = candidate.id }
     } else { program = nil; loadedProgramID = nil }
     if let fitID = document?.activeFitID {
       activeCheckpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: await store.checkpointData(fitID: fitID))
@@ -662,10 +666,9 @@ package final class FlowDojoModel {
       let revision = document?.latestPrune(candidateID: candidate.id)
       let key = revision?.id.uuidString ?? "original"
       guard previewKeys[candidate.id] != key else { continue }
-      if let revision {
-        let program = try await store.candidateProgram(candidate.id), mask = Set(revision.removedIndices)
-        previews[candidate.id] = try await Task.detached { try FlowDojoRenderer.preview(program, removed: mask) }.value
-      } else { previews[candidate.id] = try await store.candidatePreview(candidate.id) }
+      let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,
+        revisionID: revision?.id, sourceID: candidate.sourceID, removedIndices: revision?.removedIndices ?? [])
+      previews[candidate.id] = try? await store.presentationPreview(item)
       previewKeys[candidate.id] = key
     }
   }
@@ -680,9 +683,6 @@ package final class FlowDojoModel {
   }
   private func loadRankingPreviews() async throws {
     guard let store, let presentation else { return }
-    for item in presentation.items {
-      let program = try await store.candidateProgram(item.candidateID), removed = Set(item.removedIndices)
-      rankingPreviews[item.id] = try await Task.detached { try FlowDojoRenderer.preview(program, removed: removed) }.value
-    }
+    for item in presentation.items { rankingPreviews[item.id] = try? await store.presentationPreview(item) }
   }
 }

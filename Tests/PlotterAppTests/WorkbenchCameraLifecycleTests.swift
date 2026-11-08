@@ -24,7 +24,8 @@ struct WorkbenchCameraLifecycleTests {
     await probe.setFrame(accepted.frame.frame)
     let live = CameraCapture(driver: WorkbenchCaptureDriver(role: .plotter, probe: probe, plotterID: deviceID))
     let portrait = PortraitStudioModel(camera: CameraCapture(
-      driver: WorkbenchCaptureDriver(role: .portrait, probe: probe, plotterID: deviceID)))
+      driver: WorkbenchCaptureDriver(role: .portrait, probe: probe, plotterID: deviceID)),
+      library: DrawingFirstTestStorage.library())
     let vision = VisionWorker()
     let session = CameraSourceSession(live: live, vision: vision,
       analysisPipeline: PlotterSceneAnalysisPipeline(worker: vision), plannedDrawingObserver: vision)
@@ -357,7 +358,7 @@ private struct WorkbenchCameraFixture {
     let probe = WorkbenchCaptureProbe()
     let live = CameraCapture(driver: WorkbenchCaptureDriver(role: .plotter, probe: probe))
     let portrait = PortraitStudioModel(camera: CameraCapture(
-      driver: WorkbenchCaptureDriver(role: .portrait, probe: probe)))
+      driver: WorkbenchCaptureDriver(role: .portrait, probe: probe)), library: DrawingFirstTestStorage.library())
     let vision = VisionWorker()
     let session = CameraSourceSession(live: live, vision: vision,
       analysisPipeline: PlotterSceneAnalysisPipeline(worker: vision), plannedDrawingObserver: vision)

@@ -1,0 +1,12 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[1/4] Write swift-version--1AB21518FC5DEDBE.txt
+[3/7] Emitting module DrawingLibrary
+[4/7] Compiling DrawingLibrary DrawingLibraryRecords.swift
+[5/7] Compiling DrawingLibrary DrawingLibraryReads.swift
+[5/8] Write Objects.LinkFileList
+[6/8] Linking DrawingLibraryPublicClient
+[7/8] Applying DrawingLibraryPublicClient
+Build of product 'DrawingLibraryPublicClient' complete! (2.55s)
+PASS public concrete DrawingLibrary retain/page/load/rename/unknown-width/retry/offline-copy

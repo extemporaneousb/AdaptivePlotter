@@ -1,0 +1,30 @@
+{
+  "argv": [
+    "swift",
+    "run",
+    "--package-path",
+    "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Tests/Fixtures/DrawingExchange/drawing-first/public-client",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-verification2-tppri552/client-scratch",
+    "DrawingLibraryPublicClient"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T07:22:14.911149+00:00",
+  "cache": "cached reviewed three-delta retry",
+  "predecessor": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-client-retry-ag3lz5uy/process.json",
+  "expected_source_delta": {
+    "Sources/DrawingLibrary/DrawingLibraryReads.swift": {
+      "before": "f45394068bf8b321b92159111aa771ca518eed93109149f80020f6d41f7df51f",
+      "after": "cd4d3bba1690c223b6de17204f4875a426f68a5ea114f0b38983c720f00553b5"
+    },
+    "Sources/DrawingLibrary/DrawingLibraryRecords.swift": {
+      "before": "5122ac03df4760dc7e1e890d662ec359d4baa4ea61a46ffe6424e1142ced617f",
+      "after": "f28358c530ee3f3bcd917a2c6ab3ba973c3d708e31d7bcdac73acf797f4453f2"
+    },
+    "Tests/DrawingLibraryTests/DrawingLibraryIndexContextCacheTests.swift": {
+      "before": "2c1399c28e61b202c8ff3ace74e251f55e6dcd141b14d3aaf5b1b6e252f73e90",
+      "after": "9ffce0c54e7c5d0794ed566d49103efc3f35a992dc538337fe11f4daa745d32e"
+    }
+  },
+  "writer_state": "root-confirmed-all-writers-frozen"
+}

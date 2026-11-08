@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "swift",
+    "run",
+    "--package-path",
+    "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Tests/Fixtures/DrawingExchange/drawing-first/public-client",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-verification2-tppri552/client-scratch",
+    "DrawingLibraryPublicClient"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T07:12:05.099301+00:00",
+  "cache": "cached retry of prior fresh public client; only reviewed Authoring.swift changed",
+  "predecessor": "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-verification2-tppri552/fresh-public-client-process.json",
+  "expected_source_delta": {
+    "Sources/DrawingLibrary/DrawingLibraryAuthoring.swift": {
+      "before": "05720b58624e23ae2835b5f2f7740aadd286967b110f558eecd8641b860105d1",
+      "after": "a74df3f29c6009aef8ac825da5eba7d2f094b209a0a5e832ce72d0ae3d994857"
+    }
+  },
+  "writer_state": "root-confirmed-all-writers-frozen"
+}

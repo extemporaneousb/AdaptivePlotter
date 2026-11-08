@@ -22,18 +22,13 @@ struct PortraitStudioWorkspaceLayoutTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let renderer = WorkspaceLayoutRenderer()
-    let owner = PortraitStudioModel(candidateStore: .init(directoryURL: directory.appendingPathComponent("legacy")),
-      portfolioFactory: { stroke in
-        FlowDojoModel(directory: directory.appendingPathComponent("layout.flowportfolio"), strokeStyle: stroke,
-          purpose: .validationFixture, render: { data, recipe, pen in
-            try await renderer.render(data, recipe, pen)
-          }, fit: { _, _ in
-            .unavailable("Layout fixture: collect independent photo groups and explicit keep/remove judgments before evaluating an artist checkpoint.")
-          })
-      })
+    let library = DrawingFirstTestStorage.library()
+    let owner = PortraitStudioModel(library: library)
+    let dojo = FlowDojoModel(directory: directory, library: library, strokeStyle: try portraitTestStyle(),
+      purpose: .validationFixture, render: { data, recipe, pen in try await renderer.render(data, recipe, pen) },
+      fit: { _, _ in .unavailable("Layout fixture has no trained artist.") })
     do {
       let stroke = try portraitTestStyle()
-      let dojo = owner.portfolioDojo(strokeStyle: stroke)
       await dojo.open()
       await dojo.addPhoto(data: try portraitTestImage(), title: "Disposable portrait layout fixture")
       dojo.count = 6
@@ -76,10 +71,17 @@ struct PortraitStudioWorkspaceLayoutTests {
       }
       if stage == .rank {
         await dojo.presentRanking(scope: .round(try #require(dojo.round?.id)), count: 2)
-        await dojo.compare(preferred: try #require(dojo.presentation?.items.first?.id))
+        try #require(dojo.error == nil)
+        let previousPair = try #require(dojo.presentation)
+        try #require(previousPair.items.count == 2)
+        await dojo.compare(preferred: try #require(previousPair.items.first?.id))
+        try #require(dojo.error == nil)
+        let nextPair = try #require(dojo.presentation)
+        try #require(nextPair.id != previousPair.id && nextPair.items.count == 2)
+        try #require(dojo.ranks.isEmpty)
         let pairRevision = dojo.document?.revision
         for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
-          try await inspect(owner, dojo: dojo, stroke: stroke, stage: stage, size: size, suffix: "-pair")
+          try await inspect(owner, dojo: dojo, stroke: stroke, stage: stage, size: size, suffix: "-pair", expectedFreshPair: true)
           #expect(dojo.document?.revision == pairRevision)
           #expect(await renderer.calls == renderCalls)
         }
@@ -96,7 +98,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let owner = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let owner = PortraitStudioModel(library: DrawingFirstTestStorage.library())
     let host = NSHostingController(rootView: FlowDojoCameraPanel(camera: owner,
       strokeStyle: try portraitTestStyle(), selectCamera: { nil }, captured: { _ in })
       .frame(width: 640, height: 600).background(Color(nsColor: .windowBackgroundColor)))
@@ -142,9 +144,9 @@ struct PortraitStudioWorkspaceLayoutTests {
   }
 
   private func inspect(_ owner: PortraitStudioModel, dojo: FlowDojoModel, stroke: PlotterModel.StrokeStyle,
-    stage: FlowDojoModel.Stage, size: CGSize, suffix: String = "") async throws {
-    let host = NSHostingController(rootView: PortraitStudioView(model: owner,
-      strokeStyle: stroke, showOnPlotter: { _ in nil }, showEditedOnPlotter: { _ in nil })
+    stage: FlowDojoModel.Stage, size: CGSize, suffix: String = "", expectedFreshPair: Bool = false) async throws {
+    let host = NSHostingController(rootView: FlowDojoView(model: dojo, camera: owner,
+      handoff: { _ in nil })
       .padding(12)
       .frame(width: size.width, height: size.height)
       .background(Color(nsColor: .windowBackgroundColor))
@@ -233,7 +235,12 @@ struct PortraitStudioWorkspaceLayoutTests {
         let visibleRanks = nativeLabels.filter { ["1", "2", "Unranked"].contains($0) }
         #expect(visibleRanks.count >= min(columns, dojo.presentation?.items.count ?? 0),
           "The entire first row of rank pickers must be visible before scrolling at \(size): \(visibleRanks).")
-        #expect(visibleRanks.contains("1") && visibleRanks.contains("2"))
+        if expectedFreshPair {
+          #expect(visibleRanks.filter { $0 == "Unranked" }.count == 2,
+            "The fresh next pair must expose two distinct Unranked controls before scrolling.")
+        } else {
+          #expect(visibleRanks.contains("1") && visibleRanks.contains("2"))
+        }
         if dojo.presentation?.items.count == 2 {
           #expect(normalized.contains { $0.contains(normalize("Prefer this drawing")) })
           #expect(normalized.contains { $0.contains(normalize("Equal preference")) })
@@ -290,7 +297,7 @@ private actor WorkspaceLayoutRenderer {
         style: pen, ordering: UInt32(index))
     }
     let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 110),
-      strokes: strokes, source: .init(kind: "portrait", sourceIdentifier: "layout-fixture|" + DrawingPackageCodec.sha256(data)))
+      strokes: strokes, source: .init(kind: "portrait", sourceIdentifier: "layout-fixture|" + DrawingArtifactCoding.sha256(data)))
     return .init(raster: portraitTestRaster(), program: program)
   }
 }

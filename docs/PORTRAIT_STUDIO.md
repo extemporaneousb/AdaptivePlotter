@@ -3,7 +3,7 @@
 Status: current operator and file-format guide for the Flow Edge Dojo. Product
 semantics belong to [Product Contract](PRODUCT_CONTRACT.md); implementation owners
 belong to [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md). Actual validation
-receipts remain in [Current Evidence](CURRENT_EVIDENCE.md). The accepted replacement contract and adoption sequence live in [Drawing Exchange](DRAWING_EXCHANGE.md) and the [Roadmap](ROADMAP.md#drawing-exchange). This guide describes the shipping paths until their cutovers land.
+receipts remain in [Current Evidence](CURRENT_EVIDENCE.md). The shared Drawing contract lives in [Drawing Exchange](DRAWING_EXCHANGE.md); remaining adoption work lives in the [Roadmap](ROADMAP.md#drawing-exchange).
 
 Portrait Studio has one authoring journey: choose a photo, explore Flow Edge
 constructions, refine a choice, prune whole lines, rank drawings, fit the artist,
@@ -24,18 +24,17 @@ Use `APP_CONFIGURATION=release` for an optimized build. The bundle identifier is
 Info.plist contains camera permission wording. Launch the signed bundle explicitly;
 the raw SwiftPM executable does not have that application identity.
 
-The default portfolio is:
+The standalone default Drawing Library is:
 
 ```text
-~/Documents/Flow Edge Portfolio.flowportfolio/
+~/Library/Application Support/PortraitStudio/DrawingLibrary/
 ```
 
-**Portfolio → New Portfolio…** creates an independent directory. **Open Portfolio…**
-reopens an existing one. The standalone executable also accepts one absolute
-`--portfolio` directory argument. The old `--review-library` argument is refused
-with an explanation; old databases are not interpreted as portfolios or overwritten.
-Each portfolio admits one writer. A second app must use another portfolio or wait
-for the first writer to close it.
+Embedded Studio uses `~/Library/Application Support/AdaptivePlotter/DrawingLibrary/`.
+The standalone executable accepts one absolute `--library` directory argument.
+Each library admits one writer. Close the first app before another app opens the
+same directory for writing. Old authoring formats are not active library inputs;
+historical files remain untouched and historical import is deferred.
 
 Camera photos retain exact capture time, frame identity/timestamp, acquisition
 session, source pixel extent and burst-selection measurements beside their source
@@ -62,8 +61,10 @@ calibration, motion, paper-clearance or mechanical Learning controls.
    A seeded, bounded panel spans native Flow Edge settings and named geometry
    families. Source context and an activated preference model can guide a bounded
    portion of the panel; generation still performs the requested number of full
-   renders. Every completed drawing,
-   its exact recipe, raster, program and preview is retained before publication.
+   renders. Completed candidate metadata is saved. Unselected geometry, rasters and
+   previews stay temporary and bounded; **Choose**, pruning or explicit Plot handoff
+   retains the exact Drawing revision and dependencies. Rank captures durable exact
+   feature capsules and previews for its presentations.
    Failed, duplicate and cancelled slots remain recorded; a failed slot does not
    silently become another source or a successful drawing.
 3. **Choose** records the displayed alternatives and chosen drawing. **Refine chosen
@@ -108,7 +109,7 @@ never consumes pending feedback.
 
 The status bar distinguishes busy work, committed revision and persistence errors.
 A failed mutation never reports success; it retains pending intent and reconciles
-the durable head before retrying when the commit outcome is uncertain. The
+the durable library state before retrying when the commit outcome is uncertain. The
 acknowledged in-memory state stays unchanged until reconciliation succeeds.
 There is no requirement to save photos, drawings, choices, rankings or line edits
 explicitly. Source identity declarations and training exclusions are also retained.
@@ -186,7 +187,8 @@ not require Python, a cloud API, pretrained weights or network access.
 A fit freezes the exact portfolio revision and retained observation identities.
 The coverage display and fit adapter share one effective-supervision projection.
 Only bases/versions participating in current comparisons or effective correction
-labels allocate features; all unused generated artifacts remain in the portfolio.
+labels allocate features. Rank capsules retain their exact features and previews
+without making unused generated geometry permanent.
 Completed masks expand only after allocation limits are checked. Group connectivity
 is computed across every source first, including excluded or unlabelled bridges.
 All variants of an exact photo, plus connected declared subject/session groups,
@@ -242,46 +244,32 @@ gap. Complete intentional pruning targets and rank alternatives on additional ph
 then compare correction burden on excluded groups. The exact diagnostic and its
 limits are recorded in [Current Evidence](CURRENT_EVIDENCE.md).
 
-## Portable portfolio format and durability
+## Drawing Library format and durability
 
-The entire `.flowportfolio` directory is the training portfolio. It contains:
+The concrete `DrawingLibrary` actor owns the selected directory:
 
 ```text
-portfolio.json   writer-floor version, identity, revision, record hash
-records/         immutable hash-addressed operation deltas and parent links
-objects/         immutable hash-addressed image, raster, geometry, preview,
-                 historical package, frozen dataset, report and model bytes
-writer.lock      process-owned exclusive writer lease
+drawing-library.sqlite   strict local schema 10, profile adaptiveplotter.drawing-library/1
+objects/sha256/<digest>   immutable content-addressed records and assets
 ```
 
-Every referenced object carries its SHA-256, byte count and media type. Source
-photos, analysis rasters, exact generated programs, recipes, generation seeds and
-outcomes, ancestry, shown choices, ordered remove/restore/undo/redo revisions,
-randomized ranking presentations, judgments, exclusions, frozen fit inputs,
-checkpoints, reports, durable names, curated source manifests and activation history
-live inside this directory. There are
-no required paths back to an imported image, old library or external model runtime.
+SQLite owns transactional catalog and authoring metadata. Sources, prepared inputs,
+retained Drawings, parent/edit relationships, ranking features and previews, frozen
+training snapshots, reports, checkpoints and activation history use this owner.
+Objects are installed before their metadata is selected. The writer lease prevents
+competing writers; changed or corrupt selected files fail visibly rather than
+opening an empty replacement library. Pending mutations reconcile through the same
+owner before retrying an uncertain commit. No separate portfolio head or delta
+publisher remains.
 
-Objects and operation records are synchronized before an atomic head replacement.
-Reopening verifies the hash chain, graph and referenced objects. Interrupted rounds
-remain explicit; they are not silently regenerated. The writer lease prevents two
-apps from updating the same portfolio. Missing or corrupted committed content is
-an error, not permission to replace the portfolio with an empty one. Copy the whole
-directory with its writer closed to make a portable backup; copying only
-`portfolio.json` does not copy the dataset.
-
-The current writer accepts head versions one and two and publishes version two
-on the first mutation or fresh portfolio creation. Opening a version-one history
-does not rewrite it. Version two prevents the earlier application from writing
-away optional mark recipes, names, or import provenance it does not understand.
-Immutable records and frozen document envelopes retain schema one; unknown head
-versions are rejected without resetting history.
-
-This is a new training-centered format. Historical `PortraitLibrary` databases,
-old source files, selections and experiment exports remain historical artifacts.
-An explicit historical import can retain their original packages and exact edited
-masks with their provenance; it does not invent rankings, completion declarations
-or positive labels. They are not silently migrated into the active artist.
+Generated geometry is temporary and bounded. Selection, committed pruning and
+explicit Plot handoff retain exact immutable revisions; pruning creates a child
+reference and preserves its required parent. Rank may keep durable features and
+preview bytes for unselected alternatives without keeping their full geometry.
+Reopening does not silently regenerate evicted geometry. Copy the entire closed
+library directory for a backup; the SQLite file alone does not include its assets.
+Historical authoring files remain untouched outside this format. Their import is
+deferred and is not a startup requirement.
 
 A curated `.flowphotos` folder contains `photo-collection.json` and original bytes
 at `images/<sha256>.asset`. Its schema-one entries retain names, image hashes/sizes,
@@ -294,28 +282,32 @@ source collection is not required after import.
 
 ## Drawing exchange and physical evidence
 
-**Export Drawing** exports the selected candidate and exact selected pruning
-revision as a version-one Drawing Package. Embedded **Send to Drawing** uses the
-same package and existing canonical import/handoff owners. The package contains
-source bytes, raster input, recipe, original complete program, selected mask,
-preview and hash-bound portfolio/source/result identity. Its artist identifier is
-`adaptiveplotter.flow-artist`; artist, recipe and renderer revisions follow the
-frozen candidate's actual legacy or mark-enabled recipe. Retained stroke coordinates,
-IDs, order and pen
-styles are unchanged; program identity records the derived result.
+**Export Drawing** exports the selected immutable Drawing revision through the
+Drawing Exchange v1 directory/ZIP carrier. Studio's file export writes a ZIP;
+AdaptivePlotter accepts the current directory or ZIP carrier. The closed payload
+retains the exact program, producer receipt, declared source/input and required
+parent/assets. Every reference pins issuer, revision and record digest. Embedded
+**Send to Drawing** passes the admitted Drawing and reference directly, without
+serializing and reimporting a package.
 
-An empty mask result remains useful portfolio evidence but cannot be exported as
-an executable `DrawingProgram`. In AdaptivePlotter use the ordinary Drawing
-placement, material/paper setup and explicit Draw action. Export, import, choosing,
-pruning, fitting and activation never move hardware or alter mechanical Learning.
-Later portfolio edits cannot mutate a drawing already placed or executed.
+Retained stroke coordinates, IDs, order and styles remain unchanged. Pruning makes
+an immutable child Drawing. An all-removed mask can remain training evidence but
+cannot become an executable drawing. Field-space preview width does not establish
+millimeters. Nominal physical pen width is optional for fresh and retained Drawings;
+unknown width adds no required field or setup step.
 
-The receiving canonical `SavedDrawing` and DrawingEvidence owners continue to own
-execution provenance and physical results. Existing Drawing Packages and optional
-Plot Attachments retain their version-one contracts; returned records and original
-frames are inspection evidence, not motion or redraw authority. Controller
-settlement is not evidence of deposited ink. The full portfolio is the training
-archive; a single exported drawing is a handoff artifact, not a replacement for it.
+In AdaptivePlotter continue with ordinary Drawing placement, material/paper setup
+and explicit **Draw**. Export, import, choosing, pruning, fitting and activation
+never move hardware or alter mechanical Learning. Later edits cannot mutate placed
+or executed geometry.
+
+The existing raw DrawingEvidence owner retains execution, possible-ink and
+no-redraw authority. The authoring library records an exact DrawingRef association
+to an already-staged run through the existing pre-motion adapter; that association
+is not physical evidence. Controller settlement does not prove deposited ink.
+Historical drawing packages and plot attachments remain untouched files, with
+historical import deferred. A drawing export is a handoff artifact, not a backup of
+all training records.
 
 ## Historical research and baseline
 

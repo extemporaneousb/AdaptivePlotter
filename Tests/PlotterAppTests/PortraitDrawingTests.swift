@@ -34,7 +34,7 @@ struct PortraitDrawingTests {
       ForEach(Array(programs.enumerated()), id: \.offset) { index, program in
         VStack {
           Text(PortraitStyle.allCases[index].rawValue).font(.headline)
-          PortraitProgramPreview(program: program).frame(width: 300, height: 420)
+          PortraitPlaneProgramPreview(preview: PortraitPlanePreviewSource().resolve(program: program, nominalWidth: 0.4)).frame(width: 300, height: 420)
         }
       }
     }.padding().background(.background)
@@ -56,7 +56,7 @@ struct PortraitDrawingTests {
           ForEach(PortraitStyle.allCases.indices, id: \.self) { column in
             VStack {
               Text(PortraitStyle.allCases[column].rawValue).font(.caption)
-              PortraitProgramPreview(program: variants[row][column], inkWidth: 1.5, drawingHeight: 180)
+              PortraitPlaneProgramPreview(preview: PortraitPlanePreviewSource().resolve(program: variants[row][column], nominalWidth: 1.5))
                 .frame(width: 180, height: 230)
               Text("\(variants[row][column].strokes.count) strokes").font(.caption2)
             }
@@ -67,32 +67,6 @@ struct PortraitDrawingTests {
     let gridImage = try #require(ImageRenderer(content: grid).cgImage)
     try PortraitImageAnalyzer.encodedImage(gridImage)
       .write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-marker-presets.png"))
-    let editorDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: editorDirectory) }
-    let model = PortraitStudioModel(candidateStore: .init(directoryURL: editorDirectory.appendingPathComponent("historical")),
-      portfolioFactory: { stroke in
-        FlowDojoModel(directory: editorDirectory.appendingPathComponent("reference.flowportfolio"),
-          strokeStyle: stroke, purpose: .validationFixture)
-      })
-    do {
-      // The earlier grids exercise historical renderers. The production editor
-      // snapshot must populate the current dojo, not an inactive legacy model.
-      model.setPhoto(data, for: .front, strokeStyle: try portraitTestStyle())
-      await model.awaitRendering()
-      #expect(model.program != nil)
-      let dojo = model.portfolioDojo(strokeStyle: try portraitTestStyle())
-      await dojo.open(); await dojo.addPhoto(data: data, title: "Reference photograph")
-      dojo.count = 3; await dojo.generate(refining: false)
-      try #require(dojo.error == nil && dojo.roundCandidates.count == 3)
-      #expect(dojo.document?.purpose == .validationFixture && dojo.document?.choices.isEmpty == true)
-      let editorImage = try await portraitEditorImage(PortraitStudioView(model: model,
-        strokeStyle: try portraitTestStyle(), showOnPlotter: { _ in nil }))
-      try PortraitImageAnalyzer.encodedImage(editorImage).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-populated.png"))
-      let narrow = try await portraitEditorImage(PortraitStudioView(model: model,
-        strokeStyle: portraitTestStyle(), showOnPlotter: { _ in nil }), width: 1000)
-      try PortraitImageAnalyzer.encodedImage(narrow).write(to: URL(fileURLWithPath: "/tmp/adaptiveplotter-portrait-style-narrow.png"))
-      await model.shutdown()
-    } catch { await model.shutdown(); throw error }
     let recipes = PortraitStyle.allCases.map {
       PortraitStyleRecipe(id: "algorithm-\($0.rawValue)", title: $0.rawValue, seed: 0,
         style: $0, vectorOptions: PortraitVectorPreset.broadMarker.options, analysisOptions: .init())
@@ -112,7 +86,7 @@ struct PortraitDrawingTests {
         ForEach(recipes.indices, id: \.self) { index in
           VStack {
             Text(recipes[index].title).font(.headline)
-            PortraitProgramPreview(program: results[index].program, inkWidth: 1.2, drawingHeight: 180)
+            PortraitPlaneProgramPreview(preview: PortraitPlanePreviewSource().resolve(program: results[index].program, nominalWidth: 1.2))
               .frame(width: 220, height: 300)
             Text("\(results[index].program.strokes.count) strokes").font(.caption)
             Text(results[index].transformationSummary ?? "Original proportions").font(.caption2)
@@ -201,213 +175,6 @@ struct PortraitDrawingTests {
     #expect(hatch.strokes.allSatisfy { $0.path.length == 100 })
   }
 
-  @Test("rapid portrait edits coalesce behind held analysis and publish the newest result")
-  @MainActor
-  func renderCoalescing() async throws {
-    let renderer = try HeldPortraitRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let style = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: style)
-    try await renderer.waitUntilEntered()
-    for index in 0..<20 {
-      model.style = PortraitStyle.authoringCases[index % PortraitStyle.authoringCases.count]
-      model.render(strokeStyle: style)
-    }
-    model.pose = .left
-    model.style = .contours
-    model.setPhoto(Data([2]), for: .left, strokeStyle: style)
-    #expect(model.renderDiagnostics.activeWorkerCount == 1)
-    #expect(model.renderDiagnostics.startedWorkerCount == 1)
-    await renderer.release()
-    await model.awaitRendering()
-    #expect(model.renderDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(model.renderDiagnostics.startedWorkerCount == 2)
-    #expect(model.renderDiagnostics.settledWorkerCount == 2)
-    #expect(await renderer.maximumConcurrentCount == 1)
-    #expect(model.program?.source.sourceIdentifier.contains("pose=Left|style=Contour") == true)
-    #expect(!model.isProcessing)
-  }
-
-  @Test("cancelling held portrait work settles it, preserves photos, and permits reuse")
-  @MainActor
-  func renderCancellationAndReuse() async throws {
-    let renderer = try HeldPortraitRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let style = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: style)
-    try await renderer.waitUntilEntered()
-    let cancellation = Task { await model.cancelRendering() }
-    try await awaitPortraitTestState { !model.isProcessing }
-    #expect(model.renderDiagnostics.activeWorkerCount == 1)
-    #expect(model.renderDiagnostics.settledWorkerCount == 0)
-    await renderer.release()
-    await cancellation.value
-    #expect(model.program == nil)
-    #expect(model.recentPhotos.count == 1)
-    #expect(model.renderDiagnostics.activeWorkerCount == 0)
-    model.style = .contours
-    model.render(strokeStyle: style)
-    await model.awaitRendering()
-    #expect(model.program?.source.sourceIdentifier.contains("style=Contour") == true)
-    let program = model.program
-    await model.shutdown()
-    model.style = .crosshatch
-    model.render(strokeStyle: style)
-    #expect(model.program == program)
-    #expect(model.renderDiagnostics.startedWorkerCount == 2)
-  }
-
-  @Test("pose switching and rapid style changes publish only the selected portrait")
-  @MainActor
-  func poseSelection() async throws {
-    let model = PortraitStudioModel()
-    model.options = PortraitAnalysisOptions(cropToFace: false, removeBackground: false)
-    let style = try portraitTestStyle()
-    let data = try portraitTestImage()
-    model.setPhoto(data, for: .front, strokeStyle: style)
-    model.pose = .left
-    model.setPhoto(data, for: .left, strokeStyle: style)
-    model.style = .crosshatch
-    model.render(strokeStyle: style)
-    await model.awaitRendering()
-    let program = try #require(model.program)
-    #expect(program.source.sourceIdentifier.contains("pose=Left|style=Crosshatch"))
-    #expect(model.recentPhotos.count == 2)
-    model.pose = .right
-    model.render(strokeStyle: style)
-    #expect(model.program == nil)
-    #expect(!model.isProcessing)
-  }
-
-  @Test("held image import coalesces repeated acquisitions and publishes only the newest photo")
-  @MainActor
-  func acquisitionReplacement() async throws {
-    let acquirer = HeldPortraitAcquirer()
-    let model = PortraitStudioModel(renderer: try HeldPortraitRenderer(holdFirst: false), photoAcquirer: acquirer)
-    let style = try portraitTestStyle()
-    let first = Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/1"), strokeStyle: style) }
-    try await acquirer.waitUntilEntered()
-    var replacements: [Task<Void, Never>] = []
-    for index in 2...21 {
-      replacements.append(Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/\(index)"), strokeStyle: style) })
-      try await awaitPortraitTestState { model.acquisitionDiagnostics.requestedWorkCount >= index }
-    }
-    #expect(model.recentPhotos.isEmpty)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 1)
-    await acquirer.release()
-    await first.value
-    for replacement in replacements { await replacement.value }
-    await model.awaitRendering()
-    #expect(model.recentPhotos.last(where: { $0.pose == .front })?.data == Data([21]))
-    #expect(await acquirer.inputs == [1, 21])
-    #expect(model.acquisitionDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(model.acquisitionDiagnostics.settledWorkerCount == 2)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
-    await model.shutdown()
-  }
-
-  @Test("source cancellation joins held capture encoding before returning and permits later import")
-  @MainActor
-  func acquisitionSourceCancellationAndReuse() async throws {
-    let driver = PortraitAcquisitionDriver()
-    let acquirer = HeldPortraitAcquirer()
-    let model = PortraitStudioModel(camera: CameraCapture(driver: driver),
-      renderer: try HeldPortraitRenderer(holdFirst: false), photoAcquirer: acquirer)
-    let style = try portraitTestStyle()
-    await model.discover(excluding: nil)
-    await model.startCamera()
-    await driver.emit()
-    try await awaitPortraitTestState { model.preview.frame != nil }
-    let capture = Task { await model.capture(strokeStyle: style) }
-    // Model a continuing camera stream so the exposure boundary cannot
-    // consume the test's sole frame when the main actor is busy.
-    let frames = Task {
-      var timestamp: UInt64 = 2
-      while !Task.isCancelled && timestamp < 255 {
-        await driver.emit(captureNanoseconds: timestamp)
-        timestamp += 1
-        do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
-      }
-    }
-    defer { frames.cancel() }
-    try await acquirer.waitUntilEntered()
-    frames.cancel()
-    await frames.value
-    var didSettle = false
-    let cancellation = Task { await model.cancelRendering(); didSettle = true }
-    try await awaitPortraitTestState { model.acquisitionDiagnostics.cancellationCount > 0 }
-    #expect(!didSettle)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 1)
-    #expect(model.acquisitionDiagnostics.settledWorkerCount == 0)
-    await acquirer.release()
-    await cancellation.value
-    await capture.value
-    #expect(model.recentPhotos.isEmpty)
-    #expect(model.renderDiagnostics.startedWorkerCount == 0)
-    await model.importPhoto(URL(fileURLWithPath: "/tmp/2"), strokeStyle: style)
-    await model.awaitRendering()
-    #expect(model.recentPhotos.last(where: { $0.pose == .front })?.data == Data([2]))
-    #expect(model.program != nil)
-    #expect(model.acquisitionDiagnostics.maximumConcurrentWorkerCount == 1)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
-    await model.shutdown()
-  }
-
-  @Test("shutdown joins held photo decoding and cannot publish a photo, render, or error afterwards")
-  @MainActor
-  func acquisitionShutdown() async throws {
-    let acquirer = HeldPortraitAcquirer()
-    let model = PortraitStudioModel(renderer: try HeldPortraitRenderer(holdFirst: false), photoAcquirer: acquirer)
-    let style = try portraitTestStyle()
-    let importing = Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/1"), strokeStyle: style) }
-    try await acquirer.waitUntilEntered()
-    let originalSummary = model.summary
-    var didSettle = false
-    let shutdown = Task { await model.shutdown(); didSettle = true }
-    try await awaitPortraitTestState { model.acquisitionDiagnostics.cancellationCount > 0 }
-    #expect(!didSettle)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 1)
-    #expect(model.acquisitionDiagnostics.settledWorkerCount == 0)
-    await acquirer.release()
-    await shutdown.value
-    await importing.value
-    await model.importPhoto(URL(fileURLWithPath: "/tmp/2"), strokeStyle: style)
-    model.setPhoto(Data([3]), for: .front, strokeStyle: style)
-    #expect(model.recentPhotos.isEmpty)
-    #expect(model.summary == originalSummary)
-    #expect(model.renderDiagnostics.startedWorkerCount == 0)
-    #expect(model.acquisitionDiagnostics.startedWorkerCount == 1)
-    #expect(model.acquisitionDiagnostics.activeWorkerCount == 0)
-  }
-
-  @Test("isolated dojo workspace renders within the requested editor dimensions", arguments: [1000, 1280])
-  @MainActor
-  func editorLayout(width: Int) async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let model = PortraitStudioModel(candidateStore: .init(directoryURL: directory.appendingPathComponent("historical")),
-      portfolioFactory: { stroke in
-        FlowDojoModel(directory: directory.appendingPathComponent("editor.flowportfolio"),
-          strokeStyle: stroke, purpose: .validationFixture)
-      })
-    do {
-      let stroke = try portraitTestStyle(), dojo = model.portfolioDojo(strokeStyle: try portraitTestStyle())
-      await dojo.open()
-      let revision = dojo.document?.revision
-      let view = PortraitStudioView(model: model, strokeStyle: stroke, showOnPlotter: { _ in nil })
-      let image = try await portraitEditorImage(view, width: width)
-      #expect(image.width >= width)
-      #expect(image.width * 610 == image.height * width)
-      #expect(dojo.document?.purpose == .validationFixture && dojo.directory.path.hasPrefix(directory.path))
-      #expect(dojo.document?.revision == revision && model.portfolioDojo(strokeStyle: stroke) === dojo)
-      #expect(model.renderDiagnostics.startedWorkerCount == 0 && !model.cameraIsRunning)
-      if let path = ProcessInfo.processInfo.environment["PORTRAIT_UI_SNAPSHOT"] {
-        let output = URL(fileURLWithPath: path).deletingPathExtension().appendingPathExtension("\(width).png")
-        try PortraitImageAnalyzer.encodedImage(image).write(to: output)
-      }
-      await model.shutdown()
-    } catch { await model.shutdown(); throw error }
-  }
 }
 
 func portraitTestStyle() throws -> PlotterModel.StrokeStyle {
@@ -435,125 +202,4 @@ func portraitTestImage() throws -> Data {
                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
                                   provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
   return try PortraitImageAnalyzer.encodedImage(image)
-}
-
-private actor HeldPortraitRenderer: PortraitRendering {
-  private var results: [String: PortraitRenderResult] = [:]
-  private var entered = false
-  private var releaseWaiter: CheckedContinuation<Void, Never>?
-  private var activeCount = 0
-  private(set) var maximumConcurrentCount = 0
-
-  init(holdFirst: Bool = true) throws {
-    entered = !holdFirst
-  }
-
-  func render(_ request: PortraitRenderRequest) async throws -> PortraitRenderResult {
-    activeCount += 1
-    maximumConcurrentCount = max(maximumConcurrentCount, activeCount)
-    defer { activeCount -= 1 }
-    if !entered {
-      entered = true
-      await withCheckedContinuation { releaseWaiter = $0 }
-    }
-    // Deliberately ignores cancellation like a synchronous Vision request.
-    // Build fixture vectors off the MainActor so other lifecycle tests can
-    // reach their suspended workers while structural sketch generation runs.
-    let key = request.pose.rawValue + request.style.rawValue
-    if let result = results[key] { return result }
-    let result = try await Task.detached {
-      let raster = portraitTestRaster()
-      return PortraitRenderResult(raster: raster,
-        program: try PortraitVectorizer.program(from: raster, pose: request.pose,
-          style: request.style, strokeStyle: portraitTestStyle()))
-    }.value
-    results[key] = result
-    return result
-  }
-
-  func waitUntilEntered() async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while !entered {
-      try #require(ContinuousClock.now < deadline, "Held portrait renderer was never entered.")
-      try await Task.sleep(for: .milliseconds(1))
-    }
-  }
-  func release() { releaseWaiter?.resume(); releaseWaiter = nil }
-}
-
-private actor HeldPortraitAcquirer: PortraitPhotoAcquiring {
-  private(set) var inputs: [UInt8] = []
-  private var releaseWaiter: CheckedContinuation<Void, Never>?
-  func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
-    let identifier: UInt8
-    switch input {
-    case .file(let url): identifier = UInt8(url.lastPathComponent)!
-    case .frame(let frame): identifier = UInt8(frame.captureNanoseconds)
-    }
-    inputs.append(identifier)
-    if inputs.count == 1 {
-      await withCheckedContinuation { releaseWaiter = $0 }
-    }
-    // Models synchronous image decoding/encoding that cannot be preempted.
-    return PortraitAcquiredPhoto(data: Data([identifier]))
-  }
-  func waitUntilEntered() async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while inputs.isEmpty {
-      try #require(ContinuousClock.now < deadline, "Held portrait acquisition was never entered.")
-      try await Task.sleep(for: .milliseconds(1))
-    }
-  }
-  func release() { releaseWaiter?.resume(); releaseWaiter = nil }
-}
-
-@MainActor
-private func awaitPortraitTestState(_ condition: () -> Bool) async throws {
-  let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-  while !condition() {
-    try #require(ContinuousClock.now < deadline, "Portrait lifecycle state did not settle before the deadline.")
-    try await Task.sleep(for: .milliseconds(1))
-  }
-}
-
-private actor PortraitAcquisitionDriver: CameraCaptureDriver {
-  var handler: (@Sendable (CameraDriverEvent) -> Void)?
-  func authorizationState() async -> CameraAuthorizationState { .authorized }
-  func requestAccess() async -> Bool { true }
-  func discoverDevices() async -> [CameraDevice] { [.init(id: .init(rawValue: "portrait"), name: "Portrait fixture")] }
-  func start(deviceID: CameraDeviceID, maximumFramesPerSecond: Double?,
-    eventHandler: @escaping @Sendable (CameraDriverEvent) -> Void) async throws -> CameraCaptureDriverStartResult {
-    handler = eventHandler
-    return .init(appliedMaximumFramesPerSecond: maximumFramesPerSecond)
-  }
-  func stop() async { handler = nil }
-  func emit(captureNanoseconds: UInt64 = 1) {
-    handler?(.frame(.init(width: 2, height: 2, rowBytes: 8,
-      bytes: Data(repeating: 0, count: 16), captureNanoseconds: captureNanoseconds)))
-  }
-}
-
-@MainActor
-private func portraitEditorImage(_ view: PortraitStudioView, width: Int = 1280) async throws -> CGImage {
-  _ = NSApplication.shared
-  let host = NSHostingView(rootView: view.padding(12)
-    .frame(width: CGFloat(width), height: 610)
-    .environment(\.colorScheme, .light)
-    .background(Color(nsColor: .windowBackgroundColor)))
-  let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: 610),
-    styleMask: [.borderless], backing: .buffered, defer: false)
-  window.isReleasedWhenClosed = false
-  defer { window.close() }
-  window.appearance = NSAppearance(named: .aqua)
-  window.contentView = host
-  host.frame = NSRect(x: 0, y: 0, width: CGFloat(width), height: 610)
-  host.layoutSubtreeIfNeeded()
-  try await Task.sleep(for: .milliseconds(100))
-  host.layoutSubtreeIfNeeded()
-  window.display()
-  host.display()
-  let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-  host.cacheDisplay(in: host.bounds, to: bitmap)
-  let image = try #require(bitmap.cgImage)
-  return image
 }

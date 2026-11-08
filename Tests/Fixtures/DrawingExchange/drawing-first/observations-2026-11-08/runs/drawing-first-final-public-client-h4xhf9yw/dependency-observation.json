@@ -1,0 +1,34 @@
+{
+  "description_sha256": "610905b0b1b3d0b99a66690434ff2c3fd9e1a3aed5203cea7589ee2360943bd3",
+  "emittedModules": [
+    "DrawingLibrary.swiftmodule",
+    "DrawingLibraryPublicClient.swiftmodule",
+    "PlotterModel.swiftmodule",
+    "PortraitCore.swiftmodule"
+  ],
+  "reachableTargets": [
+    "CSQLite",
+    "DrawingLibrary",
+    "DrawingLibraryPublicClient",
+    "PlotterModel",
+    "PortraitCore"
+  ],
+  "targetDependencyMap": {
+    "CSQLite": [],
+    "DrawingLibrary": [
+      "CSQLite",
+      "PortraitCore",
+      "PlotterModel"
+    ],
+    "DrawingLibraryPublicClient": [
+      "DrawingLibrary",
+      "CSQLite",
+      "PortraitCore",
+      "PlotterModel"
+    ],
+    "PlotterModel": [],
+    "PortraitCore": [
+      "PlotterModel"
+    ]
+  }
+}

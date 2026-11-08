@@ -20,7 +20,7 @@ public struct ExchangeAsset: Hashable, Codable, Sendable {
       throw DrawingExchangeError.malformed("Asset reference structure")
     }
   }
-  public func validate(_ bytes: Data, maximumBytes: Int = DrawingTransferLimits.sourceBytes) throws {
+  public func validate(_ bytes: Data, maximumBytes: Int = DrawingArtifactLimits.sourceBytes) throws {
     guard byteLength <= UInt64(maximumBytes), bytes.count == byteLength else { throw DrawingExchangeError.limit("Asset length") }
     guard object == .hash(bytes) else { throw DrawingExchangeError.digestMismatch("Asset") }
     guard exchangeMIMEType(mediaType), !encoding.isEmpty else { throw DrawingExchangeError.malformed("Asset type") }
@@ -64,8 +64,8 @@ public struct ExchangeRasterLayout: Hashable, Codable, Sendable {
       orientation: c.decode(String.self, forKey: .orientation), colorInterpretation: c.decode(String.self, forKey: .colorInterpretation))
   }
   public func requiredBytes() throws -> Int {
-    guard width > 0, height > 0, width <= DrawingTransferLimits.maximumImageDimension,
-      height <= DrawingTransferLimits.maximumImageDimension, width <= DrawingTransferLimits.maximumImagePixels / height,
+    guard width > 0, height > 0, width <= DrawingArtifactLimits.maximumImageDimension,
+      height <= DrawingArtifactLimits.maximumImageDimension, width <= DrawingArtifactLimits.maximumImagePixels / height,
       !pixelFormat.isEmpty, !componentType.isEmpty, !colorInterpretation.isEmpty, !orientation.isEmpty,
       !channelOrder.isEmpty, channelOrder.count <= 16, channelOrder.allSatisfy({ !$0.isEmpty }),
       bitDepth > 0, bitDepth <= 64, bitDepth <= Int.max / channelOrder.count,

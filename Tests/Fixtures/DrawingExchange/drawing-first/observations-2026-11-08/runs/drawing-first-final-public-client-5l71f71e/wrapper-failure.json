@@ -1,0 +1,8 @@
+{
+  "operation": "disposable observation wrapper initialization",
+  "exception": "NameError: name 'Path' is not defined",
+  "swift_or_client_process_started": false,
+  "wrapper_source": "/tmp/drawing-first-final-public-client-runner.py",
+  "wrapper_sha256": "a7d39da8c2577394de708be37ac32d10a9307eea28eb50136026439df1d292ee",
+  "source_inputs_mutated": false
+}

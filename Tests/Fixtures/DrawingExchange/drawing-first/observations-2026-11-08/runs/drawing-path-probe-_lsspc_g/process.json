@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "swift",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-path-probe-_lsspc_g/probe.swift"
+  ],
+  "start_utc": "2026-11-08T07:14:25.808679+00:00",
+  "stop_utc": "2026-11-08T07:14:26.751470+00:00",
+  "elapsed_seconds": 0.9425156060606241,
+  "exit_code": 0,
+  "changed_inputs": [],
+  "input_count": 740,
+  "before_sha256": "6eb7b00dd5032664467f64700a2a1fa35b2acbfdc42e4710641110b6cb38767b",
+  "after_sha256": "6eb7b00dd5032664467f64700a2a1fa35b2acbfdc42e4710641110b6cb38767b",
+  "log_sha256": "f21bfa89b2cc0568051a24221cdb9789ea95103cccd6db20d82c47bcc5a899e5"
+}

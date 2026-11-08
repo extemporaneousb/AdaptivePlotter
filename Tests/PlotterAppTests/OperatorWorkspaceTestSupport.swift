@@ -666,6 +666,7 @@ func makeCausalSimulatorAppFixture(
   let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: resolvedObservationPort,
+      portraitStudio: DrawingFirstTestStorage.studio(),
       drawingMaterials: drawingMaterials,
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
@@ -1629,7 +1630,7 @@ func plotterApplicationRuntime(
   let workspace = PlotterApplicationRuntime(
     machineSession: machineSession,
     observationSession: resolvedObservationPort,
-    portraitStudio: portraitStudio,
+    portraitStudio: portraitStudio ?? DrawingFirstTestStorage.studio(),
     drawingMaterials: drawingMaterials,
     capPointSelectionComposition: capPointSelectionComposition,
     manualMotionComposition: manualMotionComposition,

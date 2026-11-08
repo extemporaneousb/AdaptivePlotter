@@ -1,0 +1,280 @@
+[0/1] Planning build
+Building for debugging...
+[0/20] Write sources
+[12/21] Write PortraitStudio-entitlement.plist
+[13/21] Write AdaptivePlotter-entitlement.plist
+[14/21] Write swift-version--1AB21518FC5DEDBE.txt
+[16/77] Compiling EpisodeCore IntentContracts.swift
+[17/77] Compiling EpisodeCore EpisodeJournal.swift
+[18/77] Compiling EpisodeCore EpisodeIdentifiers.swift
+[19/77] Compiling EpisodeCore EpisodeEvent.swift
+[20/77] Emitting module EpisodeCore
+[21/77] Compiling EpisodeCore EpisodeSpecification.swift
+[22/96] Compiling PlotterEpisodeModel PlotterEvidence.swift
+[23/96] Compiling PlotterEpisodeModel PlotterPenInteraction.swift
+[24/96] Compiling PlotterEpisodeModel PlotterEpisodeStateDigest.swift
+[25/96] Compiling EpisodeRuntime EpisodeStore.swift
+[26/96] Emitting module EpisodeRuntime
+[27/96] Compiling EpisodeRuntime EpisodeJournalPersistenceAdapter.swift
+[28/96] Compiling EpisodeRuntime PlotterOperationRegistry.swift
+[29/96] Compiling PlotterEpisodeModel PlotterIntentEvaluator.swift
+[30/96] Compiling PlotterEpisodeModel PlotterEpisodeState.swift
+[31/96] Compiling PlotterEpisodeModel PlotterIntent.swift
+[32/96] Compiling PlotterEpisodeModel PlotterEpisodeReducer.swift
+[33/96] Compiling PlotterEpisodeModel PlotterEpisodeSpecification.swift
+[34/96] Compiling PlotterEpisodeModel PlotterEpisodeIdentifiers.swift
+[35/96] Emitting module PlotterEpisodeModel
+[36/96] Compiling PlotterEpisodeModel PlotterBoundary.swift
+[37/96] Compiling PlotterEpisodeModel PlotterCapabilityFacts.swift
+[38/96] Compiling PlotterEpisodeModel PlotterDrawingDraft.swift
+[39/96] Compiling PlotterEpisodeModel PlotterDrawingRun.swift
+[40/96] Compiling PlotterEpisodeModel PlotterEffectsAndEvents.swift
+[41/98] Emitting module PlotterUI
+[42/98] Compiling PlotterUI PlotterUI.swift
+[43/98] Compiling PlotterRuntime RuntimeClock.swift
+[44/98] Compiling PlotterRuntime SampledColorMarkerReference.swift
+[45/98] Compiling PlotterRuntime SimulatedFrameSource.swift
+[46/101] Emitting module PlotterRuntime
+[47/101] Compiling PlotterRuntime LearningArtifacts.swift
+[48/101] Compiling PlotterRuntime LearningPathCheckpoint.swift
+[49/101] Compiling PlotterRuntime LearningPathTerminology.swift
+[50/101] Compiling PlotterRuntime DrawingRunObservationPlan.swift
+[51/101] Compiling PlotterRuntime DrawingRunProgressFrame.swift
+[52/101] Compiling PlotterRuntime DrawingWireSchedule.swift
+[53/101] Compiling PlotterRuntime SimulatedLearningRuntime.swift
+[54/101] Compiling PlotterRuntime SpeechAnnouncements.swift
+[55/101] Compiling PlotterRuntime TipApplicabilityEvidencePolicy.swift
+[56/101] Compiling PlotterRuntime AcceptedArtifactCheckpoint.swift
+[57/101] Compiling PlotterRuntime AdaptivePlotterStoragePaths.swift
+[58/101] Compiling PlotterRuntime BoundaryApproachPlanning.swift
+[59/101] Compiling PlotterRuntime CameraCapture.swift
+[60/101] Compiling PlotterRuntime VisionWorker.swift
+[61/101] Compiling PlotterRuntime VoiceRecognition.swift
+[62/101] Compiling PlotterRuntime WorkflowTelemetry.swift
+[63/101] Compiling PlotterRuntime DrawingRunMedia.swift
+[64/101] Compiling PlotterRuntime DrawingRunMediaCoverage.swift
+[65/101] Compiling PlotterRuntime DrawingRunMediaValidation.swift
+[66/101] Compiling PlotterRuntime PenCapCoarseCorrelation.swift
+[67/101] Compiling PlotterRuntime PenCapVisualReference.swift
+[68/101] Compiling PlotterRuntime PlannedDrawingObservation.swift
+[69/101] Compiling PlotterRuntime MachineController.swift
+[70/101] Compiling PlotterRuntime MachineLinks.swift
+[71/101] Compiling PlotterRuntime MachinePositionAcceptancePolicy.swift
+[72/101] Compiling PlotterRuntime TipCalibrationAuthority.swift
+[73/101] Compiling PlotterRuntime TipCalibrationWorkingRegion.swift
+[74/101] Compiling PlotterRuntime VerifiedFileState.swift
+[75/101] Compiling PlotterRuntime PlotterSceneAnalysisPipeline.swift
+[76/101] Compiling PlotterRuntime RunInterpreter.swift
+[77/101] Compiling PlotterRuntime RunLedger.swift
+[78/101] Compiling PlotterRuntime Frames.swift
+[79/101] Compiling PlotterRuntime GRBLParser.swift
+[80/101] Compiling PlotterRuntime HumanGuidedDiscovery.swift
+[81/101] Compiling PlotterRuntime DrawingMaterialMeasurement.swift
+[82/101] Compiling PlotterRuntime DrawingMotionPolicyContext.swift
+[83/101] Compiling PlotterRuntime DrawingObservationVision.swift
+[84/101] Compiling PlotterRuntime DrawingPolyline.swift
+[85/101] Compiling PlotterRuntime MachineProtocol.swift
+[86/101] Compiling PlotterRuntime MachineWirePrecision.swift
+[87/101] Compiling PlotterRuntime PaperCoverageEvidence.swift
+[88/101] Compiling PlotterRuntime ControllerAxisCalibrationEvidence.swift
+[89/101] Compiling PlotterRuntime ControllerAxisMetric.swift
+[90/101] Compiling PlotterRuntime DrawingCoverageExperiment.swift
+[91/101] Compiling PlotterRuntime DrawingMaterialContract.swift
+[92/101] Compiling PlotterRuntime DrawingRetrospectiveResidualAnalysis.swift
+[93/101] Compiling PlotterRuntime DrawingRunEvidence.swift
+[94/101] Compiling PlotterRuntime DrawingRunEvidenceStore.swift
+[95/101] Compiling PlotterRuntime DrawingRunIntent.swift
+[96/169] Compiling PlotterTestSupport SimulatedLearningImmediatePacing.swift
+[97/169] Compiling PlotterTestSupport DeterministicRuntimeClock.swift
+[98/169] Compiling PlotterTestSupport PaperSceneSimulator.swift
+[99/169] Compiling PlotterTestSupport BlockingMachineLink.swift
+[100/169] Compiling PlotterTestSupport ControllerTranscriptFixtures.swift
+[101/169] Compiling PlotterTestSupport SimulatedMachineLink.swift
+[102/169] Emitting module PlotterTestSupport
+[103/169] Emitting module PlotterEpisodeRuntime
+[104/170] Compiling PlotterEpisodeRuntime PlotterTipWorkingRegion.swift
+[105/170] Compiling PlotterEpisodeRuntime PlotterIntentGateway.swift
+[106/170] Compiling PortraitArtists PortraitTrainingFeatures.swift
+[107/170] Compiling PortraitArtists PortraitTrainingValidation.swift
+[108/172] Emitting module PortraitArtists
+[109/172] Compiling PortraitArtists FlowArtistProposals.swift
+[110/172] Compiling PortraitArtists FlowArtistRecipe.swift
+[111/172] Compiling PortraitArtists FlowArtistTraining.swift
+[112/172] Compiling PortraitArtists PortraitSurfaceSelection.swift
+[113/172] Compiling PortraitArtists PortraitTrainingContract.swift
+[114/172] Compiling PortraitArtists FrameImageFactory.swift
+[115/172] Compiling PortraitArtists PortraitAnalysisEvidence.swift
+[116/172] Compiling PortraitArtists PortraitArchiveValidation.swift
+[117/172] Compiling PortraitArtists SwiftSketchClient.swift
+[118/172] Compiling PortraitArtists SwiftSketchConverter.swift
+[119/172] Compiling PortraitArtists FlowArtistFeatures.swift
+[120/172] Compiling PortraitArtists FlowArtistMarks.swift
+[121/172] Compiling PortraitArtists FlowArtistModel.swift
+[122/172] Compiling PortraitArtists PortraitRenderCache.swift
+[123/172] Compiling PortraitArtists PortraitSemanticHeadContract.swift
+[124/172] Compiling PortraitArtists PortraitSourcePreparation.swift
+[125/172] Compiling PortraitArtists PortraitStyleRecipe.swift
+[126/172] Compiling PortraitArtists PortraitHeadTransform.swift
+[127/172] Compiling PortraitArtists PortraitHeadWarpManifest.swift
+[128/172] Compiling PortraitArtists PortraitImageAnalyzer.swift
+[129/172] Compiling PortraitArtists PortraitPreferenceArchive.swift
+[130/172] Compiling PortraitArtists PortraitProposalContract.swift
+[131/172] Compiling PortraitArtists PortraitMaterialContext.swift
+[132/172] Compiling PortraitArtists PortraitParameterPreference.swift
+[133/172] Compiling PortraitArtists PortraitPhotoCapture.swift
+[134/172] Compiling PortraitArtists PortraitRectilinearFlowTracer.swift
+[135/172] Compiling PortraitArtists PortraitRegionalTreatment.swift
+[136/172] Compiling PortraitArtists PortraitFaceLandmarkAnalyzer.swift
+[137/172] Compiling PortraitArtists PortraitFlowMarkTracer.swift
+[138/172] Compiling PortraitArtists PortraitFlowRenderer.swift
+[139/172] Compiling PortraitArtists PortraitDrawingParameters.swift
+[140/172] Compiling PortraitArtists PortraitDrawingPreview.swift
+[141/172] Compiling PortraitArtists PortraitExploration.swift
+[142/172] Compiling PortraitArtists PortraitDisplayEvidence.swift
+[143/172] Compiling PortraitArtists PortraitDrawing.swift
+[144/172] Compiling PortraitArtists PortraitDrawingImages.swift
+[145/172] Compiling PortraitArtists PortraitAttemptHistory.swift
+[146/172] Compiling PortraitArtists PortraitBurstSelector.swift
+[147/172] Compiling PortraitArtists PortraitCandidate.swift
+[148/182] Compiling PortraitLibrary PortraitSketchCollection.swift
+[151/182] Compiling PlotterEpisodeRuntime PlotterTipCalibrationRuntime.swift
+[152/182] Compiling PlotterEpisodeRuntime PlotterPointSelectionRuntime.swift
+[153/182] Compiling PortraitLibrary PortraitEvidenceSource.swift
+[154/182] Compiling PortraitLibrary FlowPortfolioRetention.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PortraitLibrary/FlowPortfolioRetention.swift:18:12: warning: immutable value 'revisionID' was never used; consider replacing with '_' or removing it
+16 |     guard let candidate = state.candidates.first(where: { $0.id == candidateID }) else { throw FlowPortfolioError.unavailable("Choose a drawing first.") }
+17 |     let revision = revisionID.flatMap { id in state.pruneRevisions.first { $0.id == id && $0.candidateID == candidateID } }
+18 |     if let revisionID, revision == nil { throw FlowPortfolioError.invalid("The exact edit is unavailable.") }
+   |            `- warning: immutable value 'revisionID' was never used; consider replacing with '_' or removing it
+19 |     if let ref = revision?.drawing ?? (revision == nil || revision?.removedIndices.isEmpty == true ? candidate.drawing : nil) {
+20 |       return try await storage.library.drawing(ref)
+[155/182] Compiling PortraitLibrary FlowPortfolioTypes.swift
+[156/182] Compiling PortraitLibrary FlowPortfolioPhotoCollection.swift
+[157/182] Compiling PortraitLibrary FlowPortfolioValidation.swift
+[158/182] Emitting module PortraitLibrary
+[159/182] Compiling PortraitLibrary FlowPortfolioGraph.swift
+[160/182] Compiling PortraitLibrary FlowAuthoringArtifacts.swift
+[161/182] Compiling PortraitLibrary FlowPortfolioStore.swift
+[162/206] Compiling PortraitStudioUI CameraFrameLayerView.swift
+[163/206] Compiling PortraitStudioUI CameraPixelToViewTransform.swift
+[164/206] Compiling PortraitStudioUI FlowDojoRenderer.swift
+[165/206] Compiling PortraitStudioUI FlowDojoSidebar.swift
+[166/206] Compiling PlotterEpisodeRuntime PlotterSpeechEffectRuntime.swift
+[167/206] Compiling PortraitStudioUI FlowDojoCameraPanel.swift
+[168/206] Compiling PortraitStudioUI FlowDojoFiles.swift
+[169/206] Compiling PlotterEpisodeRuntime PlotterIncidentPackageUIService.swift
+[170/206] Compiling PlotterEpisodeRuntime PlotterPenInteractionRuntime.swift
+[171/206] Compiling PlotterEpisodeRuntime PlotterManualMotionRuntime.swift
+[172/206] Compiling PlotterEpisodeRuntime PlotterIncidentPackage.swift
+[173/206] Compiling PlotterEpisodeRuntime PlotterDrawingDraftRuntime.swift
+[174/206] Compiling PortraitStudioUI FlowDojoModel.swift
+[175/206] Compiling PortraitStudioUI FlowDojoPresentation.swift
+[176/206] Compiling PlotterEpisodeRuntime PlotterDrawingRunRuntime.swift
+[177/206] Compiling PortraitStudioUI PortraitCameraComposition.swift
+[178/206] Compiling PortraitStudioUI PortraitLineEditModel.swift
+[179/207] Compiling PortraitStudioUI PortraitScreenIllumination.swift
+[180/207] Compiling PortraitStudioUI PortraitLineEditorCanvas.swift
+[181/207] Compiling PortraitStudioUI PortraitLineSelectionGeometry.swift
+[182/207] Compiling PortraitStudioUI FramePresentationImageCache.swift
+[183/207] Compiling PortraitStudioUI PortraitActionTelemetry.swift
+[184/207] Compiling PortraitStudioUI PortraitPlanePreview.swift
+[185/207] Compiling PortraitStudioUI PortraitStudioModel.swift
+[186/207] Compiling PortraitStudioUI PortraitNavigationKeyRouter.swift
+[187/207] Compiling PortraitStudioUI PortraitStudioView.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PortraitStudioUI/PortraitStudioView.swift:8:28: error: 'StrokeStyle' is ambiguous for type lookup in this context
+ 6 | package struct PortraitStudioView: View {
+ 7 |   @Bindable package var model: PortraitStudioModel
+ 8 |   private let strokeStyle: StrokeStyle
+   |                            `- error: 'StrokeStyle' is ambiguous for type lookup in this context
+ 9 |   private let nominalPenWidthMM: Double?
+10 |   private let handoff: (Drawing) async -> String?
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterModel/DrawingProgram.swift:14:15: note: found this candidate
+ 12 | }
+ 13 | 
+ 14 | public struct StrokeStyle: Hashable, Codable, Sendable, CanonicalEncodable {
+    |               `- note: found this candidate
+ 15 |   public let nominalLineWidth: Double
+ 16 |   public let penProfileID: PenProfileID
+
+SwiftUICore.StrokeStyle:2:23: note: found this candidate
+ 1 | @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+ 2 | @frozen public struct StrokeStyle : Equatable {
+   |                       `- note: found this candidate
+ 3 |     public var lineWidth: CGFloat
+ 4 |     public var lineCap: CGLineCap
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PortraitStudioUI/PortraitStudioView.swift:14:57: error: 'StrokeStyle' is ambiguous for type lookup in this context
+12 |   private let handoffTitle: String
+13 |   @State private var dojo: FlowDojoModel
+14 |   package init(model: PortraitStudioModel, strokeStyle: StrokeStyle, nominalPenWidthMM: Double? = nil,
+   |                                                         `- error: 'StrokeStyle' is ambiguous for type lookup in this context
+15 |     showOnPlotter: @escaping (Drawing) async -> String?, selectCamera: @escaping () async -> String? = { nil },
+16 |     handoffTitle: String = "Send to Drawing") {
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterModel/DrawingProgram.swift:14:15: note: found this candidate
+ 12 | }
+ 13 | 
+ 14 | public struct StrokeStyle: Hashable, Codable, Sendable, CanonicalEncodable {
+    |               `- note: found this candidate
+ 15 |   public let nominalLineWidth: Double
+ 16 |   public let penProfileID: PenProfileID
+
+SwiftUICore.StrokeStyle:2:23: note: found this candidate
+ 1 | @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+ 2 | @frozen public struct StrokeStyle : Equatable {
+   |                       `- note: found this candidate
+ 3 |     public var lineWidth: CGFloat
+ 4 |     public var lineCap: CGLineCap
+[188/207] Compiling PortraitStudioUI StudioHelpButton.swift
+error: emit-module command failed with exit code 1 (use -v to see invocation)
+[189/207] Compiling PortraitStudioUI FlowDojoTraining.swift
+[190/207] Compiling PortraitStudioUI FlowDojoTrainingFeedback.swift
+[199/207] Compiling PortraitStudioUI FlowDojoTrainingProgress.swift
+[200/207] Compiling PortraitStudioUI FlowDojoView.swift
+[201/207] Emitting module PortraitStudioUI
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PortraitStudioUI/PortraitStudioView.swift:8:28: error: 'StrokeStyle' is ambiguous for type lookup in this context
+ 6 | package struct PortraitStudioView: View {
+ 7 |   @Bindable package var model: PortraitStudioModel
+ 8 |   private let strokeStyle: StrokeStyle
+   |                            `- error: 'StrokeStyle' is ambiguous for type lookup in this context
+ 9 |   private let nominalPenWidthMM: Double?
+10 |   private let handoff: (Drawing) async -> String?
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterModel/DrawingProgram.swift:14:15: note: found this candidate
+ 12 | }
+ 13 | 
+ 14 | public struct StrokeStyle: Hashable, Codable, Sendable, CanonicalEncodable {
+    |               `- note: found this candidate
+ 15 |   public let nominalLineWidth: Double
+ 16 |   public let penProfileID: PenProfileID
+
+SwiftUICore.StrokeStyle:2:23: note: found this candidate
+ 1 | @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+ 2 | @frozen public struct StrokeStyle : Equatable {
+   |                       `- note: found this candidate
+ 3 |     public var lineWidth: CGFloat
+ 4 |     public var lineCap: CGLineCap
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PortraitStudioUI/PortraitStudioView.swift:14:57: error: 'StrokeStyle' is ambiguous for type lookup in this context
+12 |   private let handoffTitle: String
+13 |   @State private var dojo: FlowDojoModel
+14 |   package init(model: PortraitStudioModel, strokeStyle: StrokeStyle, nominalPenWidthMM: Double? = nil,
+   |                                                         `- error: 'StrokeStyle' is ambiguous for type lookup in this context
+15 |     showOnPlotter: @escaping (Drawing) async -> String?, selectCamera: @escaping () async -> String? = { nil },
+16 |     handoffTitle: String = "Send to Drawing") {
+
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterModel/DrawingProgram.swift:14:15: note: found this candidate
+ 12 | }
+ 13 | 
+ 14 | public struct StrokeStyle: Hashable, Codable, Sendable, CanonicalEncodable {
+    |               `- note: found this candidate
+ 15 |   public let nominalLineWidth: Double
+ 16 |   public let penProfileID: PenProfileID
+
+SwiftUICore.StrokeStyle:2:23: note: found this candidate
+ 1 | @available(iOS 13.0, macOS 10.15, tvOS 13.0, watchOS 6.0, *)
+ 2 | @frozen public struct StrokeStyle : Equatable {
+   |                       `- note: found this candidate
+ 3 |     public var lineWidth: CGFloat
+ 4 |     public var lineCap: CGLineCap

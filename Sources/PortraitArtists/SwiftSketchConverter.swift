@@ -35,7 +35,7 @@ public enum SwiftSketchConverter {
     let offsetX = (fieldWidthMM - 224 * scale) / 2
     let offsetY = (fieldHeightMM - 224 * scale) / 2
     let style = try StrokeStyle(nominalLineWidth: nominalPenWidthMM, penProfileID: penProfileID)
-    let rawHash = DrawingPackageCodec.sha256(raw)
+    let rawHash = DrawingArtifactCoding.sha256(raw)
     let identity = "\(revision)|raw=\(rawHash)|width=\(fieldWidthMM)|height=\(fieldHeightMM)|pen=\(nominalPenWidthMM)|profile=\(penProfileID)|source=\(sourceIdentifier)"
     var count = 0
     let strokes = try document.refined.enumerated().map { index, curve in

@@ -112,7 +112,48 @@ public struct ValidatedExchangePackage: Sendable {
     capabilities = .init(supported: supported, unsupportedReasons: Array(v.reasons).sorted())
   }
 }
+/// Proof for one selected authored closure. It does not assert that unselected
+/// publication assets, jobs, attempts, or transport manifests were revalidated.
+public struct SelectedDrawingAdmission: Sendable {
+  public let originalIndexJSON: Data
+  public let indexDigest: ExchangeDigest
+  public let reference: DrawingRef
+  public let admission: DrawingRecordAdmission
+  public let capabilities: ExchangeCapabilities
+  public let files: VerifiedExchangeFiles
+  public var statistics: ExchangeCarrierStatistics { files.statistics }
+  fileprivate init(_ validator: ExchangeClosureValidator, selected: DrawingRef) throws {
+    originalIndexJSON = validator.indexAdmission.originalJSON; indexDigest = .hash(originalIndexJSON)
+    reference = selected; files = validator.originalFiles
+    var selectedAdmission = validator.drawings[selected]
+    let unsupportedContext = validator.index == nil || !(validator.index?.requiredFeatures.filter { !validator.features.contains($0) }.isEmpty ?? false)
+      || !(validator.index.map { ["drawing", "result", "feedback"].contains($0.kind) } ?? false)
+    if unsupportedContext, let value = selectedAdmission, case .materialized(let frozen) = value {
+      selectedAdmission = .opaque(originalJSON: frozen.originalJSON, profile: DrawingExchangeCodec.drawingProfile)
+    }
+    guard let selectedAdmission else {
+      throw DrawingExchangeError.unsupportedProfile("Selected drawing is unavailable under this exchange index")
+    }
+    admission = selectedAdmission
+    var supported: Set<ExchangeOperation> = [.preserve, .inspect]
+    if validator.reasons.isEmpty { supported.insert(.drawing) }
+    capabilities = .init(supported: supported, unsupportedReasons: Array(validator.reasons).sorted())
+  }
+}
+
 public enum ExchangeAdmission {
+  public static func selectDrawing(originalIndexJSON: Data, selected: DrawingRef,
+    files: VerifiedExchangeFiles, producerValidators: DrawingProducerValidators = .init(),
+    supportedFeatures: Set<String> = [], limits: ExchangeClosureLimits = .init()) throws -> SelectedDrawingAdmission {
+    let sealedIndex = try files.scoped(maximumMaterializedBytes: limits.maximumMaterializedBytes)
+      .record(at: "data/exchange.json", maximumBytes: limits.maximumRecordBytes)
+    guard sealedIndex == originalIndexJSON else { throw DrawingExchangeError.digestMismatch("Selected exchange index context") }
+    let staged = StagedExchangePackage(files: files, indexJSON: sealedIndex, stagingURL: files.stagingURL)
+    let validator = try ExchangeClosureValidator(staged, producers: producerValidators, payloads: .init(),
+      features: supportedFeatures, limits: limits)
+    try validator.validateSelectedDrawing(selected)
+    return try SelectedDrawingAdmission(validator, selected: selected)
+  }
   public static func validate(_ staged: StagedExchangePackage, producerValidators: DrawingProducerValidators = .init(),
     payloadValidators: ExchangePayloadValidators = .init(), supportedFeatures: Set<String> = [],
     limits: ExchangeClosureLimits = .init()) throws -> ValidatedExchangePackage {
@@ -132,6 +173,7 @@ fileprivate final class ExchangeClosureValidator {
   let payloads: ExchangePayloadValidators
   let features: Set<String>
   let resolver: ExchangePayloadResolver
+  var selectedOnly = false
   var descriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
   var assetSupport: [ExchangeDigest: ExchangeAssetSupport] = [:]
   var drawings: [DrawingRef: DrawingRecordAdmission] = [:]
@@ -171,6 +213,20 @@ fileprivate final class ExchangeClosureValidator {
     resolver = .init(files: files, limits: limits)
   }
   func unsupported(_ features: [String]) { for feature in features where !self.features.contains(feature) { reasons.insert("Required feature: " + feature) } }
+  func validateSelectedDrawing(_ selected: DrawingRef) throws {
+    selectedOnly = true
+    guard let index else { throw DrawingExchangeError.unsupportedProfile("Selected exchange index") }
+    unsupported(index.requiredFeatures)
+    if !["drawing", "result", "feedback"].contains(index.kind) { reasons.insert("Unsupported exchange kind: " + index.kind) }
+    guard index.assets.count <= limits.maximumRecords else { throw DrawingExchangeError.limit("Asset descriptor count") }
+    // Descriptor metadata may be inspected, but unrelated files remain unopened.
+    for descriptor in index.assets {
+      if let old = descriptors[descriptor.asset.object], old != descriptor { throw DrawingExchangeError.malformed("Conflicting asset descriptors") }
+      descriptors[descriptor.asset.object] = descriptor
+    }
+    if let scope = index.scope { try asset(scope) }
+    try drawing(selected, depth: 0)
+  }
   func validate() throws {
     guard let index else {
       if case .opaque(let bytes, let profile) = indexAdmission {
@@ -254,6 +310,14 @@ fileprivate final class ExchangeClosureValidator {
   func asset(_ asset: ExchangeAsset) throws {
     guard let indexed = descriptors[asset.object], indexed.asset == asset else { throw DrawingExchangeError.malformed("Missing or conflicting indexed asset descriptor") }
     guard try files.byteLength(asset.object) == asset.byteLength else { throw DrawingExchangeError.malformed("Asset reference length") }
+    if selectedOnly, assetSupport[asset.object] == nil {
+      let canonical = "data/objects/sha256/" + asset.object.description
+      guard let file = files.entries[canonical], file.digest == asset.object, file.byteLength == asset.byteLength else {
+        throw DrawingExchangeError.digestMismatch("Selected canonical object descriptor")
+      }
+      try files.verify(asset.object)
+      assetSupport[asset.object] = try files.validateAsset(indexed)
+    }
   }
   func object(_ digest: ExchangeDigest) throws {
     guard let descriptor = descriptors[digest] else { throw DrawingExchangeError.missingAsset("Object descriptor " + digest.description) }; try asset(descriptor.asset)

@@ -139,7 +139,7 @@ extension SavedLearningCompletionTests {
   func consecutiveDrawingsAcrossReplacementSheet(_ border: Bool) async throws {
     let portraitDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: portraitDirectory) }
-    let portrait = PortraitStudioModel(candidateStore: .init(directoryURL: portraitDirectory))
+    let portrait = PortraitStudioModel(library: DrawingFirstTestStorage.library())
     let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: portrait)
     defer { f.stores.remove() }
     let app = f.application
@@ -157,7 +157,7 @@ extension SavedLearningCompletionTests {
     let candidate = try PortraitCandidate(sourceData: Data([1, 3, 8]),
       sourcePixelExtent: portraitTestRaster().sourceCropExtent, raster: portraitTestRaster(),
       recipe: recipe, program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
-    let handoffFailure = await app.projectPortrait(candidate)
+    let handoffFailure = await app.projectDrawing(try drawingTestValue(program: candidate.program))
     try #require(handoffFailure == nil, "\(handoffFailure ?? "")")
     var records: [DrawingRunEvidenceRecord] = []
     for index in 0..<2 {
@@ -439,10 +439,9 @@ extension SavedLearningCompletionTests {
     let app = f.application
     let program = try PortraitVectorizer.program(from: portraitTestRaster(), pose: .front,
       style: .contours, strokeStyle: app.drawingStrokeStyle)
-    let projection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
-      manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
-    let select = try #require(projection.semantic.request(matching: .drawingDraft(.selectProgram(program))))
-    #expect(await app.submitPlotterUIRequest(select) == .accepted(requestID: select.id))
+    let drawing = try drawingTestValue(program: program)
+    let handoffError = await app.projectDrawing(drawing)
+    try #require(handoffError == nil, "\(handoffError ?? "")")
     try await f.submit(.fitInDrawableRegion)
     try await f.submit(.assertPaperCoverage)
     try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }

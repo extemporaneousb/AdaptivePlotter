@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="77" failures="23" skipped="4" time="517.136496882">
+    <testcase classname="PortraitStudioTests.FlowDojoCameraTests" name="cheapBoundaryAndBoundedLight()" time="1.175094026" />
+    <testcase classname="PortraitStudioTests.FlowDojoCameraTests" name="repeatedCapture()" time="2.896381752" />
+    <testcase classname="PortraitStudioTests.FlowDojoCameraTests" name="stalledAndCancelled()" time="0.096427705" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="pendingPublicationSnapshot()" time="0.542999488" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="expiry()" time="0.756297893" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="pinnedLimit()" time="3.275692235" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="renderedPoints()" time="7.232218777" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="rejectedMembership()" time="0.000821934" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="geometry()" time="0.00082159" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="previewOrientation()" time="0.007692044" />
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="nativeEvents()" time="0.020854546" >
+      <failure message="Caught error: Error Domain=NSCocoaErrorDomain Code=4 &quot;The file &#8220;canvas.png&#8221; doesn&#8217;t exist.&quot; UserInfo={NSFilePath=/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/062526F9-FFBD-4DE4-BDC9-947432137D40/canvas.png, NSURL=file:///var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/062526F9-FFBD-4DE4-BDC9-947432137D40/canvas.png, NSUnderlyingError=0x7fd260cdbee0 {Error Domain=NSPOSIXErrorDomain Code=2 &quot;No such file or directory&quot;}}" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.PortraitLineEditTests" name="immutableEdit()" time="0.607148904" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="newerSelectionWins()" time="0.354124132" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="otherSelectionPublicationsWin()" time="1.069637915" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="invalidatedReadCannotPublish()" time="1.000269265" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="capturedPhotoProvenance()" time="0.332413698" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="invalidCollection()" time="0.034403207" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="namesAndNavigation()" time="0.551069763" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="portableImport()" time="0.269309309" />
+    <testcase classname="PortraitStudioTests.DrawingDependencyContractTests" name="coreDependencyGraph()" time="1.112175735" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="malformed()" time="26.733158885" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="rankedMasks()" time="0.331709727" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="choiceSemantics()" time="6.474463853" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="features()" time="0.001366005" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="boundedMetrics()" time="1.431354626" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="evidenceBoundaries()" time="5.424372783" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="sampling()" time="0.680693156" />
+    <testcase classname="PortraitStudioTests.FlowArtistModelTests" name="fitDeployRollback()" time="80.841605074" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="marks()" time="0.614040271" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="suppliedRasterAlwaysValidates()" time="2.424298198" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="liveProducerCache()" time="4.033721913" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="realPhotoVariation()" >
+      <skipped />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="checkpointCompatibility()" time="0.064776306" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="closedBounds()" time="0.00054874" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="proposals()" time="3.757630766" />
+    <testcase classname="PortraitStudioTests.FlowArtistVariationTests" name="zeroIdentity()" time="0.150693327" />
+    <testcase classname="PortraitStudioTests.FlowDojoIntegrationTests" name="realPhotoTrial()" >
+      <skipped />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoIntegrationTests" name="completeLoop()" time="48.559823238" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="shutdownAdmissionIsClosedBeforeAwait()" time="0.354331385" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="sourceCurationFailureIsAtomic()" time="0.610222408" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="shutdownJoinsRecoveryDrain()" time="2.455354915" >
+      <failure message="Expectation failed: (model &#8594; PortraitStudioUI.FlowDojoModel).needsRecovery &#8594; false" />
+      <failure message="Expectation failed: (model.removedIDs &#8594; [db4c1d63-af4e-45b5-b3d5-a7c7cd029f69]) == ([first, second] &#8594; [db4c1d63-af4e-45b5-b3d5-a7c7cd029f69, 622f7f82-3a2b-4d77-accd-82602dd83ab4])" />
+      <failure message="Expectation failed: (model.document?.pruneRevisions.count &#8594; 1) == 2" />
+      <failure message="Expectation failed: (reopened.removedIDs &#8594; [db4c1d63-af4e-45b5-b3d5-a7c7cd029f69]) == ([first, second] &#8594; [db4c1d63-af4e-45b5-b3d5-a7c7cd029f69, 622f7f82-3a2b-4d77-accd-82602dd83ab4])" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="materialStyleIsFrozenPerRound()" time="1.859426778" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="fitInstallFailureRetainsReport()" time="0.109151247" >
+      <failure message="Expectation failed: (model &#8594; PortraitStudioUI.FlowDojoModel).needsRecovery &#8594; false" />
+      <failure message="Expectation failed: await model.shutdown() == false" />
+      <failure message="Expectation failed: (model.error &#8594; &quot;The operation couldn&#8217;t be completed. (PortraitCore.DrawingExchangeError error 0.)&quot;) == nil" />
+      <failure message="Expectation failed: (model.document?.trainingSnapshots.count &#8594; 0) == 1" />
+      <failure message="Expectation failed: (model.document?.fits.count &#8594; 0) == 1" />
+      <failure message="Expectation failed: (model.document?.fits.first &#8594; nil).id &#8594; nil &#8594; nil" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="liveAdmission()" time="2.123388726" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="autosavedJourney()" time="4.582909887" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="trainingBudgetBeforeAllocation()" time="0.000628931" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="trainingSemantics()" time="2.912163321" />
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="choicesRetainChangedAlternatives()" time="1.435503277" >
+      <failure message="Expectation failed: (choices.count &#8594; 1) == 2" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoTests" name="autosaveFailureRecovery()" time="1.579352991" >
+      <failure message="Expectation failed: (model &#8594; PortraitStudioUI.FlowDojoModel).needsRecovery &#8594; false" />
+      <failure message="Expectation failed: (model.error &#8594; &quot;The operation couldn&#8217;t be completed. (PortraitCore.DrawingExchangeError error 0.)&quot;) == nil" />
+      <failure message="Expectation failed: (model.removedIDs &#8594; []) == ([first, second] &#8594; [f4707c5b-2067-482f-b3f2-7de93d760278, 53e015bc-dcbe-48c6-8f6d-0648bb927ed3])" />
+      <failure message="Expectation failed: (model.document?.pruneRevisions.count &#8594; 0) == 2" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="completedMetadataJoinRace()" time="0.26003538" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="branchOrder()" time="1.323977855" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="browsingAndRepresentative()" time="1.753884377" >
+      <failure message="Expectation failed: (model.document?.choices.count &#8594; 0) == 1" />
+      <failure message="Expectation failed: model.drawingName(try #require(model.document?.candidates.first)) == &quot;Angular portrait&quot;" />
+      <failure message="Expectation failed: await model.shutdown()" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="explicitComparisons()" time="1.890137249" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="localAndPortfolioFeedback()" time="15.51026969" />
+    <testcase classname="PortraitStudioTests.FlowDojoNavigationTests" name="nameDraftShutdown()" time="0.257223158" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="exactPruning()" time="2.480116279" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="portableRound()" time="1.753149115" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="supervisionProjection()" time="0.973706278" >
+      <failure message="Caught error: retentionIntentConflict(D716A007-7E2C-4BE9-929F-49A802B9601F, expected: 839aca2287e59c04820b6d14f7f61ce02a050293e9369abab78c372a9e2d0171, actual: 0f725fc0fc9b4346266bc251124a1b61dbb76720a058a29255725510155c5d3c)" />
+    </testcase>
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="transitiveGroups()" time="2.607501609" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="fitCutoffs()" time="2.98268287" />
+    <testcase classname="PortraitStudioTests.FlowDojoTrainingProgressTests" name="feedbackSemantics()" time="2.418958637" />
+    <testcase classname="PortraitStudioTests.PortraitStudioFaceInputTests" name="exifOrientation()" time="0.002458773" />
+    <testcase classname="PortraitStudioTests.PortraitStudioFaceInputTests" name="maskAlignment()" time="0.002400964" >
+      <failure message="Expectation failed: (raster.luminance[5 * 20 + 10] &lt; 0.95 &#8594; false) &amp;&amp; (raster.luminance[15 * 20 + 10] &gt; 0.95 &#8594; &lt;not evaluated&gt;)" />
+    </testcase>
+    <testcase classname="PlotterAppTests.PortraitParameterPreferenceTests" name="heldOutLearning()" time="0.06977135" />
+    <testcase classname="PlotterAppTests.PortraitParameterPreferenceTests" name="fallbackAndLeakage()" time="0.035212151" />
+    <testcase classname="PlotterAppTests.PortraitParameterPreferenceTests" name="proposalAuthority(style:)" time="2.363477059" />
+    <testcase classname="PlotterAppTests.PortraitStudioWorkspaceLayoutTests" name="cameraPanelLayout()" time="1.213829265" />
+    <testcase classname="PlotterAppTests.PortraitStudioWorkspaceLayoutTests" name="controlsFit(stage:)" time="68.776156487" >
+      <failure message="Expectation failed: (visibleRanks.contains(&quot;1&quot;) &#8594; false) &amp;&amp; (visibleRanks.contains(&quot;2&quot;) &#8594; &lt;not evaluated&gt;)" />
+      <failure message="Expectation failed: (visibleRanks.contains(&quot;1&quot;) &#8594; false) &amp;&amp; (visibleRanks.contains(&quot;2&quot;) &#8594; &lt;not evaluated&gt;)" />
+    </testcase>
+    <testcase classname="PlotterAppTests.PortraitStudioNativeLayoutTests" name="dojoAXInteraction()" >
+      <skipped />
+    </testcase>
+    <testcase classname="PlotterAppTests.PortraitStudioNativeLayoutTests" name="productionPanelAXOrderAndReachability()" >
+      <skipped />
+    </testcase>
+    <testcase classname="PlotterAppTests.PortraitStudioNativeLayoutTests" name="productionPortraitWorkspace()" time="178.027784725" />
+    <testcase classname="PlotterAppTests.PortraitStudioNativeLayoutTests" name="productionPanelGeometryAndSelection()" time="6.551152808" />
+    <testcase classname="PlotterAppTests.PortraitOrdinalTrainingTests" name="insufficiency()" time="0.040524332" />
+    <testcase classname="PlotterAppTests.PortraitOrdinalTrainingTests" name="cancellation()" time="0.123429517" />
+    <testcase classname="PlotterAppTests.PortraitOrdinalTrainingTests" name="continuedFit()" time="2.192732014" />
+    <testcase classname="PlotterAppTests.PortraitOrdinalTrainingTests" name="knownPreference()" time="2.065213066" />
+    <testcase classname="PlotterAppTests.PortraitOrdinalTrainingTests" name="missingEvidenceAndCorruption()" time="0.309526799" />
+    <testcase classname="PlotterAppTests.PortraitPreferenceDatasetTests" name="exclusions()" time="0.03082466" />
+    <testcase classname="PlotterAppTests.PortraitPreferenceDatasetTests" name="invalidRevisions()" time="0.01372265" />
+    <testcase classname="PlotterAppTests.PortraitPreferenceDatasetTests" name="withdrawal()" time="0.023361076" />
+    <testcase classname="PlotterAppTests.PortraitPreferenceDatasetTests" name="grouping()" time="0.18637313" />
+  </testsuite>
+</testsuites>

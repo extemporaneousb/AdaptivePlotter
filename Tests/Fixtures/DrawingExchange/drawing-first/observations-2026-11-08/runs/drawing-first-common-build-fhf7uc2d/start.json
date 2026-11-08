@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "swift",
+    "build",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--target",
+    "DrawingLibrary"
+  ],
+  "cwd": "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted",
+  "start_utc": "2026-11-08T06:45:55.671412+00:00",
+  "source_pin_count": 741,
+  "before_manifest_sha256": "c55a825830cba7ac3772c15c61255a5d5a1ca77599554d23a055e5b89e7d4749"
+}

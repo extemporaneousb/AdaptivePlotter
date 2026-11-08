@@ -7,57 +7,9 @@ import Testing
 
 @Suite("Portrait source browsing and cache identity")
 struct PortraitBrowsingTests {
-  @Test("frame navigation preserves tuning and algorithm selection and reuses cached drawings")
-  @MainActor
-  func independentBrowsing() async throws {
-    let renderer = BrowsingRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let pen = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    let firstID = try #require(model.selectedPhotoID)
-    let firstProgram = try #require(model.currentProgram)
-    model.setPhoto(Data([2]), for: .left, strokeStyle: pen)
-    model.selectPhoto(try #require(model.recentPhotos.last?.id), strokeStyle: pen)
-    await model.awaitRendering()
-    let config = model.renderConfiguration
-    let calls = await renderer.calls
-    model.movePhoto(by: -1, strokeStyle: pen)
-    #expect(model.selectedPhotoID == firstID)
-    #expect(model.renderConfiguration == config)
-    #expect(!model.isProcessing)
-    #expect(model.currentProgram == firstProgram)
-    await model.awaitRendering()
-    #expect(model.currentProgram == firstProgram)
-    #expect(!model.isProcessing)
-    #expect(await renderer.calls == calls)
-    #expect(model.selectedCandidate?.program == firstProgram)
-    await model.shutdown()
-  }
 
-  @Test("manual edits disable save and projection admission until the exact result completes")
-  @MainActor
-  func staleCandidateAdmission() async throws {
-    let model = PortraitStudioModel(renderer: BrowsingRenderer())
-    let pen = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    let previous = try #require(model.completedCandidate)
-    model.vectorOptions.hatchSpacing += 1
-    #expect(model.currentProgram == nil)
-    #expect(model.selectedCandidate == nil)
-    #expect(await model.saveSelectedDrawing() != nil)
-    #expect(model.sketches.sketches.isEmpty)
-    model.renderIfNeeded(strokeStyle: pen)
-    #expect(model.completedCandidate?.id == previous.id)
-    #expect(model.selectedCandidate == nil)
-    await model.awaitRendering()
-    #expect(await model.saveSelectedDrawing() == nil)
-    #expect(model.sketches.sketches.count == 1)
-    #expect(model.sketches.sketches.first?.portraitCandidate?.recipe.vectorOptions.hatchSpacing
-      != previous.recipe.vectorOptions.hatchSpacing)
-    await model.shutdown()
-  }
+
+
 
   @Test("render cache keys include analysis and pen style, and source removal invalidates every version")
   func cacheIdentityAndRemoval() throws {

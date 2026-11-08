@@ -1,3 +1,4 @@
+import PortraitCore
 import PortraitArtists
 import PortraitLibrary
 import PortraitStudioUI
@@ -113,7 +114,7 @@ struct PlotterApplicationRuntimeView: View {
     }
     .sheet(isPresented: $reviewerIsPresented) {
       DrawingReviewerView(application: application, close: { reviewerIsPresented = false },
-        showOnPlotter: useSavedDrawingProgram, initialPhotoID: reviewerPhotoID)
+        showOnPlotter: useDrawingProgram)
     }
     .sheet(isPresented: $transferIsPresented) {
       DrawingTransferView(application: application, close: { transferIsPresented = false })
@@ -269,10 +270,8 @@ struct PlotterApplicationRuntimeView: View {
     case .portraitStudio:
       PortraitStudioView(model: application.portraitStudio, strokeStyle: application.drawingStrokeStyle,
         nominalPenWidthMM: application.drawingMaterials.activeRecord?.profile.nominalWidthMM,
-        previewSource: application.portraitPlanePreviewSource,
-        showOnPlotter: usePortraitProgram, showEditedOnPlotter: useSavedDrawingProgram,
-        selectCamera: { await selectCamera(.portrait) },
-        openReviewer: { photoID in reviewerPhotoID = photoID; reviewerIsPresented = true })
+        showOnPlotter: useDrawingProgram,
+        selectCamera: { await selectCamera(.portrait) })
         .environment(\.portraitActionTelemetry, WorkbenchRequestTelemetry.nativeActionHandled)
         .padding(12)
         .task(id: application.observationConfigurationProjection.selectedCameraID) {
@@ -305,8 +304,8 @@ struct PlotterApplicationRuntimeView: View {
         measurementStatus: application.materialMeasurementStatus,
         canMeasureExistingInk: application.currentMaterialApplicability != nil,
         canApply: application.drawingDraftSnapshot.artworkPlan?.sourceProgramContentHash
-          == application.portraitStudio.selectedCandidate?.program.contentHash
-          && application.portraitStudio.selectedCandidate != nil,
+          == application.portraitStudio.currentDrawing?.program.contentHash
+          && application.portraitStudio.currentDrawing != nil,
         measure: { await application.prepareMaterialInspection() }, apply: applyPortraitMaterial,
         verifyMedia: { await application.verifyMaterialMedia($0) })
       .onChange(of: application.drawingMaterials.activeKey) { _, _ in
@@ -323,9 +322,9 @@ struct PlotterApplicationRuntimeView: View {
       if let status = application.materialFeasibilityStatus {
         StudioHelpButton("Detail check", text: status)
       }
-      if let context = application.portraitStudio.selectedCandidate?.recipe.vectorOptions.materialContext,
+      if let context = application.portraitStudio.currentDrawingMaterialContext,
         let height = application.portraitPlanePreviewSource.resolve(
-          program: application.portraitStudio.selectedCandidate?.program, nominalWidth: 0.4).materialReferenceHeight,
+          program: application.portraitStudio.currentDrawing?.program, nominalWidth: 0.4).materialReferenceHeight,
         !context.matches(drawingHeightMM: height,
           profileKey: application.drawingMaterials.activeKey) {
         HStack {
@@ -413,17 +412,8 @@ struct PlotterApplicationRuntimeView: View {
     return await submit(PlotterAppUIActionID.observationCameraRole(role))
   }
 
-  private func useSavedDrawingProgram(_ drawing: SavedDrawing) async -> String? {
-    let error = await application.projectSavedDrawing(drawing)
-    if error == nil {
-      layout.wrappedValue.setPresented(.portraitStudio, false)
-      layout.wrappedValue.setPresented(.drawing, true)
-    }
-    return error
-  }
-
-  private func usePortraitProgram(_ candidate: PortraitCandidate) async -> String? {
-    let error = await application.projectPortrait(candidate)
+  private func useDrawingProgram(_ drawing: Drawing) async -> String? {
+    let error = await application.projectDrawing(drawing)
     if error == nil {
       layout.wrappedValue.setPresented(.portraitStudio, false)
       layout.wrappedValue.setPresented(.drawing, true)

@@ -1689,8 +1689,8 @@ extension PlotterDrawingDraftEpisodeTests {
     #expect(before.strokes.map(\.endingCheckpointID) != after.strokes.map(\.endingCheckpointID))
     #expect(ordinary.program == adapted.program)
     #expect(after.provenance.materialContextHash == material)
-    let model = PortraitStudioModel()
-    #expect(await model.acceptProjection(candidate, perform: { nil }) == nil)
+    let model = DrawingFirstTestStorage.studio()
+    #expect(await model.acceptDrawingProjection(try drawingTestValue(program: candidate.program), operation: {}) == nil)
     let bordered = PlotterDrawingPlanningAdapter.buildDraft(program: candidate.program,
       machineCenter: ordinary.center, uniformScale: 0.5, rotationDegrees: 15,
       drawableRegion: fixture.drawableRegion, registration: fixture.registration,

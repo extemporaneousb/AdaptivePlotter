@@ -1,0 +1,15 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write sources
+[2/3] Write swift-version--1AB21518FC5DEDBE.txt
+[4/7] Emitting module DrawingLibrary
+[5/7] Compiling DrawingLibrary DrawingLibraryReads.swift
+[6/7] Compiling DrawingLibrary DrawingLibraryAuthoring.swift
+[7/7] Compiling DrawingLibrary DrawingLibraryRecords.swift
+[8/9] Emitting module DrawingLibraryTests
+[9/9] Compiling DrawingLibraryTests DrawingLibraryIndexContextCacheTests.swift
+[10/13] Compiling DrawingLibraryTests DrawingLibraryValueFlowTests.swift
+[11/13] Compiling DrawingLibraryTests DrawingLibraryDomainCommitTests.swift
+[12/13] Compiling DrawingLibraryTests DrawingLibraryOwnershipTests.swift
+[13/13] Compiling DrawingLibraryTests DrawingLibraryAtomicRetentionTests.swift
+Build of target: 'DrawingLibraryTests' complete! (4.03s)

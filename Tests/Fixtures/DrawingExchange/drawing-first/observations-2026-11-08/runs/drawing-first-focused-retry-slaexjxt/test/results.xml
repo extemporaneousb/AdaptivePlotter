@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="TestResults" errors="0" tests="89" failures="0" skipped="1" time="162.819915351">
+    <testcase classname="DrawingLibraryTests.DrawingLibraryDatabaseTests" name="transactionOwnershipScopeLost()" time="0.008319815" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryDatabaseTests" name="transactionOwnershipScopeSelection()" time="0.026894711" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryDatabaseTests" name="transactionOwnershipScope()" time="0.013438177" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryIndexContextCacheTests" name="publicDrawingRechecksSelectedIndexContext()" time="0.252563198" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryIndexContextCacheTests" name="selectedObjectAtomicReplacement()" time="0.226776857" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryIndexContextCacheTests" name="boundedSelectedCache()" time="1.421610055" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryDomainCommitTests" name="pureAssetReader()" time="0.093978361" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryDomainCommitTests" name="requestBoundRetry()" time="0.141244889" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryDomainCommitTests" name="independentEmptyAssetCommits()" time="0.126978516" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryUnknownWidthTests" name="currentWriterMatchesFixture()" time="0.006656615" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryUnknownWidthTests" name="declaredWidthValidation()" time="0.00031829" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryOwnershipTests" name="sharedOwner()" time="0.601561464" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryOwnershipTests" name="foreignDrift()" time="0.168548951" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryAtomicRetentionTests" name="atomicParentChild()" time="1.033032305" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryAtomicRetentionTests" name="importAllRoots()" time="1.058286914" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryValueFlowTests" name="identityRetryRenameCopy()" time="0.360118339" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryValueFlowTests" name="immutableRequestConflict()" time="0.16087317" />
+    <testcase classname="DrawingLibraryTests.DrawingLibraryValueFlowTests" name="metadataWithoutArtwork()" time="0.194962087" />
+    <testcase classname="DrawingLibraryTests.DrawingLibrarySelectedClosureTests" name="unrelatedAssetsRemainUnread()" time="0.09243825" />
+    <testcase classname="DrawingLibraryTests.DrawingLibrarySelectedClosureTests" name="suppliedIndexMustMatchPinnedIndexBytes()" time="0.069966103" />
+    <testcase classname="DrawingLibraryTests.DrawingLibrarySelectedClosureTests" name="selectedTamperingIsRefused()" time="0.080997133" />
+    <testcase classname="DrawingLibraryTests.DrawingLibrarySelectedClosureTests" name="indexContextIsPreservedAcrossRepeatedAndFreshSelection()" time="0.106093801" />
+    <testcase classname="PlotterAppTests.PortraitCaptureTests" name="cancelHeldBurst()" time="0.008173126" />
+    <testcase classname="PlotterAppTests.PortraitCaptureTests" name="lightDeadlineDuringHeldEncoding()" time="0.811770069" />
+    <testcase classname="PlotterAppTests.LibraryExchangeProcessTests" name="helperLaunchSmoke()" time="0.278332129" />
+    <testcase classname="PlotterAppTests.LibraryExchangeProcessTests" name="restoreCrashMatrix()" time="1.996478752" />
+    <testcase classname="PlotterAppTests.LibraryExchangeProcessTests" name="publicationCrashMatrix()" time="31.607728878" />
+    <testcase classname="PlotterAppTests.LibraryExchangeProcessTests" name="processWriterOwnership()" time="1.677047698" />
+    <testcase classname="PlotterAppTests.LibraryExchangeProcessTests" name="freshRootRestoreCrashMatrix()" time="1.709048315" />
+    <testcase classname="PlotterAppTests.PortraitMaterialIntegrationTests" name="immutableAdaptation()" time="83.194757832" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="leaseLifetime()" time="0.011482045" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="liveSelectedSQLIdentity()" time="0.13579797" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="storedInventoryCorruption()" time="0.223901063" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="uncertainCommit()" time="0.110937754" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="opaquePathInventory()" time="0.099302782" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="opaqueIndexPreservation()" time="0.09674123" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="missingObject()" time="0.128802096" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="divergentIdentity()" time="0.201595406" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="boundedActorMetadataMutation()" time="0.697097888" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="crossDeliveryIdentityKindConflict()" time="0.153769308" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="normalizedInputPhoto()" time="0.132379751" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="exactPublication()" time="0.128954781" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="metadataRestore()" time="0.211947136" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="selectedBackupClosure()" time="0.147326863" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="boundedMetadataMutation()" time="0.73179072" />
+    <testcase classname="PlotterAppTests.LibraryExchangeCatalogTests" name="readonlyRestoreRace()" time="0.214473948" />
+    <testcase classname="PlotterAppTests.LibraryExchangeProcessHelperTests" name="helper()" >
+      <skipped />
+    </testcase>
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="validChecksumsDoNotAdmitMalformedStreamedInventory()" time="0.08571236" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="wholeLibraryInventoryExceedsCarrierBudgetWithBoundedLines()" time="2.771187104" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="validatorRefusalAndUnsafeInventoriesCannotReplaceActiveMetadata()" time="0.017253263" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="corruptDatabaseManifestAndMissingObjectsRefuseRestore()" time="0.285275424" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="interruptedSnapshotsRemainInspectableAndUnpublished()" time="0.009408911" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="backupPublicationFaultsHaveExplicitDurabilityMeaning()" time="0.025556301" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="backupAssetFaultLeavesOriginalAndPartialWithoutGeneration()" time="0.066770566" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="generationIsExplicitImmutableAndRestoreIsSelfContained()" time="0.116434729" />
+    <testcase classname="PlotterAppTests.LibraryExchangeMetadataBackupTests" name="currentCASAssetsAreIncludedWithoutMetadataReconstruction()" time="0.026608308" />
+    <testcase classname="PlotterAppTests.PortraitHandoffTests" name="repeatedHandoffPreservesPlacement(drawBorder:)" time="3.386218553" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="metadataMarkerRejectsLinksAndNeverTreatsCorruptionAsAbsence()" time="0.009448425" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="corruptMissingLinkedAndWrongLengthObjectsRefused()" time="0.0753117" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="boundedObjectReadsUseVerifiedBytesAndRejectInvalidBudgets()" time="0.062590077" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="everyOwnedAssetBoundaryLeavesRecoverableIntentAndIncoming()" time="0.742876189" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="oversizedValidOpaqueIntentIsAResourceRefusalBeforePublication()" time="0.038990406" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="exactBytesDedupRestartInventoryAndScopedCleanup()" time="0.126151497" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="rootAliasesAndPromotionRetainDescriptorOwnership()" time="0.070738053" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="journalCreationFailuresPreserveUncertainStaging()" time="0.289277298" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="publicationBoundaryLeavesCompleteRestartableStage()" time="0.066072161" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="exactPrivateBagRejectsAddedOrLinkedEntries()" time="0.065928259" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="actualPublicationEncodingFitsDeclaredLibraryPolicy()" time="2.238467425" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="unsafeAndCaseCollidingInventoriesRejected()" time="0.00081716" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="forgedStageInventoryAndJournalCorruptionNeverDeleteBytes()" time="0.063254406" />
+    <testcase classname="PlotterAppTests.LibraryExchangeStorageTests" name="conflictsAndCleanupFaultsAreScoped()" time="0.260706501" />
+    <testcase classname="PlotterAppTests.DrawingStudioPhysicalAssociationTests" name="exactProjection()" time="0.562773918" />
+    <testcase classname="PlotterAppTests.DrawingStudioPhysicalAssociationTests" name="physicalLabels()" time="0.001293358" />
+    <testcase classname="PlotterAppTests.DrawingStudioPhysicalAssociationTests" name="materialIdentity()" time="0.001020645" />
+    <testcase classname="PortraitStudioTests.DrawingDependencyContractTests" name="coreDependencyGraph()" time="3.900959073" />
+    <testcase classname="PortraitStudioTests.FlowDojoCameraTests" name="cheapBoundaryAndBoundedLight()" time="1.158836068" />
+    <testcase classname="PortraitStudioTests.FlowDojoCameraTests" name="stalledAndCancelled()" time="0.097449482" />
+    <testcase classname="PortraitStudioTests.FlowDojoCameraTests" name="repeatedCapture()" time="2.868628024" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="capturedPhotoProvenance()" time="0.346635883" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="invalidCollection()" time="0.03639199" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="portableImport()" time="0.294354682" />
+    <testcase classname="PortraitStudioTests.FlowPhotoCollectionTests" name="namesAndNavigation()" time="0.551613057" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="pendingPublicationSnapshot()" time="0.540634947" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="pinnedLimit()" time="3.255285363" />
+    <testcase classname="PortraitStudioTests.FlowAuthoringCacheTests" name="expiry()" time="0.734881193" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="otherSelectionPublicationsWin()" time="1.101457658" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="newerSelectionWins()" time="0.361725653" />
+    <testcase classname="PortraitStudioTests.DrawingProjectionRaceTests" name="invalidatedReadCannotPublish()" time="1.02899655" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="exactPruning()" time="2.395036454" />
+    <testcase classname="PortraitStudioTests.FlowPortfolioTests" name="portableRound()" time="1.69529921" />
+  </testsuite>
+</testsuites>

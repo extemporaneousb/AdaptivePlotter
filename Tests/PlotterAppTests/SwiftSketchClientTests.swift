@@ -99,7 +99,7 @@ struct SwiftSketchClientTests {
     for name in ["diffusion","diffusion_args","refinement","refinement_args","clip"] {
       let path=assetFolder.appendingPathComponent(name),bytes=Data("process-fixture".utf8)
       try bytes.write(to:path)
-      assets[name]=["path":path.path,"sha256":DrawingPackageCodec.sha256(bytes)]
+      assets[name]=["path":path.path,"sha256":DrawingArtifactCoding.sha256(bytes)]
     }
     let upstream=root.appendingPathComponent("upstream",isDirectory:true)
     for name in ["SwiftSketch/model/SwiftSketch_model.py","SwiftSketch/utils/model_util.py",
@@ -113,7 +113,7 @@ struct SwiftSketchClientTests {
       "upstream_commit":"6f9fa8654711b9a5d3022b08a59835f0dda08f40","upstream_root":upstream.path,"assets":assets])
     try script.write(to: worker); try metadata.write(to: manifest)
     let receipt:[String:Any]=["schema_version":1,"status":"succeeded",
-      "adapter_sha256":DrawingPackageCodec.sha256(script),"manifest_sha256":DrawingPackageCodec.sha256(metadata),
+      "adapter_sha256":DrawingArtifactCoding.sha256(script),"manifest_sha256":DrawingArtifactCoding.sha256(metadata),
       "evidence_kind":"process-fixture-only"]
     try JSONSerialization.data(withJSONObject: receipt).write(to: proof)
     return Fixture(root: root, configuration: SwiftSketchWorkerConfiguration(

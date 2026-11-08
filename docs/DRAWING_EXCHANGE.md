@@ -2,7 +2,7 @@
 
 **ADR DX-0001 · Accepted 2026-11-06 · Wire profile 1.** This is the normative target for Studio/Library/Plotter interoperability. The reviewed source baseline is `6305c0503ae3cae7130bd38d0e2def309a927e88`. Adoption progress belongs to the [Drawing Exchange backlog](ROADMAP.md#drawing-exchange). The [Studio guide](PORTRAIT_STUDIO.md) describes the currently shipped UI and legacy formats.
 
-Change control: preserve issued revision bytes, job identities, v1 import behavior and historical evidence. Breaking changes to a required wire meaning need a successor ADR, a new profile and a lossless compatibility strategy. Compatible optional fields require a fixture that round-trips through an older preserving reader. Implementation improvements inside these boundaries use ordinary review. The [wire schema](../Resources/DrawingExchange/v1/schema.json) specifies structural admission. This document specifies semantic admission. A decoder must satisfy both before claiming support for an operation.
+Change control: preserve issued revision bytes, job identities and historical evidence. The 2026-11-07 operator-directed Drawing-first cutover supersedes the requirement to keep legacy v1–4 authoring readers, writers and fallbacks active. Historical files remain untouched outside the new active format; importing them is deferred and is not a prerequisite for this cutover. Breaking changes to a required wire meaning need a successor ADR, a new profile and a lossless compatibility strategy. Compatible optional fields require a fixture that round-trips through an older preserving reader. Implementation improvements inside these boundaries use ordinary review. The [wire schema](../Resources/DrawingExchange/v1/schema.json) specifies structural admission. This document specifies semantic admission. A decoder must satisfy both before claiming support for an operation.
 
 ## Decision
 
@@ -24,7 +24,7 @@ Use a directory for local storage, versioned UTF-8 JSON for typed records, ordin
 
 On the wire a drawing reference is always `{issuer, revision, digest}`. The first two fields are its lookup key. The digest pins the exact frozen UTF-8 record bytes and is supplied by referring records, outside the record itself. Assign the reference once when committing the selected revision. Identical geometry may legitimately occur in two separate selections. `DrawingProgram.contentHash` keeps its current canonical algorithm and semantics. File digest, program digest, drawing occurrence, job identity and attempt identity answer different questions. Changing a title changes catalog metadata; pruning strokes creates a child drawing revision. A physical medium substitution changes the job/plan, with an explicit mapping to the authored style. It cannot silently rewrite `penProfileID` in an existing drawing.
 
-One required representation per revision. The initial identifier is `adaptiveplotter.stroke-program/1`. It carries the existing field extent, ordered strokes with stable IDs, style, field-space points, semantic role, provenance and verified program hash. Authored coordinates are finite binary64 field units in a closed rectangle from (0,0) at the lower left to (width,height) at the upper right, with X right and Y up. Field units have no intrinsic millimeter scale. For new stroke-profile exports declare nominal pen width in millimeters. Preserve any producer-declared intended physical field size separately from the abstract field extent. Carry a historical unit only when supported by the producer receipt; a nominal width is distinct from a measured deposited width. An image crop is defined in oriented source pixels, origin top left, X right, Y down. Pixel edges use integer coordinates with centers offset by 0.5. Record the ordered source-to-input transform then the input-to-field transform explicitly. Placement maps field to machine coordinates using the existing anchored transform with scale, rotation and calibrated correction, in the order defined by `DrawingPlacement`; store the resulting mapping and its millimeter/controller calibration. Historical unknown units remain declared unknown. No conversion changes legacy program bytes. A pen plotter advertises support for this representation and its material capabilities. A future watercolor device could accept the same intent with its own supported material mapping. An extrusion process needing volume or deposition semantics would introduce a separately specified representation. An older tool can preserve an unfamiliar drawing and report which capability it lacks. It cannot silently flatten an unknown representation into pen strokes.
+One required representation per revision. The initial identifier is `adaptiveplotter.stroke-program/1`. It carries the existing field extent, ordered strokes with stable IDs, style, field-space points, semantic role, provenance and verified program hash. Authored coordinates are finite binary64 field units in a closed rectangle from (0,0) at the lower left to (width,height) at the upper right, with X right and Y up. Field units have no intrinsic millimeter scale. Nominal pen width in millimeters is optional for retained and newly authored drawings. When declared it must be positive and finite; when unavailable it remains explicitly unknown. No authoring, selection, import or plot handoff may add a mandatory width field, declaration, setup step or deferred data-entry obligation. Preserve any producer-declared intended physical field size separately from the abstract field extent. Carry a historical unit only when supported by the producer receipt; a nominal width is distinct from a measured deposited width. An image crop is defined in oriented source pixels, origin top left, X right, Y down. Pixel edges use integer coordinates with centers offset by 0.5. Record the ordered source-to-input transform then the input-to-field transform explicitly. Placement maps field to machine coordinates using the existing anchored transform with scale, rotation and calibrated correction, in the order defined by `DrawingPlacement`; store the resulting mapping and its millimeter/controller calibration. Unknown units remain unknown for both fresh and historical artifacts; absence does not assert a historical origin. A declared nominal authoring width is distinct from measured physical pen width; future calibration is optional and is not required by this cutover. No conversion changes legacy program bytes. A pen plotter advertises support for this representation and its material capabilities. A future watercolor device could accept the same intent with its own supported material mapping. An extrusion process needing volume or deposition semantics would introduce a separately specified representation. An older tool can preserve an unfamiliar drawing and report which capability it lacks. It cannot silently flatten an unknown representation into pen strokes.
 
 A valid package can be preserved and re-exported even when the consumer lacks the producer. Evaluate three independent states: **integrity** (bytes, closure, supported schema), **capabilities** (view/plot/edit/regenerate/train), and **current device readiness**. Known stroke geometry with an unfamiliar producer remains eligible for preview and plot when all execution-relevant claims are supported. Preserve verified unknown optional fields and their original bytes. Unknown required features and unknown enum values block only the operations that need their semantics. Unknown major schemas permit opaque preservation, not rewriting. An invalid claim from a known producer is a validation failure.
 
@@ -93,19 +93,29 @@ Before moving a hot path record a comparable baseline using the same build confi
 
 ## Persistence, exchange and atomic mounting
 
-An illustrative library layout is below. The indexed references and immutable manifests establish identity. Names and dates make the folders readable. Namespaces and full IDs disambiguate collisions. An undated import keeps its explicitly marked import date or an unknown-date bucket. Renaming does not move or reidentify an existing record.
+The active local Library uses one selected SQLite catalog and a content-addressed
+object store. Full typed references and original-byte digests establish identity;
+titles and dates are catalog metadata, not paths. Renaming does not move or
+reidentify a record, and an unknown date remains unknown.
 
 ```text
-Library/
-  photos/2026-11-03/<source-name>--<photo-id>/photo.json
-      drawings/<drawing-revision>/drawing.json
-          attempts/<plotter-archive>/<run-id>/<sequence>/attempt.json
-  drawings/source-free/<drawing-revision>/drawing.json
-  objects/sha256/<digest>          # immutable bytes, including prepared inputs
-  catalog.sqlite                  # queries, mutable titles, retention reasons, job/result links
+DrawingLibrary/
+  drawing-library.sqlite          # typed relationships, queries, mutable metadata, transaction/intent identities
+  drawing-authority.json          # selected-catalog marker
+  objects/sha256/<digest>          # exact immutable records, programs, originals and prepared inputs
 ```
 
-A photo-derived revision uses its original source's folder, including a pruned child. Source-free work uses the sibling drawings tree. Every lookup takes a typed reference. The per-drawing attempt directory and assets contain inert inspection copies. The physical archive remains independently authoritative, including if the user removes a drawing from ordinary browsing. SQLite can be rebuilt for derived catalog rows; durable mutable metadata, including retention reasons and tombstones, needs its own recoverable backup and cannot be reconstructed from geometry alone. Use one library writer/lease. A separate plotter writes its own evidence archive and publishes an importable result. It does not write into an open Studio library.
+Photo, prepared-input and parent links are typed catalog relationships resolved by
+full reference. Photo-derived children and source-free drawings use the same
+catalog/object store; no per-photo folder mirror is another authority. Raw physical
+attempts remain in their independently authoritative evidence archive, including
+when a drawing disappears from ordinary browsing. Portable inspection copies do
+not replace that authority. Derived summaries can be rebuilt from verified
+immutable records; durable mutable metadata, retention reasons, tombstones and
+transaction/intent associations need a recoverable metadata backup and cannot be
+reconstructed from geometry alone. Use one Library writer/lease. A separate
+plotter writes its own evidence archive and publishes an importable result; it
+does not write into an open Studio Library.
 
 A portable export is a snapshot with a closed payload. For this closed profile, bagit.txt contains exactly the two required lines, `BagIt-Version: 1.0` then `Tag-File-Character-Encoding: UTF-8`, each LF-terminated, UTF-8 without BOM. manifest-sha256.txt lists every payload file exactly once. tagmanifest-sha256.txt lists bagit.txt, the payload manifest and any other non-manifest tag files, never itself or payload files. No fetch.txt, links, devices or special archive entries. Implement the declared application profile, without claiming general BagIt validator conformance. Store the original file bytes without base64. ZIP changes transport only. For a returned result, include the exact authored document even when the receiving library is empty.
 
@@ -217,11 +227,43 @@ See the [Roadmap](ROADMAP.md#drawing-exchange) for implementation dependencies, 
 | BSON | Can encode typed binary values conveniently. It supplies document encoding but still requires our identity, membership, durability, result and schema rules. Prefer JSON plus original binaries for inspection. [BSON specification](https://bsonspec.org/spec.html) |
 | MCAP / RLDS | Optional downstream formats. MCAP is a candidate for high-rate timestamped traces. RLDS's distinction between a final recorded step and a terminal state is useful for training exports of interrupted attempts. Neither is required to open a drawing. [MCAP specification](https://mcap.dev/spec) · [RLDS dataset format](https://github.com/google-research/rlds#dataset-format) |
 | PROV / RO-Crate | Borrow explicit derivation and attribution. Consider RO-Crate for publishing research datasets. Its JSON-LD metadata can live in a file. Our two applications have a fixed relationship vocabulary, so the interoperability benefit currently belongs at the research export boundary. [W3C PROV-DM](https://www.w3.org/TR/prov-dm/) · [RO-Crate](https://www.researchobject.org/ro-crate/specification/1.3/structure.html) |
-| Current DrawingPackage / PlotAttachment | Preserve v1 decoders and frozen hashes. Current v1 requires a photo/portrait and terminal ordinary-run transferred origin. The adapters preserve historical facts without inventing absent origin or media. |
+| Historical DrawingPackage / PlotAttachment | Preserve historical files and frozen hashes untouched. Legacy authoring-format runtime readers and writers are retired by the Drawing-first cutover; a future explicit importer may recover proven facts without inventing origin or media. Physical run/evidence ownership remains unchanged. |
+
+## Current software cutover boundary, 2026-11-08
+
+The concrete `DrawingLibrary` target supplies the active shared owner, exact-ref
+Drawing loading/retention, chronological metadata pages, and current directory/ZIP
+authored transfer. Both actual application compositions use the current format;
+old authoring readers/writers/fallbacks are retired. Historical files stay untouched
+for a later explicit importer. No new mandatory UI width or declaration field is
+introduced. Raw execution, Stop and physical evidence remain with their existing
+owners. These implementation observations have scoped
+[probe receipts](CURRENT_EVIDENCE.md#drawing-first-software-probe-receipt-2026-11-08).
+They are a **2026-11-08 pre-gate snapshot**; authoritative later configured
+validation, acceptance and landing state belongs to Blackdog task
+`task-89f7fee3b6c847e9ae9acebb9b901347`.
+
+A materialized stroke value is not permission to use every operation. Consumers
+must honor the admitted `.preview` and `.plot` capabilities before rendering,
+handoff effects, execution-reference adaptation or bare-program selection. At
+Run, a known denied projection matching the authored draft must refuse before any
+source-free fallback, including when execution contains border/placement geometry.
+Unknown per-Drawing features therefore remain denied even under a known index;
+original bytes remain browseable/exportable. The
+[capability supplement](CURRENT_EVIDENCE.md#per-drawing-capability-closure-supplement-2026-11-08)
+records scoped software proof; no raw runtime protocol was changed.
+
+A fresh Flow producer validates its supplied artifacts. The app's default read
+registry does not semantically revalidate arbitrary persisted Flow receipts;
+known-program preview/plot/edit support and byte preservation are distinct from
+producer verification. Generic regeneration/training capabilities must remain
+unadvertised without that proof. Current Dojo learning/material operations use
+exact domain capsules and references; this does not complete future portable
+producer-proof, mount, job or result-adoption gates.
 
 ## Baseline and bounded format check
 
-The existing code already distinguishes a staged intent, possible ink and terminal observations. The v1 attachment carries one transferred origin, one terminal record and original frames. The exporter requires a terminal ordinary drawing run with that origin. Native/source-free and interrupted attempts consequently need an explicit new exchange adapter. Review notes and no-ink confirmations live alongside the raw archive and need their own scope/attribution in portable form. [Staged intent](../Sources/PlotterRuntime/DrawingRunIntent.swift) · [Terminal record](../Sources/PlotterRuntime/DrawingRunEvidence.swift) · [v1 exporter](../Sources/PortraitLibrary/DrawingTransfer.swift) · [Start allocation](../Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift)
+The raw execution owner distinguishes a staged intent, possible ink and terminal observations. The historical v1 attachment was limited to a transferred origin and terminal ordinary run; its retired exporter is not an active compatibility route. Current authored transfers use the exact-ref Drawing Exchange carrier. Portable result adoption remains a separate later gate: review notes and no-ink confirmations retain their raw archive authority and need explicit scope/attribution in an exchange snapshot. [Staged intent](../Sources/PlotterRuntime/DrawingRunIntent.swift) · [Terminal record](../Sources/PlotterRuntime/DrawingRunEvidence.swift) · [Current authored transfer](../Sources/DrawingLibrary/DrawingLibraryExchange.swift) · [Start allocation](../Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift)
 
 The [source-free drawing example](../Tests/Fixtures/DrawingExchange/v1/source-free.zip) is the v1 authored-side reference vector. A temporary build from the current PlotterModel generated the built-in line from (5,50) to (95,50) in its 100 × 100 field. Swift decoded the program and verified its canonical content hash. An independent Python reader opened the ZIP alone, checked both manifests, resolved the drawing and assets, verified asset lengths/digests, and recovered the two points. A separate Python implementation recomputed the existing APCB canonical stroke-program digest from the decoded fields and matched Swift. A deliberately changed payload failed integrity checking. Program digest `960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097`. Drawing-record digest `e6f9f570fa580fa59cb5f6f3435641aa5c5c3acbcc4eeb944f3a606fe0b55ddd`. This exercises the proposed carrier and existing stroke representation. An actual result export from an interrupted or completed run, cross-language coverage of the other program and evidence fixtures, separate-process job recovery, and archive migration remain implementation gates.
 

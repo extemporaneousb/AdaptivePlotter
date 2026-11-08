@@ -80,25 +80,24 @@ an image-conditioned drawing-preference head and contextual whole-stroke deletio
 head. Fitting depends on model-owned observation DTOs, not on library or UI types,
 so there is no reverse dependency from Artists into Library.
 
-`PortraitLibrary` owns `FlowPortfolioStore`, a serialized actor over a new
-self-contained portfolio directory. Immutable content-addressed objects and
-operation deltas precede the synchronized atomic head update; a process lease
-prevents competing writers. A version-two head prevents older writers from dropping
-new optional mark/name/import metadata; current readers also accept version-one
-heads, and immutable operation records and frozen documents remain schema one.
-Its typed graph retains photos, rounds, candidates,
-choices, pruning revisions, ranking presentations/judgments, exclusions, frozen
-training snapshots, reports, checkpoints and activation history. The default
-portfolio is under Documents. It is distinct from the historical SQLite portrait
-libraries and the plotter's canonical `SavedDrawing` and DrawingEvidence owners.
+`DrawingLibrary` owns the common concrete actor, strict schema-10 SQLite catalog,
+writer lease, transactional metadata and immutable `objects/sha256` assets. It
+retains and loads exact Drawing references, pages compact summaries and owns
+current Drawing Exchange import/export. `PortraitLibrary` supplies the typed
+`FlowPortfolioStore` authoring graph and training adapters over that common owner;
+it is not a parallel database or head/delta publisher. Generated geometry stays in
+bounded temporary caches. Choosing, committed pruning and explicit Plot handoff
+retain exact revisions and their closure. Rank retains features and previews
+without making unselected geometry permanent.
 
 `PortraitStudioUI` owns `FlowDojoModel`, the shared Explore/Prune/Rank/Fit & deploy
 views, the serial `FlowDojoRenderer` actor, preview generation and
 `FlowDojoTraining`'s frozen-snapshot-to-model-data adapter. The renderer retains
 source preparation across round candidates and performs native Flow Edge work
 outside the main actor. The main-actor model owns a joined work queue, generation
-and fitting tasks, cancellation and durable-operation presentation. A candidate is
-published only after its exact result commits. Source changes, cancellation and
+and fitting tasks, cancellation and durable-operation presentation. Candidate metadata is
+published after its domain record commits; unselected geometry and previews remain
+temporary until retention or Rank capture. Source changes, cancellation and
 shutdown cannot publish stale work into a different selection.
 
 `FlowDojoTraining` connects exact source and declared subject/session groups before
@@ -109,24 +108,26 @@ masks remain unlabelled proposals. Model fitting cannot infer labels from saving
 raw image count or plotting. Fit configuration, data digests and evaluation groups
 travel with the checkpoint; explicit activation and rollback alter future proposals.
 
-Standalone composition provides file export and an absolute `--portfolio` override.
-Embedded composition provides **Send to Drawing** through existing canonical
-package-import and draft-admission owners. The existing `PortraitStudioView` entry
-is now a compatibility shell around `FlowDojoView`; the runtime composition does
-not need another workspace route. Quit joins camera, render, fit and durable
-work. Each portfolio has one writer; both apps must not share a concurrent writable
-portfolio. Historical private databases and external experiment directories remain
-readable artifacts, not competing current authoring stores.
+Standalone composition defaults to
+`~/Library/Application Support/PortraitStudio/DrawingLibrary/` and accepts one
+absolute `--library` override. Embedded composition uses
+`~/Library/Application Support/AdaptivePlotter/DrawingLibrary/` and passes the
+retained Drawing/ref directly through **Send to Drawing** to existing draft
+admission. External files use the Drawing Exchange directory/ZIP carrier. No
+internal package serialization/reimport is required. Quit joins camera, render,
+fit and durable work before closing the shared owner. Each library has one writer.
+Historical authoring files remain untouched; import is deferred and there is no
+startup legacy importer.
 
-Drawing exchange carries the exact generated basis, selected subset, source/raster,
-recipe and stable portfolio/source/result identity. Its supported immutable program
-becomes a canonical `SavedDrawing` at the receiving application boundary; portfolio
-records never acquire placement, controller or mechanical Learning authority.
-Existing optional plot exchanges remain inspection-only. Camera/frame and immutable
-physical evidence types remain dependencies in `PlotterRuntime`; this authoring
-change does not move their runtime ownership. See [the Studio guide](PORTRAIT_STUDIO.md)
-for operator/model/file details and [Roadmap](ROADMAP.md#portrait-studio-remaining-acceptance)
-for outstanding human and performance acceptance.
+Drawing values preserve the exact program, producer receipt, optional image input
+and exact parent reference. Selection identity is the full DrawingRef; program
+hashes and equal geometry do not identify an authored occurrence. Nominal physical
+width is optional for fresh and retained Drawings; field-space preview width is
+not millimeters. Authoring retains no placement, controller or mechanical Learning
+authority. Existing camera/frame and immutable physical evidence dependencies
+remain in `PlotterRuntime`. See [the Studio guide](PORTRAIT_STUDIO.md) for operator
+and file details, and [Roadmap](ROADMAP.md#portrait-studio-remaining-acceptance) for
+outstanding acceptance work.
 
 Historical SwiftSketch protocol/client/converter, review/export contracts and legacy
 renderer/archive types remain interpretable for their retained evidence. The current
@@ -223,23 +224,27 @@ PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained appl
   production checkpoint/evidence stores and semantic identity composition
 
 PortraitCore -> PlotterModel
-  versioned artist descriptors, DrawingPackage and PlotAttachment values/codecs
-  exact origin/program identity, byte hashes, admission bounds
+  Drawing values/refs, producer receipts, edits and Drawing Exchange values/codecs
+  exact program/record identity, closure verification, byte hashes and admission bounds
+
+DrawingLibrary -> PortraitCore + PlotterModel + CSQLite
+  common concrete library actor, strict SQLite catalog, CAS and writer lease
+  exact revision retention, compact pages and current-format file exchange
 
 PortraitArtists -> PortraitCore + PlotterModel + PlotterRuntime
   Flow Edge renderer, native artist recipes/features, two-head fitting and checkpoint inference
   historical renderer/candidate contracts and shared source preparation
 
-PortraitLibrary -> PortraitCore + PortraitArtists + PlotterModel + PlotterRuntime + CSQLite
-  portable Flow portfolio actor, immutable objects/deltas, training snapshots and activation history
-  canonical SavedDrawing, historical private database, transfer retention and inspection
+PortraitLibrary -> DrawingLibrary + PortraitCore + PortraitArtists + PlotterModel + PlotterRuntime
+  typed Flow authoring graph, training snapshots and activation history
+  Drawing selection facade and exact staged-run association through the common library
 
-PortraitStudioUI -> PortraitCore + PortraitArtists + PortraitLibrary + PlotterModel + PlotterRuntime
+PortraitStudioUI -> DrawingLibrary + PortraitCore + PortraitArtists + PortraitLibrary + PlotterModel + PlotterRuntime
   shared Flow Dojo journey, serial rendering, frozen training adapter and exact-mask preview
   existing acquisition adapter and scoped native line editor
 
-PortraitStudio -> PortraitCore + PortraitArtists + PortraitLibrary + PortraitStudioUI + PlotterModel + PlotterRuntime
-  independent Flow Dojo composition, portfolio selection, file panels and joined shutdown
+PortraitStudio -> DrawingLibrary + PortraitCore + PortraitArtists + PortraitLibrary + PortraitStudioUI + PlotterModel + PlotterRuntime
+  independent Flow Dojo composition, library selection, file panels and joined shutdown
   camera discovery only at startup; no PlotterApplicationRuntime or controller composition
 
 PlotterTestSupport
@@ -2047,19 +2052,17 @@ no-redraw recovery route.
 redirecting failed persistence into temporary files. Explicit test/investigation
 stores inject private locations. Domain stores continue to own schema validation,
 atomic publication, content addressing and retention; the path value admits no
-hardware operation or Learning application. Existing safety-store paths remain unchanged. Portrait metadata uses the additive
-`PortraitLibrary` path; `PortraitCandidates` remains a read-only importer input.
+hardware operation or Learning application. Existing safety-store paths remain unchanged. Current authoring uses the common
+`DrawingLibrary` directory. Historical authoring files remain untouched and are not
+startup importer inputs.
 
 | Relative location under the application-data root | Writer and retained content | Lifecycle |
 | --- | --- | --- |
 | `AcceptedArtifacts/accepted-learning-path-v1.json` | `AcceptedLearningPathCheckpointStore`; the current accepted LIVE dependency prefix, semantic identities, cap appearance and one bounded optical reference | Each accepted prefix is durable; load presents Saved Learning for operator decision. |
 | `AcceptedArtifacts/History/<envelope SHA-256>.json` | The same checkpoint store; exact previous envelope bytes, including rejected bytes retained for diagnosis | Verified and synchronized before replacement/clear; failure prevents canonical mutation. No automatic load, application or pruning. |
 | `AcceptedArtifacts/accepted-machine-artifacts-v1.json` and `accepted-tip-calibration-v1.json` | Existing legacy migration adapter inputs | Converted only through validated canonical publication; the adapter removes legacy inputs only after successful migration. |
-| `PortraitLibrary/library-v1.sqlite` | `PortraitCandidateStore` actor behind `PortraitSketchCollection`; capture, drawing occurrence, work/media projection, lineage receipt, run binding, tombstone, style and generic drawing metadata | Mandatory ancestry foreign keys are enabled and checked on each normal connection. DELETE journal and FULL synchronization retain file-generation cursor compatibility. Whole graph changes commit transactionally; a schema without the committed portrait-graph marker is not a selected library. |
-| `PortraitLibrary/records/<SHA-256>` and `PortraitLibrary/assets/<SHA-256>` | Same library owner; immutable candidate/program, source/raster, metadata and historical lineage payloads | Checksummed and synchronized before SQLite references become visible. Existing verified payloads are reused. Capture identity is independent of shared asset hash; deletion remains tombstone owned. |
-| `PortraitLibrary/ImportSnapshots/<legacy manifest SHA-256>` | `PortraitLegacySnapshot`; exact selected legacy manifest, records, assets and verification receipt | Original hashes are checked before copy and independently verified after synchronization. Startup import and old-writer delta recovery read this retained immutable snapshot. |
-| `PortraitCandidates/index-v1.json`, `records/` and `assets/` | Legacy read-only importer inputs | Verified legacy generations import into the new library without rewriting or retiring original files. No alternate JSON publisher remains. |
-| `PortraitQuarantine/<run ID>` | Portrait reconciliation; unresolved lineage with reason, original selected bytes and checksum manifests | Excluded from normal portrait browsing. Independently retained before migration publication; no change to raw execution or possible-ink facts. |
+| `DrawingLibrary/drawing-library.sqlite` | Concrete `DrawingLibrary` actor; schema 10/profile `adaptiveplotter.drawing-library/1`, drawing summaries, retention, authoring/training metadata and exact run associations | Exclusive writer lease, foreign keys, DELETE journal and FULL synchronization; unsupported or changed selected catalogs fail rather than fall back. |
+| `DrawingLibrary/objects/sha256/<digest>` | Same common owner; immutable records, retained programs, sources/inputs, previews, feature capsules and model assets | Verified objects precede transactional selection; exact Drawing references bind record bytes and required closure. Unselected generated geometry remains temporary. |
 | `DrawingEvidence/drawing-run-evidence-v1.json` | `DrawingRunEvidenceStore`; checksummed envelope-3 manifest selecting exact attempt/terminal record hashes, logical schema-6 review notes/dismissal, and archive-wide assertions | Publication and possible-ink/no-redraw truth remain with the Drawing owner. Paper/Learning reset does not erase history. Legacy envelopes 1–2 remain readable; envelope 1 upgrades through asynchronous startup loading. Older writers reject envelope 3 before they can discard new review metadata; Saved Learning recovery reuses that verified asynchronous result. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.records/<SHA-256>.json` | Same Drawing store; immutable attempt snapshots and terminal evidence | Changed components are synchronized before manifest commit. Only the manifest selects truth; interrupted/unreferenced components never authorize replay or manufacture attempts. |
 | `DrawingEvidence/drawing-run-evidence-v1.json.media/<frame SHA-256>.pixels` | Same Drawing store; exact stamped baseline/progress/result camera pixels | Media references retain source/configuration/time/hash provenance and never become portrait-input authority. |
@@ -2372,12 +2375,11 @@ prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
 ## Drawing Studio ownership
 
-The embedded Flow Edge Dojo hands an immutable drawing package to the existing
-canonical import and Drawing draft owners. It does not derive placement or create
-another runner. Historical `PortraitDrawingActions` and final-scale material
-adaptation retain their archived-candidate contracts; current portfolio authoring
-uses its explicit exact-revision package handoff. Mechanical material, paper and
-Draw authority remain in the shared Drawing runtime.
+The embedded Flow Edge Dojo retains an immutable Drawing in the common library and
+passes its exact value/ref directly through existing Drawing draft admission. It
+does not derive placement or create another runner. External file handoff uses
+Drawing Exchange. Mechanical material, paper and Draw authority remain in the
+shared Drawing runtime.
 
 The two metric holdout entries live in `DrawingProgramCatalog` and resolve to
 ordinary line strokes. `OperatorWorkspace` projects their existing
@@ -2534,13 +2536,13 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`FlowDojoModel` owns the current portrait authoring journey: portable portfolio
+`FlowDojoModel` owns the current portrait authoring journey: shared library
 selection, broad/local rounds, immutable candidate selection, whole-line editing,
 randomized ranking and local fitting/activation. `FlowDojoView` presents those four
 stages, including comparison panels and an exact-line pruning canvas. The old
 one-canvas Previous/Next, saved-style and separate experimental review surfaces are
-not composed by current authoring. Legacy `PortraitStudioModel` capture support and
-renderer/archive compatibility remain reusable behind the new composition.
+not composed by current authoring. `PortraitStudioModel` provides acquisition and immutable Drawing selection behind
+the composition.
 
 `FlowArtistRecipe` preserves twelve bounded legacy coordinates and adds optional
 wave/polygon/loop/scale marks. `FlowArtistProposals` supplies named geometry families,
@@ -2577,22 +2579,16 @@ are explicit operations that cannot append preference judgments. Ranking present
 can freeze the current panel or sample distinct historical versions; pair sampling
 prefers currently unjudged exact source/program/mask combinations.
 
-`FlowPortfolioStore` owns incremental state and all referenced assets. Images,
-programs, rasters, previews, inference receipts, edit ancestry and ranking
-presentations are immutable. The actor synchronizes objects and a hash-linked delta
-before atomically advancing the manifest. Failed operations retain the previous
-head; interruption recovery marks unfinished rounds explicitly. No explicit Save
-operation is required to make a curation action durable. Finish pruning is a label
-semantic, not a persistence gate. The portfolio's typed standalone format is
-separate from historical archives and from physical DrawingEvidence.
-
-Legacy `PortraitDrawingParameters`, `PortraitParameterPreference`, exploration
-receipts, regional/semantic helpers and independent renderer kernels retain their
-historical interpretation where archived evidence needs it. They do not govern
-new Dojo proposals or create a second model activation path. Current Drawing
-handoff exports an exact selected portfolio revision through the existing package
-and canonical `SavedDrawing` chain. Studio remains separate from dock placement,
-physical readiness and Drawing execution.
+`FlowPortfolioStore` owns the typed incremental authoring graph over the concrete
+`DrawingLibrary` actor. The common owner atomically publishes retained Drawing
+closure and domain records; no portfolio manifest/head/delta store remains.
+Sources, previews, Rank features, edit ancestry, training snapshots, reports and
+activation receipts are durable. Unselected full geometry is temporary and bounded;
+selection, committed edits and Plot retain exact Drawing revisions. Finish pruning
+changes label semantics, not persistence. Failed mutations remain visible and
+reconcile before retry. Historical authoring files are untouched; their import is
+deferred. Studio hands Drawing/ref directly to existing draft ownership and remains
+separate from physical readiness and Drawing execution.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
@@ -2612,48 +2608,27 @@ requests regardless of drawing producer. Its plan preview selects the sealed
 otherwise the admitted Draft plan. That value is derived from existing owner/record
 geometry, never a second mutable plan. The global status retains terminal outcomes
 and exact reason until the existing RunID-bound new-run handoff. Material setup and paper coverage remain
-before Draw. `DrawingReviewerView` consumes typed `PortraitLibrarySnapshot` and
-`PortraitLibrarySelection` projections for All Photos, Photos with Plotted Works,
-Photos without Plotted Works, and direct Plotted Works. The service owns ancestry;
-the view performs no program-hash join. Capture UUID and renderer candidate ID
-form `PortraitDrawingIdentity`, preserving separate equal-content captures.
-Selecting a photo defaults to its latest executed/possible-ink work and exact
-drawing when available. The selected capture exposes all its compact drawing
-metadata, while programs and original pixels load on demand. Browsing does not
-replace Studio or runtime selection.
+before Draw. `DrawingReviewerView` pages `DrawingLibraryEntry` summaries and loads
+the selected full DrawingRef on demand. It displays reference geometry and
+associated retained raw run photographs and notes. **Send to Drawing** is explicit;
+browsing never replaces the active runtime selection. The former photo/work
+reconciliation graph and its browser filters are not current owners.
 
-`SavedDrawing` permits source-free generic vector programs but requires exact
-`PortraitCandidate` provenance for portrait programs. The existing App-owned
-retention callback validates durable candidate bytes and commits a run-to-capture
-binding after raw intent staging and before motion. `DrawingRunEvidencePort`
-retains the exact successful typed stage publication for `loadForPortraitBinding`;
-it does not invoke full raw archive recovery again for this callback.
-`PortraitEvidenceSource.proveStagedAttempt` checks the selected manifest checksum,
-archive identity/revision, unique attempt references and the current attempt's
-checksummed bytes against that publication. The proof rechecks manifest and
-component bytes inside the SQL binding transaction. Historical records, media and
-calibration components are outside this bounded proof; full raw recovery and
-reconciliation retain their structural verification.
-
-Raw publication marks the library stale and coalesces projection updates. A
-known newly inserted portrait stage defers its projection by the exact run ID
-until `finishPortraitBinding` settles success or refusal. This hold belongs to
-the live stage event, not prepared history decoded during recovery. Unknown
-pre-stage state follows ordinary publication; subsequent raw publication releases
-an abandoned stage hold. Browsing remains stale until reconciliation completes.
-A projection failure cannot turn a successful raw safety commit into a hardware
-retry. `reconcileAbsentEvidence` admits a genuinely absent raw archive only with
-no previously selected raw generation or downstream lineage; a vanished selected
-archive remains a failure. DrawingEvidence remains sole execution, possible-ink
-and no-redraw owner.
+`PortraitSketchCollection` is a selection facade over `DrawingLibrary`. Its
+`bindDrawingAttempt` verifies the retained full DrawingRef and exact program,
+uses `PortraitEvidenceSource.proveStagedAttempt` to verify the already-published raw
+intent, then records `adaptiveplotter.drawing-run-binding/1` through the common
+library. The payload includes full DrawingRef, run/request identity, exact intent,
+archive identity and staged generation. Raw proof is checked around publication;
+no historical archive or media load is needed for this bounded association. The
+existing pre-motion adapter refuses failed binding before motion. The raw
+DrawingEvidence owner retains execution, possible-ink and no-redraw authority;
+this authoring relation cannot authorize hardware retry.
 
 Review deletion still uses record/run tombstones in `DrawingRunEvidenceArchive`;
 its immutable records and original media remain retained. `DrawingReviewNote`
-stores drawing/run/media annotations through that owner. The library reflects
-those tombstones without restoring/resetting runtime or changing paper facts.
-Prepared requests remain available in exact drawing history, but only valid
-lineage with possible ink or positive stroke execution enters plotted-work
-filters. Missing result pixels affect availability, not valid run admission.
+stores drawing/run/media annotations through that owner. Those tombstones do not restore/reset runtime or change paper facts. Missing
+result pixels affect availability, not raw run admission.
 
 `DrawingReviewGeometry` only projects retained evidence: exact record execution plan
 first, explicit source-program reference second, unavailable reason otherwise.
@@ -2685,53 +2660,13 @@ publication recovery retains the same original bytes. Draft paper applicability
 uses preview source/configuration plus optical metadata without requiring a
 materialized content hash; exact evidence requests still require sealed pixels.
 
-`PortraitSketchCollection` remains the observable cache and serialized mutation
-owner; `PortraitCandidateStore` is the actor facade for SQLite and immutable
-payload installation. `PortraitLibraryDatabase` confines transactional metadata
-writes to that actor, checks foreign-key enforcement on opening and validates
-integrity before publication. The SQL graph uses mandatory photo-to-drawing,
-drawing-to-work and work-to-media ancestry. `PortraitLibraryQueries` supplies
-bounded metadata pages, exact occurrence selections and generation checks.
-`PortraitLibraryReconciliation` projects raw evidence and retains exact historical
-lineage receipts across subsequent raw generations. A missing historical
-candidate preserves its original ID and program with unknown recipe/raster;
-it is not materialized as a new renderer candidate.
-
-`PortraitEvidenceSource` reads immutable raw manifests and selected components
-without initializing App, camera or machine composition. The storage-only
-`PortraitLibraryReconciler` snapshots sources into independent backup storage,
-verifies selected components, builds a staged catalog, preserves unresolved
-originals in quarantine, then selects the new database only against matching
-input generations. Repeated migration retains existing occurrence bindings and
-tombstones. Legacy schema 1–4 portrait indexes remain importer inputs; the new
-writer does not update or retire their records or assets. `installValidatedGeneration`
-accepts an absent destination and an independently accepted database SHA-256.
-Its source actor produces a SQLite backup, verifies required payload and quarantine
-inventories plus unchanged original input generations, and selects the staged
-library by atomic directory publication. It does not launch an App or initialize
-machine composition.
-
-Applicable renders retain exact source, raster, recipe, program, ancestry and
-thumbnail in `PortraitAttemptRecord`; feedback binds the exact proposal.
-`PortraitSavedStyle` remains in the same library. `loadMutationState` reads compact
-metadata, immutable labels, tombstones, styles and time provenance without
-materializing historical candidate/raster assets. `mutationDelta` commits preserve
-omitted photos, drawings, labels and generic programs; explicit tombstones remain
-the deletion authority. The collection retains every queued capture occurrence,
-including exact feedback and label ancestry, through one transactional save.
-Full History remains an explicit request joined by the same worker. Only successful
-full verification marks history complete; Retry preserves that request and pending
-mutations. The actor retains an explicit full-history write block across compact
-metadata loads until a successful full verification clears it. List browsing remains a separate compact projection. Warm saves
-reuse immutable values and file digests only while device, inode, size,
-nanosecond mtime and ctime agree; changed or missing files are reverified or
-refused. Source acquisition persists independently of rendering. Explicit photo
-deletion uses capture UUID; drawing deletion uses the capture/candidate pair. Both
-preserve equal-content sibling occurrences and block late publication. The legacy
-one-candidate cache elects a surviving occurrence after deletion; this adapter
-choice never changes historical run bindings. Historical labels/checkpoints remain evidence rather than
-current generation instructions. Failed persistence and reconciliation remain
-visible and retryable.
+The common `DrawingLibrary` remains the sole active authored persistence owner.
+`PortraitStudioModel` supplies acquisition and immutable selection/projection;
+`PortraitSketchCollection` pages, retains, loads and deletes exact common references.
+The retired portrait database, legacy index reader, portfolio head/delta code and
+package adapters are not active fallback paths. Historical files stay in place;
+import is deferred. Source preparation and renderer caches remain separate bounded
+computational caches, not alternate persistence authorities.
 
 The observation runtime selects one active camera role. Studio capture uses a
 0.8-second burst including 0.25 seconds of settling, then keeps one frame chosen

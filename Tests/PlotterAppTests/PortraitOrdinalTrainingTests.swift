@@ -8,7 +8,7 @@ struct PortraitOrdinalTrainingTests {
   @Test("real ordinal fit is deterministic and improves heldout known-preference ranking")
   func knownPreference() async throws {
     let (scope, archive) = try portraitTrainingFixture()
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 7)
     let first = try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
     let second = try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
     #expect(first.id == second.id)
@@ -31,15 +31,15 @@ struct PortraitOrdinalTrainingTests {
     let fixture = try portraitTrainingFixture()
     let scope = fixture.0
     var archive = fixture.1
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 7)
     let parent = try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
     for old in archive.labels {
-      let candidate = try #require(archive.entries.first { $0.id == old.candidateID }?.candidate)
-      archive.labels.append(try .init(candidate: candidate, rating: 6-old.rating, scope: scope.scope,
+      let candidate = try #require(archive.candidates.first { $0.id == old.candidateID })
+      archive = archive.replacing(labels: archive.labels + [try .init(candidate: candidate, rating: 6-old.rating, scope: scope.scope,
         presentation: old.presentation, previousRevisionID: old.id,
-        id: UUID(), createdAt: Date(timeIntervalSince1970: 200)))
+        id: UUID(), createdAt: Date(timeIntervalSince1970: 200))])
     }
-    let revised = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+    let revised = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 7)
     let child = try await PortraitOrdinalTrainer.fit(dataset: revised, parent: parent)
     #expect(child.payload.parentCheckpointID == parent.id)
     #expect(child.payload.initialization == .deterministicFullRefit)
@@ -55,12 +55,12 @@ struct PortraitOrdinalTrainingTests {
   @Test("scarcity, constant labels, inactive variation, and invalid numerical input fail explicitly")
   func insufficiency() async throws {
     let (scope, archive) = try portraitTrainingFixture(sourceCount: 1, samplesPerSource: 3)
-    let sparse = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+    let sparse = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 7)
     await #expect(throws: PortraitTrainingError.self) { try await PortraitOrdinalTrainer.fit(dataset: sparse, parent: nil) }
     let full = try portraitTrainingFixture(sourceCount: 1)
     var constant = full.1
-    constant.labels = try constant.entries.map { try .init(candidate: $0.candidate, rating: 3, scope: full.0.scope, presentation: .init()) }
-    let constantDataset = try PortraitPreferenceDatasetBuilder.freeze(archive: constant, scope: full.0, seed: 7)
+    constant = constant.replacing(labels: try constant.candidates.map { try .init(candidate: $0, rating: 3, scope: full.0.scope, presentation: .init()) })
+    let constantDataset = try PortraitPreferenceDatasetBuilder.freeze(examples: constant, scope: full.0, seed: 7)
     await #expect(throws: PortraitTrainingError.self) { try await PortraitOrdinalTrainer.fit(dataset: constantDataset, parent: nil) }
     var bad = PortraitOrdinalFitConfiguration.standard
     bad.learningRate = .nan
@@ -73,7 +73,7 @@ struct PortraitOrdinalTrainingTests {
   @Test("cancelled fit cannot produce a completed checkpoint")
   func cancellation() async throws {
     let (scope, archive) = try portraitTrainingFixture()
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 7)
     let operation = Task {
       withUnsafeCurrentTask { $0?.cancel() }
       return try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
@@ -84,7 +84,7 @@ struct PortraitOrdinalTrainingTests {
   @Test("no holdout gives explicit missing quality evidence and corrupted checkpoint is rejected")
   func missingEvidenceAndCorruption() async throws {
     let (scope, archive) = try portraitTrainingFixture(sourceCount: 1)
-    let dataset = try PortraitPreferenceDatasetBuilder.freeze(archive: archive, scope: scope, seed: 7)
+    let dataset = try PortraitPreferenceDatasetBuilder.freeze(examples: archive, scope: scope, seed: 7)
     let checkpoint = try await PortraitOrdinalTrainer.fit(dataset: dataset, parent: nil)
     #expect(checkpoint.payload.evaluation.holdoutLoss == nil)
     #expect(checkpoint.payload.evaluation.withinSourceOrderingAccuracy == nil)
@@ -96,10 +96,10 @@ struct PortraitOrdinalTrainingTests {
     let incompatibleDefinition = PortraitTrainingScopeDefinition(scope: scopeChanged, mode: scope.mode, referenceRecipe: scope.referenceRecipe,
       schemaRevision: scope.schemaRevision)
     var changedArchive = archive
-    changedArchive.labels = try changedArchive.entries.enumerated().map { index, entry in
-      try .init(candidate: entry.candidate, rating: 1 + index % 5, scope: scopeChanged, presentation: .init())
-    }
-    let incompatibleDataset = try PortraitPreferenceDatasetBuilder.freeze(archive: changedArchive, scope: incompatibleDefinition, seed: 7)
+    changedArchive = changedArchive.replacing(labels: try changedArchive.candidates.enumerated().map { index, candidate in
+      try .init(candidate: candidate, rating: 1 + index % 5, scope: scopeChanged, presentation: .init())
+    })
+    let incompatibleDataset = try PortraitPreferenceDatasetBuilder.freeze(examples: changedArchive, scope: incompatibleDefinition, seed: 7)
     await #expect(throws: PortraitTrainingError.self) { try await PortraitOrdinalTrainer.fit(dataset: incompatibleDataset, parent: checkpoint) }
   }
 }

@@ -1,0 +1,141 @@
+[0/1] Planning build
+Building for debugging...
+[0/10] Write sources
+[3/10] Write swift-version--1AB21518FC5DEDBE.txt
+[5/13] Compiling PortraitLibrary FlowPortfolioRetention.swift
+[6/13] Emitting module PortraitLibrary
+[7/13] Compiling PortraitLibrary PortraitSketchCollection.swift
+[8/19] Compiling PortraitStudioUI PortraitLineEditModel.swift
+[9/19] Compiling PortraitStudioUI PortraitStudioModel.swift
+[10/19] Compiling PortraitStudioUI PortraitStudioView.swift
+[11/19] Compiling PortraitStudioUI FlowDojoCameraPanel.swift
+[12/19] Emitting module PortraitStudioUI
+[13/19] Compiling PortraitStudioUI FlowDojoView.swift
+[14/84] Emitting module PortraitStudio
+[15/84] Compiling PortraitStudio PortraitStudioApp.swift
+[15/84] Write Objects.LinkFileList
+[17/84] Compiling PlotterApp OverlayState.swift
+[18/84] Compiling PlotterApp PaperCoverageComposition.swift
+[19/84] Compiling PlotterApp PassiveProbeComposition.swift
+[20/84] Compiling PlotterApp PenCapAppearanceSelection.swift
+[20/88] Linking PortraitStudio
+[22/88] Compiling PlotterApp CameraComposition.swift
+[23/88] Compiling PlotterApp CompletedComparisonReviewPresentation.swift
+[24/88] Compiling PlotterApp CurrentCameraCalibrationPlanning.swift
+[25/88] Compiling PlotterApp DrawingBorderEvidence.swift
+[25/88] Applying PortraitStudio
+[27/88] Compiling PlotterApp WorkbenchCameraCanvas.swift
+[28/88] Compiling PlotterApp WorkbenchCapabilityPresentation.swift
+[29/88] Compiling PlotterApp WorkbenchComputationStatus.swift
+[30/88] Compiling PlotterApp WorkbenchDiagnosticMedia.swift
+[31/88] Compiling PlotterApp DrawingMaterialStore.swift
+[32/88] Compiling PlotterApp DrawingReviewPresentation.swift
+[33/88] Compiling PlotterApp DrawingRunEvidenceComposition.swift
+[34/88] Compiling PlotterApp DrawingStudioActiveRunStatus.swift
+[35/88] Emitting module PlotterApp
+[36/88] Compiling PlotterApp WorkbenchDiagnostics.swift
+[37/88] Compiling PlotterApp WorkbenchLayout.swift
+[38/88] Compiling PlotterApp WorkbenchPanels.swift
+[39/88] Compiling PlotterApp WorkbenchRequestTelemetry.swift
+[40/88] Compiling PlotterApp DrawingTransferView.swift
+[41/88] Compiling PlotterApp LearnedOverlayPresentation.swift
+[42/88] Compiling PlotterApp LearningPathPresentation.swift
+[43/88] Compiling PlotterApp LearningPathProjector.swift
+[44/88] Compiling PlotterApp PlotterCameraCalibrationComposition.swift
+[45/88] Compiling PlotterApp PlotterControllerSessionRuntime.swift
+[46/88] Compiling PlotterApp PlotterManualMotionComposition.swift
+[47/88] Compiling PlotterApp PlotterObservationConfigurationRuntime.swift
+[48/88] Compiling PlotterApp DrawingStudioPhysicalEvidence.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/DrawingStudioPhysicalGallery.swift:146:29: error: cannot find 'FrameImageFactory' in scope
+144 |         let frame = try await application.drawingReviewImage(reference, runID: runID)
+145 |         try Task.checkCancellation()
+146 |         guard let decoded = FrameImageFactory.image(from: frame.frame) else { throw DrawingRunEvidenceError.invalidMediaReference }
+    |                             `- error: cannot find 'FrameImageFactory' in scope
+147 |         image = decoded
+148 |       } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+[49/88] Compiling PlotterApp DrawingStudioPhysicalGallery.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/DrawingStudioPhysicalGallery.swift:146:29: error: cannot find 'FrameImageFactory' in scope
+144 |         let frame = try await application.drawingReviewImage(reference, runID: runID)
+145 |         try Task.checkCancellation()
+146 |         guard let decoded = FrameImageFactory.image(from: frame.frame) else { throw DrawingRunEvidenceError.invalidMediaReference }
+    |                             `- error: cannot find 'FrameImageFactory' in scope
+147 |         image = decoded
+148 |       } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+[50/88] Compiling PlotterApp DrawingStudioPresentation.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/DrawingStudioPhysicalGallery.swift:146:29: error: cannot find 'FrameImageFactory' in scope
+144 |         let frame = try await application.drawingReviewImage(reference, runID: runID)
+145 |         try Task.checkCancellation()
+146 |         guard let decoded = FrameImageFactory.image(from: frame.frame) else { throw DrawingRunEvidenceError.invalidMediaReference }
+    |                             `- error: cannot find 'FrameImageFactory' in scope
+147 |         image = decoded
+148 |       } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+[51/88] Compiling PlotterApp DrawingStudioPreview.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/DrawingStudioPhysicalGallery.swift:146:29: error: cannot find 'FrameImageFactory' in scope
+144 |         let frame = try await application.drawingReviewImage(reference, runID: runID)
+145 |         try Task.checkCancellation()
+146 |         guard let decoded = FrameImageFactory.image(from: frame.frame) else { throw DrawingRunEvidenceError.invalidMediaReference }
+    |                             `- error: cannot find 'FrameImageFactory' in scope
+147 |         image = decoded
+148 |       } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+[52/88] Compiling PlotterApp PenCapReferenceSelectionOverlay.swift
+[53/88] Compiling PlotterApp PlotterApplicationRuntimeView.swift
+[54/88] Compiling PlotterApp PlotterArtifactResetComposition.swift
+[55/88] Compiling PlotterApp PlotterBoundaryComposition.swift
+[56/88] Compiling PlotterApp WorkbenchTopBar.swift
+[57/88] Compiling PlotterApp WorkbenchVideoSettings.swift
+[58/88] Compiling PlotterApp WorkbenchVoiceController.swift
+[59/88] Compiling PlotterApp WorkbenchVoiceView.swift
+[60/88] Compiling PlotterApp ActionSurfaceOverlayContent.swift
+[61/88] Compiling PlotterApp AdaptivePlotterApp.swift
+[62/88] Compiling PlotterApp AxisMetricCalibrationView.swift
+[63/88] Compiling PlotterApp AxisMetricLearningTransition.swift
+[64/88] Compiling PlotterApp CalibrationWorkingRegionInteraction.swift
+[65/88] Compiling PlotterApp DrawingFrameInteraction.swift
+[66/88] Compiling PlotterApp DrawingMaterialControls.swift
+[67/88] Compiling PlotterApp DrawingMaterialInspection.swift
+[68/88] Compiling PlotterApp DrawingMaterialLibrary.swift
+[69/88] Compiling PlotterApp RunningAppPreviewPerformanceGate+Physical.swift
+[70/88] Compiling PlotterApp RunningAppPreviewPerformanceGate+Workbench.swift
+[71/88] Compiling PlotterApp RunningAppPreviewPerformanceGate.swift
+[72/88] Compiling PlotterApp TrackingAcquisitionEvidence.swift
+[73/88] Compiling PlotterApp AcceptedArtifactCheckpointComposition.swift
+[74/88] Compiling PlotterApp AcceptedLearningPathLegacyMigration.swift
+[75/88] Compiling PlotterApp ActionSurface.swift
+[76/88] Compiling PlotterApp ActionSurfaceInteraction.swift
+[77/88] Compiling PlotterApp ActionSurfaceOverlayCanvas.swift
+[78/88] Compiling PlotterApp PlotterPenInteractionComposition.swift
+[79/88] Compiling PlotterApp PortraitDrawingActions.swift
+[80/88] Compiling PlotterApp PortraitPlanePreviewSource.swift
+[81/88] Compiling PlotterApp RunningAppNativeInputProbe.swift
+[82/88] Compiling PlotterApp LearningPathView.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/OperatorWorkspace.swift:2174:37: error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2172 |     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
+ 2173 |     self.portraitStudio = resolvedPortraitStudio
+ 2174 |     resolvedPortraitStudio.sketches.requireEvidenceSynchronization()
+      |                                     `- error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2175 |     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
+ 2176 |     if let observationSession {
+[83/88] Compiling PlotterApp MotionReadout.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/OperatorWorkspace.swift:2174:37: error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2172 |     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
+ 2173 |     self.portraitStudio = resolvedPortraitStudio
+ 2174 |     resolvedPortraitStudio.sketches.requireEvidenceSynchronization()
+      |                                     `- error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2175 |     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
+ 2176 |     if let observationSession {
+[84/88] Compiling PlotterApp OperatorButtonGrammar.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/OperatorWorkspace.swift:2174:37: error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2172 |     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
+ 2173 |     self.portraitStudio = resolvedPortraitStudio
+ 2174 |     resolvedPortraitStudio.sketches.requireEvidenceSynchronization()
+      |                                     `- error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2175 |     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
+ 2176 |     if let observationSession {
+[85/88] Compiling PlotterApp OperatorWorkspace.swift
+/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Sources/PlotterApp/OperatorWorkspace.swift:2174:37: error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2172 |     let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
+ 2173 |     self.portraitStudio = resolvedPortraitStudio
+ 2174 |     resolvedPortraitStudio.sketches.requireEvidenceSynchronization()
+      |                                     `- error: value of type 'PortraitSketchCollection' has no member 'requireEvidenceSynchronization'
+ 2175 |     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
+ 2176 |     if let observationSession {

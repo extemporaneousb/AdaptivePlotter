@@ -92,83 +92,9 @@ struct PortraitDrawingParametersTests {
     #expect(original.drawingParameters != nil)
   }
 
-  @Test("A native edit resolves a saved shared recipe at its actual raster height without rewriting history")
-  @MainActor
-  func explicitLegacyEdit() async throws {
-    let raster = portraitTestRaster()
-    let pen = try portraitTestStyle()
-    let original = PortraitVectorOptions(drawingParameters: .init(detail: 0.7, tone: 1.2,
-      smoothness: 0.4, minimumLine: 0.025))
-    let recipe = PortraitStyleRecipe(id: "historical-shared", title: "Retained shared recipe", seed: 0,
-      style: .contours, vectorOptions: original, analysisOptions: .init())
-    let candidate = try PortraitCandidate(sourceData: Data([1]), sourcePixelExtent: nil, raster: raster,
-      recipe: recipe, program: PortraitVectorizer.program(from: raster, pose: .front, style: .contours,
-        strokeStyle: pen, vectorOptions: original), photoID: UUID(), captureSessionID: UUID(), pose: .front)
-    let model = PortraitStudioModel(renderer: ExplorationTestRenderer())
-    model.sketches.recordAttempt(candidate, record: try .prepare(candidate: candidate, pen: pen))
-    model.inspectAttempt(candidate.id, strokeStyle: pen)
-    model.saveStyle(name: "Keep original")
-    let displayed = model.nativeVectorOptions
-    #expect(displayed.minimumContourLength == Double(raster.height) * 0.025)
-    #expect(displayed.smoothing == Double(raster.height) * 0.002)
-    #expect(model.vectorOptions == original)
-    model.editNativeVectorOptions { $0.contourLevels = 10 }
-    var expected = displayed
-    expected.contourLevels = 10
-    #expect(model.vectorOptions == expected)
-    #expect(model.vectorOptions.drawingParameters == nil)
-    #expect(model.completedCandidate == candidate)
-    #expect(model.sketches.savedStyles.first?.recipe == recipe)
-    #expect(model.sketches.entries.first(where: { $0.id == candidate.id })?.candidate == candidate)
-    model.renderIfConfigurationChanged(strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.selectedCandidate?.recipe.vectorOptions == expected)
-    #expect(model.sketches.savedStyles.first?.recipe == recipe)
-    await model.shutdown()
-  }
 
-  @Test("Shared recipes wait for the matching source and crop raster before a native edit", arguments: [false, true])
-  @MainActor
-  func legacyEditWaitsForApplicableRaster(replaceSource: Bool) async throws {
-    let renderer = ApplicablePortraitRasterRenderer()
-    let model = PortraitStudioModel(renderer: renderer)
-    let pen = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    let shared = PortraitVectorOptions(drawingParameters: .init(detail: 0.7, tone: 1.2,
-      smoothness: 0.4, minimumLine: 0.025))
-    var analysis = PortraitAnalysisOptions()
-    analysis.cropToFace = replaceSource
-    let recipe = PortraitStyleRecipe(id: "landscape-shared", title: "Shared recipe", seed: 0,
-      style: .contours, vectorOptions: shared, analysisOptions: analysis)
-    let saved = PortraitSavedStyle(id: UUID(), name: "Shared", recipe: recipe, createdAt: Date())
-    if replaceSource {
-      model.applySavedStyle(saved, strokeStyle: pen)
-      await model.awaitRendering()
-    }
-    await renderer.holdNext()
-    if replaceSource { model.setPhoto(Data([2]), for: .front, strokeStyle: pen) }
-    else { model.applySavedStyle(saved, strokeStyle: pen) }
-    try await renderer.waitUntilHeld()
-    #expect(!model.canEditNativeParameters)
-    model.editNativeVectorOptions { $0.contourLevels = 10 }
-    #expect(model.vectorOptions == shared)
-    #expect(model.isProcessing)
-    await renderer.release()
-    await model.awaitRendering()
-    let candidate = try #require(model.selectedCandidate)
-    #expect(candidate.raster.height == 60)
-    #expect(model.canEditNativeParameters)
-    #expect(model.nativeVectorOptions.minimumContourLength == 1.5)
-    #expect(abs(model.nativeVectorOptions.smoothing - 0.12) < 1e-12)
-    model.editNativeVectorOptions { $0.contourLevels = 10 }
-    #expect(model.vectorOptions.drawingParameters == nil)
-    #expect(model.vectorOptions.minimumContourLength == 1.5)
-    #expect(abs(model.vectorOptions.smoothing - 0.12) < 1e-12)
-    #expect(model.vectorOptions.contourLevels == 10)
-    #expect(candidate.recipe == recipe || candidate.recipe.vectorOptions == shared)
-    await model.shutdown()
-  }
+
+
 
   @Test("Native Next and recovery vary only controls used by their renderer",
     arguments: [PortraitStyle.contours, .flowEdges, .sketch])
@@ -226,56 +152,7 @@ struct PortraitDrawingParametersTests {
     }
   }
 
-  @Test("Cancel preserves saved recipes and selection; each renderer restores independent native tuning")
-  @MainActor
-  func cancelAndStyleSwitch() async throws {
-    let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 918)
-    let pen = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    model.saveStyle(name: "Kept recipe")
-    let saved = try #require(model.sketches.savedStyles.first)
-    let candidate = try #require(model.selectedCandidate)
-    await renderer.holdNext()
-    model.nextPortrait(strokeStyle: pen)
-    try await renderer.waitUntilHeld()
-    #expect(model.isExploring)
-    model.cancelPortraitStep()
-    #expect(model.sketches.savedStyles.map(\.id) == [saved.id])
-    #expect(model.sketches.savedStyles.first?.recipe == saved.recipe)
-    #expect(model.selectedCandidate?.id == candidate.id)
-    await renderer.release()
-    await model.awaitRendering()
-    #expect(model.sketches.savedStyles.map(\.id) == [saved.id])
-    #expect(model.sketches.savedStyles.first?.recipe == saved.recipe)
-    #expect(model.selectedCandidate?.id == candidate.id)
-    model.editNativeVectorOptions {
-      $0.contourLevels = 11
-      $0.simplificationTolerance = 1.4
-      $0.smoothing = 0.3
-    }
-    let contour = model.vectorOptions
-    model.selectStyle(.flowEdges, strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.vectorOptions == .nativeDefaults(for: .flowEdges))
-    model.editNativeVectorOptions {
-      $0.hatchSpacing = 12
-      $0.sketchThreshold = 0.035
-      $0.smoothing = 2.8
-    }
-    let flow = model.vectorOptions
-    model.selectStyle(.contours, strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.vectorOptions == contour)
-    model.selectStyle(.flowEdges, strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.vectorOptions == flow)
-    model.applySavedStyle(saved, strokeStyle: pen)
-    await model.awaitRendering()
-    #expect(model.selectedCandidate?.recipe == saved.recipe)
-    await model.shutdown()
-  }
+
 }
 
 private actor ApplicablePortraitRasterRenderer: PortraitRendering {

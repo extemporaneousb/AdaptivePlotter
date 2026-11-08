@@ -42,8 +42,8 @@ public actor SwiftSketchClient {
       }
       let proof = try JSONDecoder().decode(Proof.self, from: boundedRead(config.proofReceipt, limit: 64 * 1024))
       guard proof.schemaVersion == 1, proof.status == "succeeded",
-        proof.adapterSHA256 == DrawingPackageCodec.sha256(try boundedRead(config.workerScript, limit: 256 * 1024)),
-        proof.manifestSHA256 == DrawingPackageCodec.sha256(try boundedRead(config.modelManifest, limit: 64 * 1024)) else {
+        proof.adapterSHA256 == DrawingArtifactCoding.sha256(try boundedRead(config.workerScript, limit: 256 * 1024)),
+        proof.manifestSHA256 == DrawingArtifactCoding.sha256(try boundedRead(config.modelManifest, limit: 64 * 1024)) else {
         return SwiftSketchAvailability(available: false, reason: "Pinned pretrained inference has no matching successful local receipt.")
       }
       let manifest = try JSONDecoder().decode(Manifest.self, from: boundedRead(config.modelManifest, limit: 64 * 1024))
@@ -93,7 +93,7 @@ public actor SwiftSketchClient {
     let output = directory.appendingPathComponent("output", isDirectory: true)
     try request.inputPNG.write(to: input, options: .atomic)
     let requestJSON: [String: Any] = ["schema_version": 1, "request_id": request.requestID.uuidString,
-      "input_path": input.path, "input_sha256": DrawingPackageCodec.sha256(request.inputPNG),
+      "input_path": input.path, "input_sha256": DrawingArtifactCoding.sha256(request.inputPNG),
       "preprocessing": request.preprocessing.rawValue, "seed": request.seed,
       "mask_policy": "fixed-input-no-segmentation-v1"]
     try JSONSerialization.data(withJSONObject: requestJSON, options: [.sortedKeys]).write(to: requestFile)
@@ -167,7 +167,7 @@ public actor SwiftSketchClient {
     func asset(_ name: String, limit: Int) throws -> Data? {
       guard let hash = response.files[name] else { return nil }
       let data = try boundedRead(output.appendingPathComponent(name), limit: limit)
-      guard DrawingPackageCodec.sha256(data) == hash else { throw SwiftSketchError.invalid("Worker asset hash mismatch: \(name)") }
+      guard DrawingArtifactCoding.sha256(data) == hash else { throw SwiftSketchError.invalid("Worker asset hash mismatch: \(name)") }
       return data
     }
     let raw = try asset("raw-curves.json", limit: 2 * 1024 * 1024)

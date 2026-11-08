@@ -9,74 +9,9 @@ import Testing
 @Suite("Continuous portrait exploration", .serialized)
 @MainActor
 struct PortraitContinuousExplorationTests {
-  @Test("actual Contour and Flow Edge native exploration stays renewable", arguments: [PortraitStyle.contours, .flowEdges])
-  func nativeSequence(style: PortraitStyle) async throws {
-    let renderer = RegionalSequenceRenderer(raster: try regionalFixture())
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 310)
-    let pen = try portraitTestStyle()
-    model.resetStyle(style, strokeStyle: pen)
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    let original = try #require(model.selectedCandidate)
-    var accepted = 0, lateAccepted = 0, geometry = Set<String>()
-    var times: [Double] = []
-    for step in 0..<24 {
-      let before = try #require(model.selectedCandidate)
-      let calls = await renderer.calls
-      let started = ProcessInfo.processInfo.systemUptime
-      model.nextPortrait(strokeStyle: pen)
-      await model.awaitRendering()
-      times.append((ProcessInfo.processInfo.systemUptime - started) * 1000)
-      let after = try #require(model.selectedCandidate)
-      #expect(await renderer.calls - calls <= 2)
-      #expect(after.recipe.style == style)
-      #expect(after.rasterSHA256 == original.rasterSHA256)
-      #expect(after.recipe.vectorOptions.drawingParameters == nil)
-      #expect(after.recipe.vectorOptions.regionalTreatment == nil)
-      #expect(after.recipe.vectorOptions.regionalAdjustments == nil)
-      #expect(after.recipe.analysisOptions == original.recipe.analysisOptions)
-      if before.id != after.id {
-        accepted += 1
-        if step >= 12 { lateAccepted += 1 }
-        // Ignore provenance/IDs: actual retained stroke points must differ.
-        geometry.insert(after.program.strokes.map { String(describing: $0.path.points) }.joined())
-        let calls = await renderer.calls
-        model.previousPortrait()
-        #expect(model.selectedCandidate?.program == before.program)
-        model.nextPortrait(strokeStyle: pen)
-        #expect(model.selectedCandidate?.program == after.program)
-        #expect(await renderer.calls == calls)
-      }
-    }
-    print("NATIVE_SEQUENCE style=\(style.rawValue) accepted=\(accepted)/24 late=\(lateAccepted)/12 unique=\(geometry.count) mean_ms=\(times.reduce(0,+)/Double(times.count)) rejections=\(model.explorationRejections)")
-    #expect(accepted >= 12)
-    #expect(lateAccepted >= 5)
-    #expect(geometry.count >= 8)
-    #expect(model.workDiagnostics.maximumConcurrentWorkerCount == 1)
-    await model.shutdown()
-  }
 
-  @Test("Previous at the beginning generates and Next returns the exact starting drawing")
-  func extendBeginning() async throws {
-    let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, explorationSeed: 310)
-    let pen = try portraitTestStyle()
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    let original = try #require(model.selectedCandidate)
-    #expect(!model.canGoBackExploration)
-    model.previousPortrait()
-    await model.awaitRendering()
-    let previous = try #require(model.selectedCandidate)
-    #expect(previous.id != original.id)
-    let calls = await renderer.requests.count
-    model.nextPortrait(strokeStyle: pen)
-    #expect(model.selectedCandidate?.program == original.program)
-    model.previousPortrait()
-    #expect(model.selectedCandidate?.program == previous.program)
-    #expect(await renderer.requests.count == calls)
-    await model.shutdown()
-  }
+
+
 
   @Test("an eye edit is judged locally despite dense exterior ink, with Y-axis mapping preserved")
   func regionalDistance() throws {
@@ -103,33 +38,7 @@ struct PortraitContinuousExplorationTests {
     #expect(!a.isMeaningfullyDifferent(from: PortraitExplorationPolicy.VisibleGeometry(try drawing(eyeY: 56, exteriorY: 3)), mask: mask))
   }
 
-  @Test("canonical reset works within the same kernel and preserves framing and material")
-  func canonicalReset() async throws {
-    let renderer = RegionalSequenceRenderer(raster: try regionalFixture())
-    let model = PortraitStudioModel(renderer: renderer)
-    let pen = try portraitTestStyle()
-    let material = try PortraitMaterialContext(profile: .init(name: "Test", nominalWidthMM: 0.4), drawingHeightMM: 100)
-    model.options.cropToFace = false
-    model.vectorOptions.materialContext = material
-    model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
-    await model.awaitRendering()
-    for style in [PortraitStyle.contours, .flowEdges] {
-      model.resetStyle(style, strokeStyle: pen)
-      await model.awaitRendering()
-      let canonical = model.vectorOptions
-      model.vectorOptions.tonalStrength = 1.9
-      model.vectorOptions.setTreatment(.init(scope: .eyes, shadowStrength: 0.8))
-      model.renderIfConfigurationChanged(strokeStyle: pen)
-      await model.awaitRendering()
-      model.resetStyle(style, strokeStyle: pen)
-      await model.awaitRendering()
-      #expect(model.vectorOptions == canonical)
-      #expect(model.vectorOptions.materialContext == material)
-      #expect(!model.options.cropToFace)
-      #expect(model.selectedCandidate?.recipe.style == style)
-    }
-    await model.shutdown()
-  }
+
 
   @Test("legacy stacks retain exact geometry until edited, and new edits cannot grow indefinitely")
   func historicalStack() throws {

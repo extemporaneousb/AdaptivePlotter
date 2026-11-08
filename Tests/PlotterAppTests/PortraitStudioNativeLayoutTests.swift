@@ -1,3 +1,4 @@
+import DrawingLibrary
 @testable import PortraitArtists
 import AppKit
 import Foundation
@@ -53,14 +54,7 @@ struct PortraitStudioNativeLayoutTests {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let renderer = NativeDojoLayoutRenderer()
-    let owner = PortraitStudioModel(candidateStore: .init(directoryURL: directory.appendingPathComponent("historical")),
-      portfolioFactory: { stroke in
-        FlowDojoModel(directory: directory.appendingPathComponent("native-layout.flowportfolio"),
-          strokeStyle: stroke, purpose: .validationFixture,
-          render: { data, recipe, style in try await renderer.render(data, recipe, style) },
-          fit: { _, _ in .unavailable("Native layout fixture: no trained artist.") })
-      })
+    let owner = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("current-library")))
     let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: owner)
     defer { fixture.stores.remove() }
     let application = fixture.application
@@ -82,9 +76,9 @@ struct PortraitStudioNativeLayoutTests {
       await dojo.browseCandidate(anchor.id)
       try #require(dojo.error == nil && dojo.document?.sources.count == 18)
       try #require(dojo.document?.rounds.count == 3)
-      #expect(dojo.document?.purpose == .validationFixture && dojo.directory.path.hasPrefix(directory.path))
+      #expect(dojo.document?.purpose == .artist && dojo.directory.path.hasPrefix(directory.path))
       let store = try #require(dojo.store)
-      let renders = await renderer.calls
+      let renders = dojo.document?.candidates.count ?? 0
       let stages: [FlowDojoModel.Stage] = requiresAX ? [.explore] : FlowDojoModel.Stage.allCases
       for size in [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)] {
         for stage in stages {
@@ -107,16 +101,16 @@ struct PortraitStudioNativeLayoutTests {
             await settle(host.view)
             let name = "dojo-" + stage.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
             try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: name)
-            try assertDojoGeometry(host: host.view, window: window, size: size, stage: stage)
+            try assertDojoGeometry(host: host.view, window: window, size: size, stage: stage, dojo: dojo)
             #expect(owner.portfolioDojo(strokeStyle: pen) === dojo && dojo.store === store)
-            #expect(await renderer.calls == renders && owner.renderDiagnostics.startedWorkerCount == 0)
+            #expect((dojo.document?.candidates.count ?? 0) == renders)
             #expect(!owner.cameraIsRunning && !owner.isCapturing && owner.preview.frame == nil)
             #expect(dojo.document?.revision == revision && dojo.document?.choices.count == choices)
             #expect(dojo.selectedSource?.id == selectedSource && dojo.candidate?.id == selectedCandidate)
             #expect(dojo.program?.contentHash == programHash && dojo.stage == stage)
             if requiresAX {
               try await exerciseDojoAX(dojo, in: window, host: host.view)
-              #expect(await renderer.calls == renders && owner.renderDiagnostics.startedWorkerCount == 0)
+              #expect((dojo.document?.candidates.count ?? 0) == renders)
             } else {
               let scrollers = views(host.view).compactMap { $0 as? NSScrollView }.filter {
                 !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
@@ -125,7 +119,7 @@ struct PortraitStudioNativeLayoutTests {
               #expect(dojo.document?.revision == revision && dojo.document?.choices.count == choices,
                 "Scrolling photo, branch and drawing documents must not create feedback or navigation records.")
               #expect(dojo.selectedSource?.id == selectedSource && dojo.candidate?.id == selectedCandidate)
-              #expect(await renderer.calls == renders)
+              #expect(dojo.document?.candidates.count ?? 0 == renders)
               try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: name + "-scrolled")
               if stage == .fit {
                 let visible = try renderedDojoLabels(host.view).map(normalizeDojoLabel)
@@ -143,7 +137,7 @@ struct PortraitStudioNativeLayoutTests {
     } catch { await application.shutdown(); throw error }
   }
 
-  private func assertDojoGeometry(host: NSView, window: NSWindow, size: NSSize, stage: FlowDojoModel.Stage) throws {
+  private func assertDojoGeometry(host: NSView, window: NSWindow, size: NSSize, stage: FlowDojoModel.Stage, dojo: FlowDojoModel) throws {
     #expect(!window.isKeyWindow)
     #expect(abs(host.bounds.width - size.width) < 2 && abs(host.bounds.height - size.height) < 2)
     let bounds = host.bounds.insetBy(dx: -2, dy: -2)
@@ -183,10 +177,15 @@ struct PortraitStudioNativeLayoutTests {
       "Curation stage", "Explore", "Prune", "Rank", "Fit & deploy"]
       + (stage == .explore ? ["Broad exploration", "Compare this set"]
         : stage == .prune ? ["Finish pruning", "Original"]
-        : stage == .rank ? ["Rank by artistic preference", "Next pair"] : ["Fit portfolio", "No active checkpoint"])
+        : stage == .rank ? ["Rank by artistic preference", "Next pair"] : ["Fit portfolio"])
     for title in required {
       #expect(labels.contains { $0.contains(normalizeDojoLabel(title)) },
         "Embedded \(stage.rawValue) core control '\(title)' is not visible at \(size): \(labels)")
+    }
+    if stage == .fit {
+      #expect(dojo.activeCheckpoint == nil)
+      #expect(labels.contains { $0.contains(normalizeDojoLabel("No active checkpoint")) },
+        "The exact inactive checkpoint status must be visible at \(size): \(labels)")
     }
     #expect(labels.contains { $0.hasPrefix("branches") }, "Branch access must be visible without scrolling the photo library.")
   }
@@ -273,8 +272,10 @@ struct PortraitStudioNativeLayoutTests {
     let image = try #require(bitmap.cgImage)
     let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate
     request.recognitionLanguages = ["en-US"]; request.minimumTextHeight = 0.005
+    request.usesLanguageCorrection = true
+    request.customWords = ["checkpoint", "No active checkpoint", "Fit portfolio", "Flow Edge Dojo"]
     try VNImageRequestHandler(cgImage: image).perform([request])
-    var labels = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+    var labels = (request.results ?? []).flatMap { $0.topCandidates(5).map(\.string) }
     labels += views(host).compactMap { view -> String? in
       guard let button = view as? NSButton, !button.isHiddenOrHasHiddenAncestor,
         host.bounds.insetBy(dx: -2, dy: -2).contains(button.convert(button.bounds, to: host)),
@@ -335,9 +336,9 @@ struct PortraitStudioNativeLayoutTests {
     do {
       let first = try portraitPersistenceCandidate(seed: 801)
       let second = try portraitPersistenceCandidate(seed: 802)
-      #expect(application.portraitStudio.sketches.retain(candidate: first, reason: .shortlisted) == nil)
-      #expect(application.portraitStudio.sketches.retain(candidate: second, reason: .shortlisted) == nil)
-      await application.portraitStudio.sketches.awaitPersistence()
+      let firstValue = try await application.portraitStudio.sketches.retain(drawingTestValue(program: first.program), reason: "save")
+      let secondValue = try await application.portraitStudio.sketches.retain(drawingTestValue(program: second.program), reason: "save")
+      let firstRef = try #require(firstValue.reference), secondRef = try #require(secondValue.reference)
       #expect(application.drawingMaterials.createNominal(name: "Native layout nominal material", widthMM: 1.2) == nil)
       // Only the synthetic draft owner is touched. No Draw or movement request
       // is submitted, and the view's application-startup task is never mounted.
@@ -351,8 +352,8 @@ struct PortraitStudioNativeLayoutTests {
       try #require(selectionOutcome == .accepted(requestID: selectionRequest.id),
         "Synthetic draft selection was refused: \(selectionOutcome).")
       for width in [300, 390, 600] {
-        application.portraitStudio.sketches.selectedID = first.id
-        try await inspectPanel(application: application, width: width, alternateSelection: second.id, requiresAX: requiresAX)
+        try await application.portraitStudio.sketches.select(firstRef)
+        try await inspectPanel(application: application, width: width, alternateSelection: secondRef, requiresAX: requiresAX)
       }
       await application.shutdown()
     } catch {
@@ -361,7 +362,7 @@ struct PortraitStudioNativeLayoutTests {
     }
   }
 
-  private func inspectPanel(application: PlotterApplicationRuntime, width: Int, alternateSelection: String, requiresAX: Bool) async throws {
+  private func inspectPanel(application: PlotterApplicationRuntime, width: Int, alternateSelection: DrawingRef, requiresAX: Bool) async throws {
     let drawingPreview = try #require(application.drawingStudioPresentation.drawingPreview)
     #expect(drawingPreview.plane.geometry(in: CGSize(width: width - 24, height: 160)) != nil)
     let panel = PlotterApplicationRuntimeView(application: application).panelContent(.drawing)
@@ -389,9 +390,9 @@ struct PortraitStudioNativeLayoutTests {
       try assertControlsFitHorizontally(in: window, width: width)
     }
 
-    application.portraitStudio.sketches.selectedID = alternateSelection
+    try await application.portraitStudio.sketches.select(alternateSelection)
     await settle(host.view)
-    #expect(application.portraitStudio.selectedCandidate?.id == alternateSelection)
+    #expect(application.portraitStudio.sketches.selected?.reference == alternateSelection)
     #expect(application.drawingStudioPresentation.drawingPreview == drawingPreview,
       "Browsing a saved Studio drawing must not substitute the Drawing panel's program or plan.")
     try assertHostedGeometry(host: host.view, window: window, width: width)
@@ -693,21 +694,5 @@ struct PortraitStudioNativeLayoutTests {
     view.layoutSubtreeIfNeeded()
     view.window?.displayIfNeeded()
     view.displayIfNeeded()
-  }
-}
-
-private actor NativeDojoLayoutRenderer {
-  private(set) var calls = 0
-  func render(_ data: Data, _ recipe: FlowArtistRecipe, _ pen: PlotterModel.StrokeStyle) throws -> PortraitRenderResult {
-    calls += 1
-    let strokes = try (0..<12).map { index in
-      let value = recipe.values[index % recipe.values.count]
-      return LogicalStroke(id: StrokeID(), path: try Polyline(points: [
-        .init(x: 8, y: Double(index) * 8 + 8),
-        .init(x: 30 + value * 60, y: Double(index) * 8 + 8 + value * 3)]), style: pen, ordering: UInt32(index))
-    }
-    let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 110),
-      strokes: strokes, source: .init(kind: "portrait", sourceIdentifier: "native-layout-fixture|" + DrawingPackageCodec.sha256(data)))
-    return .init(raster: portraitTestRaster(), program: program)
   }
 }

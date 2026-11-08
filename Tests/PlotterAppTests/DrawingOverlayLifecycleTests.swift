@@ -49,7 +49,7 @@ struct DrawingOverlayLifecycleTests {
   func hideRetainsDrawingAuthority() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let studio = PortraitStudioModel(library: DrawingFirstTestStorage.library())
     let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
     defer { f.stores.remove() }
     let app = f.application
@@ -62,17 +62,14 @@ struct DrawingOverlayLifecycleTests {
         recipe: .init(id: "overlay-contours", title: "Overlay fixture", seed: 0, style: .contours,
           vectorOptions: .init(), analysisOptions: .init()),
         program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
-      studio.sketches.retainSourcePhoto(.init(id: candidate.photoID, data: candidate.sourceData,
-        label: "Overlay fixture source", capturedAt: candidate.createdAt, frameID: nil,
-        captureNanoseconds: nil, pose: .front, sourcePixelExtent: candidate.sourcePixelExtent,
-        captureSessionID: candidate.captureSessionID))
+
       let projection = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID,
         manualDraft: ManualMotionDraft(), includesLearningPath: true, pendingDrawingProgram: program)
       let select = try #require(projection.semantic.request(matching: .drawingDraft(.selectProgram(program))))
       #expect(await app.submitPlotterUIRequest(select) == .accepted(requestID: select.id))
-      let handoffFailure = await app.projectPortrait(candidate)
+      let handoffFailure = await app.projectDrawing(try drawingTestValue(program: candidate.program))
       try #require(handoffFailure == nil)
-      #expect(studio.projectedDrawing?.sourcePhotoID == candidate.photoID)
+      #expect(studio.projectedDrawing?.program == candidate.program && studio.projectedDrawing?.reference != nil)
       #expect(app.drawingDraftSnapshot.authoredProgram == program)
       try await f.submit(.fitInDrawableRegion)
       try await f.submit(.assertPaperCoverage)

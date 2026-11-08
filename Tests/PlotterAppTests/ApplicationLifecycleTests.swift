@@ -60,6 +60,7 @@ struct ApplicationLifecycleTests {
     #expect(diagnostic?.contains("Point-selection recording is unavailable") == true)
 
     let workspace = PlotterApplicationRuntime(
+      portraitStudio: DrawingFirstTestStorage.studio(),
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
       penInteractionRuntime: nominalPenInteractionRuntime(),

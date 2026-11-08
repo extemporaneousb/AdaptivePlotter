@@ -242,21 +242,30 @@ extension RunningAppPreviewPerformanceGate {
       try await physicalExportFacts(application, directory: directory, name: "inkless-stop-settled", jog: jogDetail)
 
       try await selectCamera(.portrait, application: application)
-      application.portraitStudio.style = .contours
-      await application.portraitStudio.importPhoto(retainedPhoto, strokeStyle: application.drawingStrokeStyle)
-      await application.portraitStudio.awaitRendering()
-      guard let program = application.portraitStudio.program, !program.strokes.isEmpty else {
-        throw WorkbenchNativeInputError.unavailable("The imported face produced no drawing: \(application.portraitStudio.summary)")
+      let dojo = application.portraitStudio.portfolioDojo(strokeStyle: application.drawingStrokeStyle)
+      await dojo.open()
+      let source = try Data(contentsOf: retainedPhoto)
+      await dojo.addPhoto(data: source, title: "Physical verification source", mediaType:
+        retainedPhoto.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg")
+      await dojo.generate(refining: false)
+      guard let selected = dojo.roundCandidates.first else {
+        throw WorkbenchNativeInputError.unavailable(dojo.error ?? "The current producer returned no drawing.")
       }
-      report.nativeInputSamples.append(try await probe.click("portrait.showOnPlotter") {
-        RunningAppNativeInputProbe.controlValue("portrait.showOnPlotter")?.contains("Preparing") == true
+      await dojo.selectCandidate(selected.id)
+      let drawing = try await dojo.retainedDrawing()
+      let program = drawing.program
+      guard !program.strokes.isEmpty else {
+        throw WorkbenchNativeInputError.unavailable("The current producer returned an empty drawing.")
+      }
+      report.nativeInputSamples.append(try await probe.click("flowDojo.exportDrawing") {
+        RunningAppNativeInputProbe.controlValue("flowDojo.exportDrawing")?.contains("Preparing") == true
           || application.workbenchCameraRole == .plotter
       })
       try await awaitWorkload("Send to Drawing did not settle with the imported portrait plan.") {
         application.workbenchCameraRole == .plotter && !application.cameraRoleIsTransitioning
           && application.drawingDraftSnapshot.program?.contentHash == program.contentHash
           && application.drawingDraftSnapshot.plan != nil
-          && RunningAppNativeInputProbe.controlValue("portrait.showOnPlotter")?.contains("Preparing") == false
+          && RunningAppNativeInputProbe.controlValue("flowDojo.exportDrawing")?.contains("Preparing") == false
       }
       var priorPlan: ExecutionPlanRevision?
       for index in 1...2 {

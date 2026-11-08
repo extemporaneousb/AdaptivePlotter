@@ -32,6 +32,7 @@ extension PlotterApplicationRuntimeTests {
         requestJogCancel: { _ in .refused(.noActiveJog) },
         disconnect: {}
       ),
+      portraitStudio: DrawingFirstTestStorage.studio(),
       penInteractionRuntime: nominalPenInteractionRuntime(),
       boundaryRuntime: nominalBoundaryRuntime(),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
@@ -113,6 +114,7 @@ extension PlotterApplicationRuntimeTests {
         requestJogCancel: { _ in .refused(.noActiveJog) },
         disconnect: {}
       ),
+      portraitStudio: DrawingFirstTestStorage.studio(),
       penInteractionRuntime: nominalPenInteractionRuntime(),
       boundaryRuntime: nominalBoundaryRuntime(),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),

@@ -3,77 +3,91 @@ import Foundation
 import PlotterModel
 import PortraitArtists
 import PortraitCore
+import DrawingLibrary
 
-/// One writer owns a portable portfolio. Immutable dependencies and operation
-/// records become visible together through one atomic head replacement.
+/// Authoring session and typed domain graph; the common Library owns persistence.
 package actor FlowPortfolioStore {
-  let storage: FlowPortfolioStorage
+  let storage: FlowAuthoringArtifacts
   var state: FlowPortfolioSnapshot
-  private var head: FlowPortfolioHead
-  private var comparisonGeometryCache: [String: String] = [:]
-  private var comparisonGeometryOrder: [String] = []
+  var committedRecords = Set<DrawingLibraryRecordKey>()
+  var inFlightCandidates: [UUID: Int] = [:]
+  var temporaryDrawings: [UUID: Drawing] = [:]
+  var drawingInputs: [UUID: FrozenImageInputRecord] = [:]
+  var sourcePhotoRecords: [UUID: FrozenPhotoRecord] = [:]
+  var publishedPhotoIDs = Set<UUID>()
+  var writeAdmissionActive = false
+  var pendingGraphWrite: FlowPendingGraphWrite?
+  var pendingRetainedWrite: FlowPendingRetainedWrite?
+  var previewArtifacts: [UUID: FlowPortfolioPreviewArtifact] = [:]
+  var featureCapsules: [UUID: FlowPortfolioFeatureCapsule] = [:]
+  let requestedPurpose: FlowPortfolioPurpose?
   package nonisolated let directory: URL
 
-  package init(directory: URL, purpose: FlowPortfolioPurpose? = nil) throws {
-    let storage = try FlowPortfolioStorage(directory: directory)
-    let loaded = try storage.loadOrCreate(purpose: purpose)
-    self.storage = storage; self.directory = storage.directory
-    state = loaded.0; head = loaded.1
+  package init(directory: URL, purpose: FlowPortfolioPurpose? = nil, library: DrawingLibrary? = nil) {
+    let owner = library ?? DrawingLibrary(directoryURL: directory)
+    storage = FlowAuthoringArtifacts(library: owner)
+    self.directory = owner.directoryURL; requestedPurpose = purpose
+    state = .empty(purpose: purpose ?? .artist)
   }
-
   package func snapshot() -> FlowPortfolioSnapshot { state }
-
-  /// Recover an uncertain durability outcome by reading the committed head,
-  /// before a UI retries the still-pending user intent.
-  package func reloadCommittedState() throws {
-    let loaded = try storage.loadOrCreate(purpose: state.purpose)
-    state = loaded.0; head = loaded.1
+  package func reloadCommittedState() async throws {
+    try await finishPendingGraphWrite(); try await finishPendingRetainedWrite(); try await loadRecords()
+    trimTransientCaches()
   }
-
-  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil) throws {
+  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil) async throws {
+    guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
     var next = next; next.revision = state.revision + 1
     try FlowPortfolioValidation.validate(next)
-    let record = FlowPortfolioRecord(schemaVersion: 1, sequence: next.revision, id: UUID(),
-      createdAt: Date(), previousRecordSHA256: head.recordSHA256, operation: operation,
-      subjectID: subjectID, portfolioID: next.id, portfolioCreatedAt: next.createdAt, portfolioPurpose: next.purpose,
-      delta: FlowPortfolioDelta(previous: state, next: next))
-    let newHead = try storage.commit(record, expecting: head)
-    state = next; head = newHead
+    state = try await publishRecords(next)
+    trimTransientCaches()
   }
 
-  @discardableResult package func addSource(data: Data, title: String, mediaType: String = "image/png") throws -> FlowPortfolioSource {
-    let asset = try DrawingPackageLibraryValidation.sourceAsset(data)
+  static func validatedSourceAsset(_ bytes: Data) throws -> PortraitDrawingImages.Encoded {
+    do { return try PortraitDrawingImages.sourceAsset(bytes) }
+    catch let error as DrawingExchangeError {
+      switch error {
+      case .malformed(let reason), .limit(let reason): throw FlowPortfolioError.invalid(reason)
+      default: throw FlowPortfolioError.invalid("The PNG or JPEG source metadata is invalid.")
+      }
+    }
+  }
+
+  @discardableResult package func addSource(data: Data, title: String, mediaType: String = "image/png") async throws -> FlowPortfolioSource {
+    try requireArtifactMutationAdmission()
+    defer { trimTransientCaches() }
+    let asset = try Self.validatedSourceAsset(data)
     guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.utf8.count <= 1024 else {
       throw FlowPortfolioError.invalid("Name the imported photograph.")
     }
     let blob = try storage.retain(data, mediaType: asset.mediaType)
-    let source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: title,
+    var source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: title,
       image: blob, subjectID: nil, sessionID: nil)
+    try attachPhoto(to: &source, data: data)
     var next = state; next.sources.append(source); next.selectedSourceID = source.id
     next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
-    try commit(next, operation: "sourceImported", subjectID: source.id)
+    try await commit(next, operation: "sourceImported", subjectID: source.id)
     return source
   }
 
-  package func selectSource(_ id: UUID) throws {
+  package func selectSource(_ id: UUID) async throws {
     _ = try source(id)
     var next = state; next.selectedSourceID = id
     next.currentRoundID = next.rounds.last(where: { $0.sourceID == id })?.id
     next.currentCandidateID = next.choices.last(where: { $0.roundID == next.currentRoundID })?.candidateID
     next.currentPruneRevisionID = next.currentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
-    try commit(next, operation: "sourceSelected", subjectID: id)
+    try await commit(next, operation: "sourceSelected", subjectID: id)
   }
 
   /// Browsing a historical round supplies no preference judgment.
-  package func selectRound(_ id: UUID) throws {
+  package func selectRound(_ id: UUID) async throws {
     let value = try round(id)
     var next = state; next.selectedSourceID = value.sourceID; next.currentRoundID = id
     next.currentCandidateID = next.choices.last(where: { $0.roundID == id })?.candidateID
     next.currentPruneRevisionID = next.currentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
-    try commit(next, operation: "roundSelected", subjectID: id)
+    try await commit(next, operation: "roundSelected", subjectID: id)
   }
 
-  package func setSourceGroups(sourceID: UUID, subjectID: String?, sessionID: String?, excluded: Bool? = nil) throws {
+  package func setSourceGroups(sourceID: UUID, subjectID: String?, sessionID: String?, excluded: Bool? = nil) async throws {
     _ = try source(sourceID)
     func normalized(_ value: String?) throws -> String? {
       guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
@@ -85,18 +99,18 @@ package actor FlowPortfolioStore {
     let index = next.sources.firstIndex { $0.id == sourceID }!
     next.sources[index].subjectID = subject; next.sources[index].sessionID = session
     if let excluded { next.sources[index].excluded = excluded }
-    try commit(next, operation: "sourceGroupsDeclared", subjectID: sourceID)
+    try await commit(next, operation: "sourceGroupsDeclared", subjectID: sourceID)
   }
 
-  package func setSourceExcluded(sourceID: UUID, excluded: Bool) throws {
+  package func setSourceExcluded(sourceID: UUID, excluded: Bool) async throws {
     _ = try source(sourceID); var next = state
     next.sources[next.sources.firstIndex { $0.id == sourceID }!].excluded = excluded
-    try commit(next, operation: "sourceCurationChanged", subjectID: sourceID)
+    try await commit(next, operation: "sourceCurationChanged", subjectID: sourceID)
   }
 
   @discardableResult package func beginRound(sourceID: UUID, recipes: [FlowArtistRecipe],
     parentCandidateID: UUID? = nil, modelID: String? = nil, seed: UInt64 = 0,
-    analysisOptions: PortraitAnalysisOptions = .init()) throws -> FlowPortfolioRound {
+    analysisOptions: PortraitAnalysisOptions = .init()) async throws -> FlowPortfolioRound {
     _ = try source(sourceID)
     guard (1...24).contains(recipes.count), recipes.allSatisfy({ $0.values.allSatisfy { $0.isFinite && (0...1).contains($0) } }) else {
       throw FlowPortfolioError.invalid("A round requires one to twenty-four bounded Flow Edge recipes.")
@@ -110,43 +124,48 @@ package actor FlowPortfolioStore {
     var next = state; next.rounds.append(round); next.selectedSourceID = sourceID
     next.currentRoundID = round.id; next.currentCandidateID = parentCandidateID
     next.currentPruneRevisionID = parentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
-    try commit(next, operation: "roundRequested", subjectID: round.id)
+    try await commit(next, operation: "roundRequested", subjectID: round.id)
     return round
   }
 
-  @discardableResult package func completeCandidate(roundID: UUID, slot: Int, program: DrawingProgram,
-    raster: PortraitRaster, previewPNG: Data) throws -> FlowPortfolioCandidate {
+  @discardableResult package func completeCandidate(roundID: UUID, slot: Int,
+    production: DrawingProduction<PortraitRenderResult>, previewPNG: Data) async throws -> FlowPortfolioCandidate {
+    try requireArtifactMutationAdmission()
+    defer { trimTransientCaches() }
+    try admitTemporaryDrawing(production.drawing, input: production.artifacts.drawingInput)
+    let program = production.drawing.program, raster = production.artifacts.raster
     let round = try round(roundID); try checkSlot(round, slot)
     guard program.source.kind == "portrait", !program.strokes.isEmpty,
-      program.strokes.count <= DrawingTransferLimits.maximumStrokes else {
+      program.strokes.count <= DrawingArtifactLimits.maximumStrokes else {
       throw FlowPortfolioError.invalid("A candidate must be a bounded nonempty portrait drawing.")
     }
-    let previewAsset = try DrawingPackageLibraryValidation.sourceAsset(previewPNG)
+    let previewAsset = try Self.validatedSourceAsset(previewPNG)
     guard previewAsset.mediaType == "image/png" else { throw FlowPortfolioError.invalid("Candidate preview must be PNG.") }
     let result = FlowPortfolioCandidate(id: UUID(), createdAt: Date(), sourceID: round.sourceID,
       roundID: roundID, slot: slot, parentCandidateID: round.parentCandidateID, recipe: round.recipes[slot],
       modelID: round.modelID,
-      program: try storage.retain(encode(program), mediaType: "application/json"),
       raster: try storage.retain(encode(raster), mediaType: "application/json"),
       preview: try storage.retain(previewPNG, mediaType: "image/png"),
       programHash: program.contentHash.description, strokeCount: program.strokes.count)
+    temporaryDrawings[result.id] = production.drawing
+    if let input = production.artifacts.drawingInput { drawingInputs[result.id] = input }
     var next = state; next.candidates.append(result)
     next.rounds[next.rounds.firstIndex { $0.id == roundID }!].candidateIDs.append(result.id)
-    try commit(next, operation: "candidateCompleted", subjectID: result.id)
+    try await commit(next, operation: "candidateCompleted", subjectID: result.id)
     return result
   }
 
-  package func failCandidate(roundID: UUID, slot: Int, message: String) throws {
+  package func failCandidate(roundID: UUID, slot: Int, message: String) async throws {
     let round = try round(roundID); try checkSlot(round, slot)
     guard !message.isEmpty, message.utf8.count <= 8192 else { throw FlowPortfolioError.invalid("Generation failure needs a bounded explanation.") }
     var next = state
     next.rounds[next.rounds.firstIndex { $0.id == roundID }!].failures.append(
       .init(slot: slot, message: message, recordedAt: Date()))
-    try commit(next, operation: "candidateFailed", subjectID: roundID)
+    try await commit(next, operation: "candidateFailed", subjectID: roundID)
   }
 
   package func finishRound(_ id: UUID, cancelled: Bool = false, displayOrder: [UUID]? = nil,
-    recommendedCandidateID: UUID? = nil) throws {
+    recommendedCandidateID: UUID? = nil) async throws {
     let round = try round(id)
     guard round.status == .generating else { throw FlowPortfolioError.conflict("This round has already settled.") }
     guard cancelled || round.candidateIDs.count + round.failures.count == round.recipes.count else {
@@ -162,17 +181,17 @@ package actor FlowPortfolioStore {
     next.rounds[index].status = cancelled ? .cancelled : .completed
     next.rounds[index].displayedCandidateIDs = order
     next.rounds[index].recommendedCandidateID = recommendedCandidateID
-    try commit(next, operation: cancelled ? "roundCancelled" : "roundCompleted", subjectID: id)
+    try await commit(next, operation: cancelled ? "roundCancelled" : "roundCompleted", subjectID: id)
   }
 
-  package func markInterruptedRounds() throws {
+  package func markInterruptedRounds() async throws {
     guard state.rounds.contains(where: { $0.status == .generating }) else { return }
     var next = state
     for index in next.rounds.indices where next.rounds[index].status == .generating { next.rounds[index].status = .interrupted }
-    try commit(next, operation: "pendingRoundsRecovered")
+    try await commit(next, operation: "pendingRoundsRecovered")
   }
 
-  package func chooseCandidate(_ id: UUID) throws {
+  package func chooseCandidate(_ id: UUID) async throws {
     let value = try candidate(id), round = try round(value.roundID)
     let offered = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
     let items = try offered.map { offeredID -> FlowPortfolioPresentationItem in
@@ -180,19 +199,32 @@ package actor FlowPortfolioStore {
       return .init(id: edit?.id ?? offeredID, candidateID: offeredID, revisionID: edit?.id,
         sourceID: value.sourceID, removedIndices: edit?.removedIndices ?? [])
     }
-    let choice = FlowPortfolioChoice(id: UUID(), createdAt: Date(), roundID: round.id,
-      candidateID: id, offeredCandidateIDs: offered,
-      selectedItemID: items.first(where: { $0.candidateID == id })!.id,
-      offeredItems: items, purpose: "refine-or-prune")
-    var next = state; next.choices.append(choice); next.selectedSourceID = value.sourceID
+    let selectedItem = items.first(where: { $0.candidateID == id })!.id
+    let alreadyRecorded = state.choices.contains {
+      $0.roundID == round.id && $0.selectedItemID == selectedItem && $0.offeredItems == items
+        && $0.purpose == "refine-or-prune"
+    }
+    var next = state
+    if !alreadyRecorded {
+      next.choices.append(.init(id: UUID(), createdAt: Date(), roundID: round.id, candidateID: id,
+        offeredCandidateIDs: offered, selectedItemID: selectedItem, offeredItems: items, purpose: "refine-or-prune"))
+    }
+    next.selectedSourceID = value.sourceID
     next.currentRoundID = value.roundID; next.currentCandidateID = id
     next.currentPruneRevisionID = next.latestPrune(candidateID: id)?.id
-    try commit(next, operation: "candidateChosen", subjectID: id)
+    if !alreadyRecorded {
+      for item in items {
+        _ = try await featureCapsule(candidateID: item.candidateID)
+        if let revision = item.revisionID { _ = try await featureCapsule(candidateID: item.candidateID, revisionID: revision) }
+      }
+    }
+    let prepared = try await prepareDrawing(candidateID: id, revision: next.latestPrune(candidateID: id), next: &next)
+    try await commitPrepared(prepared, next: next)
   }
 
   @discardableResult package func applyPrune(candidateID: UUID, action: FlowPruneAction,
     indices: [Int] = [], modelID: String? = nil, inheritedFromRevisionID: UUID? = nil,
-    probabilities: [Double]? = nil, threshold: Double? = nil, policy: String? = nil) throws -> FlowPortfolioPruneRevision {
+    probabilities: [Double]? = nil, threshold: Double? = nil, policy: String? = nil) async throws -> FlowPortfolioPruneRevision {
     let value = try candidate(candidateID), prior = state.latestPrune(candidateID: candidateID)
     guard Set(indices).count == indices.count, indices.allSatisfy({ (0..<value.strokeCount).contains($0) }) else {
       throw FlowPortfolioError.invalid("Pruning must name distinct original stroke indices.")
@@ -252,17 +284,24 @@ package actor FlowPortfolioStore {
       parentRevisionID: prior?.id, action: action, affectedIndices: affected.sorted(), removedIndices: removed.sorted(),
       modelID: modelID, operationID: operationID, inheritedFromRevisionID: inheritedFromRevisionID,
       historicalRecord: nil, probabilities: probabilities, threshold: threshold, policy: policy, undoOperationIDs: undo, redoOperationIDs: redo)
+    if action != .modelProposal && action != .inheritedSelection {
+      _ = try await featureCapsule(candidateID: candidateID)
+      _ = try await captureFeatures(candidateID: candidateID, id: revision.id, removedIndices: revision.removedIndices)
+    }
     var next = state; next.pruneRevisions.append(revision)
     if action != .modelProposal && action != .inheritedSelection {
       next.currentCandidateID = candidateID; next.selectedSourceID = value.sourceID
       next.currentRoundID = value.roundID; next.currentPruneRevisionID = id
     }
-    try commit(next, operation: "prune." + action.rawValue, subjectID: revision.id)
+    if action != .modelProposal && action != .inheritedSelection && removed.count < value.strokeCount {
+      let prepared = try await prepareDrawing(candidateID: candidateID, revision: revision, next: &next)
+      try await commitPrepared(prepared, next: next)
+    } else { try await commit(next, operation: "prune." + action.rawValue, subjectID: revision.id) }
     return revision
   }
 
   @discardableResult package func presentRanking(scope: FlowRankingScope, count: Int = 6,
-    seed: UInt64) throws -> FlowPortfolioPresentation {
+    seed: UInt64) async throws -> FlowPortfolioPresentation {
     guard (2...24).contains(count) else { throw FlowPortfolioError.invalid("Ranking sets contain two to twenty-four drawings.") }
     let permitted: [FlowPortfolioCandidate]
     switch scope {
@@ -271,22 +310,15 @@ package actor FlowPortfolioStore {
     case .source(let id): _ = try source(id); permitted = state.candidates.filter { $0.sourceID == id }
     case .round(let id): _ = try round(id); permitted = state.candidates.filter { $0.roundID == id }
     }
-    var items: [FlowPortfolioPresentationItem] = [], seenVersions = Set<String>()
+    var items: [FlowPortfolioPresentationItem] = []
     let sourceIDs = Set(state.sources.filter { !$0.excluded }.map(\.id))
     let revisions = Dictionary(grouping: state.pruneRevisions, by: \.candidateID)
-    let candidatesByID = Dictionary(uniqueKeysWithValues: state.candidates.map { ($0.id, $0) })
-    let sourceHashes = Dictionary(uniqueKeysWithValues: state.sources.map { ($0.id, $0.image.sha256) })
-    func versionKey(_ candidateID: UUID, _ mask: [Int]) throws -> String {
-      guard let candidate = candidatesByID[candidateID] else { return candidateID.uuidString }
-      return (sourceHashes[candidate.sourceID] ?? candidate.sourceID.uuidString)
-        + "|" + (try comparisonGeometry(candidate)) + "|" + mask.description
-    }
     for candidate in permitted where !candidate.excluded && sourceIDs.contains(candidate.sourceID) {
-      if seenVersions.insert(try versionKey(candidate.id, [])).inserted {
+      do {
         items.append(.init(id: candidate.id, candidateID: candidate.id, revisionID: nil, sourceID: candidate.sourceID, removedIndices: []))
       }
       for edit in revisions[candidate.id] ?? [] {
-        if seenVersions.insert(try versionKey(candidate.id, edit.removedIndices)).inserted {
+        do {
           items.append(.init(id: edit.id, candidateID: candidate.id, revisionID: edit.id, sourceID: candidate.sourceID, removedIndices: edit.removedIndices))
         }
       }
@@ -300,15 +332,15 @@ package actor FlowPortfolioStore {
       func pairKey(_ a: String, _ b: String) -> String { [a, b].sorted().joined(separator: "::") }
       let presentations = Dictionary(uniqueKeysWithValues: state.presentations.map { ($0.id, $0) })
       var reviewed = Set<String>()
-      for rank in state.latestRankings where !rank.skipped && !rank.neither {
+      for rank in state.latestRankings {
         guard let shown = presentations[rank.presentationID] else { continue }
-        let ranked = Set(rank.orderedGroups.flatMap { $0 })
-        let versions = try shown.items.filter { ranked.contains($0.id) }.map { try versionKey($0.candidateID, $0.removedIndices) }
+        let ranked = rank.skipped || rank.neither ? Set(shown.items.map(\.id)) : Set(rank.orderedGroups.flatMap { $0 })
+        let versions = shown.items.filter { ranked.contains($0.id) }.map { $0.id.uuidString }
         for a in versions.indices { for b in versions.indices where b > a { reviewed.insert(pairKey(versions[a], versions[b])) } }
       }
       var pair: [FlowPortfolioPresentationItem]?
       search: for a in items.indices { for b in items.indices where b > a {
-        if !reviewed.contains(pairKey(try versionKey(items[a].candidateID, items[a].removedIndices), try versionKey(items[b].candidateID, items[b].removedIndices))) {
+        if !reviewed.contains(pairKey(items[a].id.uuidString, items[b].id.uuidString)) {
           pair = [items[a], items[b]]; break search
         }
       } }
@@ -318,13 +350,13 @@ package actor FlowPortfolioStore {
     let presentation = FlowPortfolioPresentation(id: UUID(), createdAt: Date(), scope: scope,
       seed: seed, items: Array(items.prefix(count)))
     var next = state; next.presentations.append(presentation); next.currentPresentationID = presentation.id
-    try commit(next, operation: "rankingPresented", subjectID: presentation.id)
+    try await commit(next, operation: "rankingPresented", subjectID: presentation.id)
     return presentation
   }
 
   /// Freeze the actual current panel: one latest displayed version per included
   /// candidate. Historical intermediate masks belong to the random version flow.
-  @discardableResult package func presentRoundRanking(_ roundID: UUID, seed: UInt64) throws -> FlowPortfolioPresentation {
+  @discardableResult package func presentRoundRanking(_ roundID: UUID, seed: UInt64) async throws -> FlowPortfolioPresentation {
     let round = try round(roundID)
     let order = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
     let values = Dictionary(uniqueKeysWithValues: state.candidates.map { ($0.id, $0) })
@@ -340,18 +372,18 @@ package actor FlowPortfolioStore {
     for index in stride(from: items.count - 1, through: 1, by: -1) { items.swapAt(index, Int(random.next() % UInt64(index + 1))) }
     let presentation = FlowPortfolioPresentation(id: UUID(), createdAt: Date(), scope: .round(roundID), seed: seed, items: items)
     var next = state; next.presentations.append(presentation); next.currentPresentationID = presentation.id
-    try commit(next, operation: "currentPanelPresented", subjectID: presentation.id)
+    try await commit(next, operation: "currentPanelPresented", subjectID: presentation.id)
     return presentation
   }
 
-  package func selectPresentation(_ id: UUID) throws {
+  package func selectPresentation(_ id: UUID) async throws {
     guard state.presentations.contains(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Ranking presentation is unavailable.") }
     var next = state; next.currentPresentationID = id
-    try commit(next, operation: "rankingSelected", subjectID: id)
+    try await commit(next, operation: "rankingSelected", subjectID: id)
   }
 
   @discardableResult package func recordRanking(presentationID: UUID, orderedGroups: [[UUID]],
-    skipped: Bool = false, neither: Bool = false) throws -> FlowPortfolioRanking {
+    skipped: Bool = false, neither: Bool = false) async throws -> FlowPortfolioRanking {
     guard let presentation = state.presentations.first(where: { $0.id == presentationID }) else {
       throw FlowPortfolioError.invalid("The exact ranking presentation is unavailable.")
     }
@@ -364,32 +396,36 @@ package actor FlowPortfolioStore {
     let ranking = FlowPortfolioRanking(id: UUID(), createdAt: Date(), presentationID: presentationID,
       orderedGroups: orderedGroups, skipped: skipped, neither: neither,
       supersedesID: state.rankings.last(where: { $0.presentationID == presentationID })?.id)
+    for item in presentation.items {
+      _ = try await featureCapsule(candidateID: item.candidateID)
+      if let revision = item.revisionID { _ = try await featureCapsule(candidateID: item.candidateID, revisionID: revision) }
+    }
     var next = state; next.rankings.append(ranking); next.currentPresentationID = presentationID
-    try commit(next, operation: "rankingRevised", subjectID: ranking.id)
+    try await commit(next, operation: "rankingRevised", subjectID: ranking.id)
     return ranking
   }
 
-  package func setExcluded(candidateID: UUID, excluded: Bool) throws {
+  package func setExcluded(candidateID: UUID, excluded: Bool) async throws {
     _ = try candidate(candidateID); var next = state
     next.candidates[next.candidates.firstIndex { $0.id == candidateID }!].excluded = excluded
-    try commit(next, operation: "candidateCurationChanged", subjectID: candidateID)
+    try await commit(next, operation: "candidateCurationChanged", subjectID: candidateID)
   }
 
-  @discardableResult package func freezeTrainingSnapshot(id: UUID? = nil) throws -> FlowPortfolioTrainingSnapshot {
+  @discardableResult package func freezeTrainingSnapshot(id: UUID? = nil) async throws -> FlowPortfolioTrainingSnapshot {
     if let id, let existing = state.trainingSnapshots.first(where: { $0.id == id }) { return existing }
     let bytes = try encode(state), document = try storage.retain(bytes, mediaType: "application/json")
     let snapshot = FlowPortfolioTrainingSnapshot(id: id ?? UUID(), createdAt: Date(), portfolioID: state.id,
       portfolioRevision: state.revision, purpose: state.purpose, document: document, contentSHA256: document.sha256)
     var next = state; next.trainingSnapshots.append(snapshot)
-    try commit(next, operation: "trainingSnapshotFrozen", subjectID: snapshot.id)
+    try await commit(next, operation: "trainingSnapshotFrozen", subjectID: snapshot.id)
     return snapshot
   }
 
-  package func trainingDocument(snapshotID: UUID) throws -> FlowPortfolioSnapshot {
+  package func trainingDocument(snapshotID: UUID) async throws -> FlowPortfolioSnapshot {
     guard let snapshot = state.trainingSnapshots.first(where: { $0.id == snapshotID }) else {
       throw FlowPortfolioError.unavailable("Training snapshot is unavailable.")
     }
-    let document = try JSONDecoder().decode(FlowPortfolioSnapshot.self, from: storage.read(snapshot.document))
+    let document = try JSONDecoder().decode(FlowPortfolioSnapshot.self, from: await storage.read(snapshot.document))
     try FlowPortfolioValidation.validate(document)
     guard document.id == snapshot.portfolioID, document.revision == snapshot.portfolioRevision else {
       throw FlowPortfolioError.invalid("Training snapshot identity differs from its retained content.")
@@ -397,11 +433,11 @@ package actor FlowPortfolioStore {
     return document
   }
 
-  @discardableResult package func installFit(checkpoint: Data?, report: Data, snapshotID: UUID) throws -> FlowPortfolioFit {
-    let frozen = try trainingDocument(snapshotID: snapshotID)
+  @discardableResult package func installFit(checkpoint: Data?, report: Data, snapshotID: UUID) async throws -> FlowPortfolioFit {
+    let frozen = try await trainingDocument(snapshotID: snapshotID)
     if let existing = state.fits.first(where: { $0.snapshotID == snapshotID }) {
-      guard existing.report.sha256 == DrawingPackageCodec.sha256(report),
-        existing.checkpoint?.sha256 == checkpoint.map(DrawingPackageCodec.sha256) else {
+      guard existing.report.sha256 == DrawingArtifactCoding.sha256(report),
+        existing.checkpoint?.sha256 == checkpoint.map(DrawingArtifactCoding.sha256) else {
         throw FlowPortfolioError.conflict("This frozen fit request already has a different result; create a new training snapshot for another fit.")
       }
       return existing
@@ -426,102 +462,41 @@ package actor FlowPortfolioStore {
       checkpoint: try checkpoint.map { try storage.retain($0, mediaType: "application/json") },
       report: try storage.retain(report, mediaType: "application/json"))
     var next = state; next.fits.append(fit)
-    try commit(next, operation: "fitInstalled", subjectID: fit.id)
+    try await commit(next, operation: "fitInstalled", subjectID: fit.id)
     return fit
   }
 
-  package func activateModel(_ fitID: UUID?) throws {
+  package func activateModel(_ fitID: UUID?) async throws {
     if let fitID {
-      let checkpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: checkpointData(fitID: fitID))
+      let checkpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: await checkpointData(fitID: fitID))
       try checkpoint.validateForInference()
     }
     var next = state
     next.activations.append(.init(id: UUID(), createdAt: Date(), previousFitID: state.activeFitID, fitID: fitID))
     next.activeFitID = fitID
-    try commit(next, operation: fitID == nil ? "modelDeactivated" : "modelActivated", subjectID: fitID)
+    try await commit(next, operation: fitID == nil ? "modelDeactivated" : "modelActivated", subjectID: fitID)
   }
 
-  package func checkpointData(fitID: UUID) throws -> Data {
+  package func checkpointData(fitID: UUID) async throws -> Data {
     guard let fit = state.fits.first(where: { $0.id == fitID }) else { throw FlowPortfolioError.unavailable("Model checkpoint is unavailable.") }
     guard let checkpoint = fit.checkpoint else { throw FlowPortfolioError.unavailable("This fit produced no deployable checkpoint; inspect its retained report.") }
-    return try storage.read(checkpoint)
+    return try await storage.read(checkpoint)
   }
-  package func fitReportData(fitID: UUID) throws -> Data {
+  package func fitReportData(fitID: UUID) async throws -> Data {
     guard let fit = state.fits.first(where: { $0.id == fitID }) else { throw FlowPortfolioError.unavailable("Fit report is unavailable.") }
-    return try storage.read(fit.report)
+    return try await storage.read(fit.report)
   }
-  package func sourceData(_ id: UUID) throws -> Data { try storage.read(source(id).image) }
-  /// Comparison identity ignores generated IDs and provenance while preserving
-  /// exact array order, coordinates, field and stroke style. An index mask can
-  /// only alias another mask on this identical ordered basis.
-  private func comparisonGeometry(_ candidate: FlowPortfolioCandidate) throws -> String {
-    if let cached = comparisonGeometryCache[candidate.programHash] { return cached }
-    let program = try candidateProgram(candidate.id)
-    var encoder = CanonicalEncoder(schemaVersion: 1)
-    try encoder.appendString("FlowPortfolioComparisonGeometry")
-    try program.fieldExtent.encodeCanonical(to: &encoder)
-    try encoder.appendCount(program.strokes.count)
-    for stroke in program.strokes {
-      try stroke.path.encodeCanonical(to: &encoder)
-      try stroke.style.encodeCanonical(to: &encoder)
-    }
-    let hash = DrawingPackageCodec.sha256(encoder.data)
-    if comparisonGeometryOrder.count >= 2_048 {
-      comparisonGeometryCache.removeValue(forKey: comparisonGeometryOrder.removeFirst())
-    }
-    comparisonGeometryCache[candidate.programHash] = hash
-    comparisonGeometryOrder.append(candidate.programHash)
-    return hash
+  package func sourceData(_ id: UUID) async throws -> Data { try await storage.read(source(id).image) }
+  package func candidateProgram(_ id: UUID) async throws -> DrawingProgram {
+    let value = try candidate(id)
+    if let reference = value.drawing { return try await storage.library.drawing(reference).program }
+    if let drawing = temporaryDrawings[id] { return drawing.program }
+    throw FlowPortfolioError.unavailable("This generated drawing was temporary and has no retained geometry.")
   }
-
-  package func candidateProgram(_ id: UUID) throws -> DrawingProgram {
-    let candidate = try candidate(id)
-    let result = try JSONDecoder().decode(DrawingProgram.self, from: storage.read(candidate.program))
-    guard result.contentHash.description == candidate.programHash, result.strokes.count == candidate.strokeCount else {
-      throw FlowPortfolioError.invalid("Candidate geometry differs from its recorded identity.")
-    }
-    return result
+  package func candidateRaster(_ id: UUID) async throws -> PortraitRaster {
+    try JSONDecoder().decode(PortraitRaster.self, from: await storage.read(candidate(id).raster))
   }
-  package func candidateRaster(_ id: UUID) throws -> PortraitRaster {
-    try JSONDecoder().decode(PortraitRaster.self, from: storage.read(candidate(id).raster))
-  }
-  package func candidatePreview(_ id: UUID) throws -> Data { try storage.read(candidate(id).preview) }
-
-  package func exportPackage(candidateID: UUID, revisionID: UUID? = nil) throws -> Data {
-    let candidate = try candidate(candidateID), source = try source(candidate.sourceID)
-    let base = try candidateProgram(candidateID)
-    let edit: FlowPortfolioPruneRevision?
-    if let revisionID {
-      guard let value = state.pruneRevisions.first(where: { $0.id == revisionID && $0.candidateID == candidateID }) else {
-        throw FlowPortfolioError.invalid("The requested pruning revision does not belong to this drawing.")
-      }
-      edit = value
-    } else { edit = nil }
-    let removed = Set(edit?.removedIndices ?? [])
-    guard removed.count < base.strokes.count else { throw FlowPortfolioError.invalid("An empty drawing remains portfolio evidence but cannot be exported for plotting.") }
-    let resultID = edit?.id ?? candidateID
-    let artistRevision = candidate.recipe.marks == nil ? "flow-artist-v1" : "flow-artist-v2"
-    let program = try DrawingProgram(id: ProgramID(resultID), fieldExtent: base.fieldExtent,
-      strokes: base.strokes.enumerated().filter { !removed.contains($0.offset) }.map(\.element),
-      source: DrawingSourceProvenance(kind: "portrait", sourceIdentifier: "\(artistRevision)|portfolio=\(state.id)|candidate=\(candidateID)|revision=\(resultID)"))
-    struct Result: Codable {
-      let portfolioID: UUID; let candidate: FlowPortfolioCandidate; let prune: FlowPortfolioPruneRevision?; let rootProgram: DrawingProgram
-      let recipeRevision: String; let rendererRevision: String
-    }
-    let result = try encode(Result(portfolioID: state.id, candidate: candidate, prune: edit, rootProgram: base,
-      recipeRevision: candidate.recipe.marks == nil ? FlowArtistRecipe.legacyRevision : FlowArtistRecipe.revision,
-      rendererRevision: PortraitFlowRenderer.revision(for: candidate.recipe.vectorOptions)))
-    let input = try storage.read(candidate.raster), raster = try candidateRaster(candidateID)
-    let package = try DrawingPackage(origin: .init(libraryID: state.id, captureID: source.id,
-      resultID: resultID.uuidString.lowercased(), resultRecordSHA256: DrawingPackageCodec.sha256(result), programHash: program.contentHash),
-      program: program, createdAt: edit?.createdAt ?? candidate.createdAt, title: candidate.title ?? (source.title + " · Flow Edge"),
-      resultRecordJSON: result, source: DrawingPackageLibraryValidation.sourceAsset(storage.read(source.image)),
-      artistInput: .init(mediaType: "application/json", bytes: input, pixelWidth: raster.width, pixelHeight: raster.height),
-      artist: .init(identifier: "adaptiveplotter.flow-artist", revision: artistRevision, settingsJSON: encode(candidate.recipe)),
-      preview: DrawingPackageLibraryValidation.preview(program))
-    try DrawingPackageLibraryValidation.validate(package)
-    return try DrawingPackageCodec.encode(package)
-  }
+  package func candidatePreview(_ id: UUID) async throws -> Data { try await storage.read(candidate(id).preview) }
 
   private func source(_ id: UUID) throws -> FlowPortfolioSource {
     guard let value = state.sources.first(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Portfolio photograph is unavailable.") }
@@ -542,7 +517,7 @@ package actor FlowPortfolioStore {
       throw FlowPortfolioError.conflict("This candidate slot is unavailable or already settled.")
     }
   }
-  private func encode<T: Encodable>(_ value: T) throws -> Data { try DrawingPackageCodec.encoder().encode(value) }
+  private func encode<T: Encodable>(_ value: T) throws -> Data { try DrawingArtifactCoding.encoder().encode(value) }
 }
 
 private struct FlowPortfolioRandom {

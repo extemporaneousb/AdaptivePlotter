@@ -38,22 +38,18 @@ package enum FlowDojoTraining {
       let candidate = entry.candidate
       try budget.admit(strokeCount: candidate.strokeCount, revisionCount: entry.revisions.count,
         labelCount: entry.labels.count, includeRoot: entry.includeRoot)
-      let program = try await store.candidateProgram(candidate.id)
-      guard program.strokes.count == candidate.strokeCount else {
-        throw FlowPortfolioError.invalid("Drawing stroke count differs from its saved program.")
-      }
-      let raster = try await store.candidateRaster(candidate.id)
-      let strokeFeatures = FlowArtistFeatures.strokes(recipe: candidate.recipe, program: program, raster: raster)
+      let root = try await store.featureCapsule(candidateID: candidate.id)
+      let strokeFeatures = root.strokes
       let rootID = candidate.id.uuidString
       if entry.includeRoot {
         examples.append(.init(id: rootID, sourceGroupID: entry.group, recipe: candidate.recipe,
-          features: FlowArtistFeatures.drawing(recipe: candidate.recipe, program: program, raster: raster),
+          features: root.drawing,
           strokeFeatures: strokeFeatures, strokeLabels: entry.labels.expanded(), baseDrawingID: rootID, removedIndices: []))
       }
       for revision in entry.revisions {
+        let capsule = try await store.featureCapsule(candidateID: candidate.id, revisionID: revision.id)
         examples.append(.init(id: revision.id.uuidString, sourceGroupID: entry.group, recipe: candidate.recipe,
-          features: FlowArtistFeatures.drawing(recipe: candidate.recipe, program: program, raster: raster,
-            removedIndices: Set(revision.removedIndices)), strokeFeatures: strokeFeatures, strokeLabels: [],
+          features: capsule.drawing, strokeFeatures: strokeFeatures, strokeLabels: [],
           baseDrawingID: rootID, removedIndices: revision.removedIndices))
       }
     }

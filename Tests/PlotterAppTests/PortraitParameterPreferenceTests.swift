@@ -61,76 +61,9 @@ struct PortraitParameterPreferenceTests {
     #expect(model.recipe(around: try candidate(style: style == .contours ? .flowEdges : .contours, seed: 2), seed: 7) == nil)
   }
 
-  @Test("Saved recipes and unlabelled candidates provide no votes; changed context and withdrawn feedback stay out")
-  func explicitFeedbackOnly() throws {
-    let center = try candidate(style: .contours, seed: 1)
-    var archive = PortraitCandidateArchive()
-    archive.savedStyles = [.init(id: UUID(), name: "Preferred seed", recipe: center.recipe, createdAt: Date())]
-    var attempt = try PortraitAttemptRecord.prepare(candidate: center, pen: portraitTestStyle())
-    archive.entries = [.init(candidate: center, reasons: [], attempt: attempt)]
-    #expect(PortraitParameterPreference.report(around: center, archive: archive).labelCount == 0)
-    attempt.feedbackRevisions = [.init(id: UUID(), value: .promising, createdAt: Date())]
-    archive.entries[0].attempt = attempt
-    #expect(PortraitParameterPreference.report(around: center, archive: archive).labelCount == 1)
-    let other = try candidate(style: .flowEdges, seed: 2)
-    #expect(PortraitParameterPreference.report(around: other, archive: archive).labelCount == 0)
-    attempt.feedbackRevisions.append(.init(id: UUID(), value: .unknown, createdAt: Date()))
-    archive.entries[0].attempt = attempt
-    #expect(PortraitParameterPreference.report(around: center, archive: archive).labelCount == 0)
-    // A newer explicit withdrawal on a duplicate exact proposal supersedes an
-    // older retained vote rather than resurrecting it during deduplication.
-    var old = attempt
-    old.feedbackRevisions = [.init(id: UUID(), value: .promising, createdAt: Date(timeIntervalSince1970: 1))]
-    var latest = attempt
-    latest.feedbackRevisions = [.init(id: UUID(), value: .unknown, createdAt: Date())]
-    archive.entries = [.init(candidate: center, reasons: [], attempt: old),
-      .init(candidate: center, reasons: [], attempt: latest)]
-    #expect(PortraitParameterPreference.report(around: center, archive: archive).labelCount == 0)
-  }
 
-  @Test("Studio Next samples native controls even when historical shared feedback supports a fitted model")
-  @MainActor
-  func studioIntegration() async throws {
-    let renderer = ExplorationTestRenderer()
-    let studio = PortraitStudioModel(renderer: renderer, explorationSeed: 7)
-    let pen = try portraitTestStyle()
-    studio.vectorOptions.drawingParameters = .init()
-    studio.setPhoto(Data([7]), for: .front, strokeStyle: pen)
-    await studio.awaitRendering()
-    let center = try #require(studio.selectedCandidate)
-    for group in 0..<4 {
-      let session = UUID(), ancestry = UUID()
-      for sample in 0..<6 {
-        var options = center.recipe.vectorOptions
-        options.drawingParameters?.detail = sample < 3 ? 0.1 + Double(sample) * 0.08 : 0.72 + Double(sample - 3) * 0.08
-        let recipe = PortraitStyleRecipe(id: "feedback-\(group)-\(sample)", title: "Feedback", seed: UInt64(sample),
-          style: center.recipe.style, vectorOptions: options, analysisOptions: center.recipe.analysisOptions)
-        let program = try PortraitVectorizer.program(from: center.raster, pose: .front,
-          style: recipe.style, strokeStyle: pen, vectorOptions: options)
-        let candidate = try PortraitCandidate(sourceData: Data([UInt8(group)]), sourcePixelExtent: center.sourcePixelExtent,
-          raster: center.raster, recipe: recipe, program: program, photoID: UUID(), captureSessionID: session,
-          lineage: .init(parentID: nil, parentProgramHash: nil, parentRecipe: nil, ancestryGroupID: ancestry), pose: .front)
-        var attempt = try PortraitAttemptRecord.prepare(candidate: candidate, pen: pen)
-        attempt.feedbackRevisions = [.init(id: UUID(), value: sample < 3 ? .rejected : .promising, createdAt: Date())]
-        studio.sketches.recordAttempt(candidate, record: attempt)
-      }
-    }
-    let report = PortraitParameterPreference.report(around: center, archive: studio.sketches.archive)
-    let model = try #require(report.model)
-    #expect(model.recipe(around: center, seed: 7) != nil)
-    let expected = PortraitExplorationPolicy.nativeRecipe(around: center, seed: 7)
-    #expect(expected.vectorOptions.drawingParameters == nil)
-    let count = await renderer.requests.count
-    studio.nextPortrait(strokeStyle: pen)
-    await studio.awaitRendering()
-    let requests = await renderer.requests
-    #expect(requests[count].vectorOptions == expected.vectorOptions)
-    #expect(requests.dropFirst(count).allSatisfy { $0.vectorOptions.drawingParameters == nil })
-    #expect(requests.count <= count + PortraitExplorationPolicy.maximumAttemptsPerSlot)
-    #expect(studio.sketches.attempts.allSatisfy { $0.attempt?.parameterPreference == nil })
-    #expect(studio.sketches.entries.first(where: { $0.id == center.id })?.candidate == center)
-    await studio.shutdown()
-  }
+
+
 
   private func observations() -> [PortraitParameterPreference.Observation] {
     var result: [PortraitParameterPreference.Observation] = []

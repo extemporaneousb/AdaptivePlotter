@@ -40,8 +40,8 @@ public enum DrawingImageAdmission {
     struct Dimensions: Decodable { let width: Int; let height: Int }
     let d = try decode(value, as: Dimensions.self)
     let width = d.width, height = d.height
-    guard width > 0, height > 0, width <= DrawingTransferLimits.maximumImageDimension,
-      height <= DrawingTransferLimits.maximumImageDimension, width <= DrawingTransferLimits.maximumImagePixels / height else { throw DrawingExchangeError.limit("Image dimensions") }
+    guard width > 0, height > 0, width <= DrawingArtifactLimits.maximumImageDimension,
+      height <= DrawingArtifactLimits.maximumImageDimension, width <= DrawingArtifactLimits.maximumImagePixels / height else { throw DrawingExchangeError.limit("Image dimensions") }
     return (width, height)
   }
   /// Unknown encodings remain preservable. Recognized raw encodings require complete checked layout.
@@ -59,8 +59,8 @@ public enum DrawingImageAdmission {
     if let left = inline.dimensions, let right = indexed?.dimensions, left != right { throw DrawingExchangeError.malformed("Conflicting asset dimensions") }
     if let dimensions = inline.dimensions ?? indexed?.dimensions {
       guard dimensions.width > 0, dimensions.height > 0,
-        dimensions.width <= DrawingTransferLimits.maximumImageDimension, dimensions.height <= DrawingTransferLimits.maximumImageDimension,
-        dimensions.width <= DrawingTransferLimits.maximumImagePixels / dimensions.height else { throw DrawingExchangeError.limit("Descriptor dimensions") }
+        dimensions.width <= DrawingArtifactLimits.maximumImageDimension, dimensions.height <= DrawingArtifactLimits.maximumImageDimension,
+        dimensions.width <= DrawingArtifactLimits.maximumImagePixels / dimensions.height else { throw DrawingExchangeError.limit("Descriptor dimensions") }
       if let expected, dimensions.width != expected.0 || dimensions.height != expected.1 { throw DrawingExchangeError.malformed("Descriptor dimensions disagree") }
     }
     if let left = inline.orientation, let right = indexed?.orientation, left != right { throw DrawingExchangeError.malformed("Conflicting orientation") }
@@ -82,7 +82,7 @@ public enum DrawingImageAdmission {
       }
       return (descriptor, try files.validateAsset(merged).isSupported)
     }
-    let data = try objects.bytes(descriptor.object, maximum: DrawingTransferLimits.sourceBytes)
+    let data = try objects.bytes(descriptor.object, maximum: DrawingArtifactLimits.sourceBytes)
     // Recognized aliases specify interleaved unsigned 8-bit components in this exact order.
     let knownRaw: [String: (format: String, channels: [String])] = [
       "raw-gray8": ("gray", ["gray"]), "raw-rgb8": ("rgb", ["red", "green", "blue"]),

@@ -278,13 +278,14 @@ package struct PortraitFlowDrawingProducer: DrawingProducing {
     package let preparedSource: PortraitSourcePreparation?
     package let input: SourceLink<ImageInputRef>
     package let parent: SourceLink<DrawingRef>
+    package let photo: FrozenPhotoRecord?
 
     package init(data: Data, sourcePixelExtent: PortraitSourceCropExtent? = nil,
       preparedSource: PortraitSourcePreparation? = nil,
       input: SourceLink<ImageInputRef> = .unavailable(reason: "Transient Flow input has not been retained", knownRef: nil),
-      parent: SourceLink<DrawingRef> = .none) {
+      parent: SourceLink<DrawingRef> = .none, photo: FrozenPhotoRecord? = nil) {
       self.data = data; self.sourcePixelExtent = sourcePixelExtent
-      self.preparedSource = preparedSource; self.input = input; self.parent = parent
+      self.preparedSource = preparedSource; self.input = input; self.parent = parent; self.photo = photo
     }
   }
 
@@ -292,12 +293,16 @@ package struct PortraitFlowDrawingProducer: DrawingProducing {
     package let recipe: FlowArtistRecipe
     package let analysisOptions: PortraitAnalysisOptions
     package let strokeStyle: StrokeStyle
-    package let nominalPenWidthMM: Double
+    package let nominalPenWidthMM: Double?
+    package let materialContext: PortraitMaterialContext?
+    package var vectorOptions: PortraitVectorOptions {
+      var value = recipe.vectorOptions; value.materialContext = materialContext; return value
+    }
 
     package init(recipe: FlowArtistRecipe, analysisOptions: PortraitAnalysisOptions,
-      strokeStyle: StrokeStyle, nominalPenWidthMM: Double) {
+      strokeStyle: StrokeStyle, nominalPenWidthMM: Double? = nil, materialContext: PortraitMaterialContext? = nil) {
       self.recipe = recipe; self.analysisOptions = analysisOptions
-      self.strokeStyle = strokeStyle; self.nominalPenWidthMM = nominalPenWidthMM
+      self.strokeStyle = strokeStyle; self.nominalPenWidthMM = nominalPenWidthMM; self.materialContext = materialContext
     }
   }
 
@@ -316,11 +321,21 @@ package struct PortraitFlowDrawingProducer: DrawingProducing {
   package init() {}
 
   package func produce(input: Input, settings: Settings) async throws -> DrawingProduction<PortraitRenderResult> {
-    let (result, claim) = try await PortraitFlowProducerClaim.renderAndClaim(input: input, settings: settings)
+    let (rendered, initialClaim) = try await PortraitFlowProducerClaim.renderAndClaim(input: input, settings: settings)
+    var result = rendered
+    let boundInput: Input
+    let claim: PortraitFlowProducerClaim
+    if let photo = input.photo, let frozen = try PortraitDrawingImages.input(result: rendered, data: input.data, photo: photo,
+      identity: .init(issuer: photo.reference.issuer)) {
+      result.drawingInput = frozen
+      boundInput = Input(data: input.data, sourcePixelExtent: input.sourcePixelExtent, preparedSource: input.preparedSource,
+        input: .present(frozen.reference), parent: input.parent, photo: photo)
+      claim = try PortraitFlowProducerClaim(result: result, input: boundInput, settings: settings, origin: "rendered")
+    } else { boundInput = input; claim = initialClaim }
     // Prepared render failures from rendering pass through unchanged. If later
     // admission fails, the same valid preparation remains reusable by the worker.
     do {
-      return try Self.admitBound(result: result, input: input, settings: settings, claim: claim)
+      return try Self.admitBound(result: result, input: boundInput, settings: settings, claim: claim)
     } catch is CancellationError { throw CancellationError() }
     catch {
       guard let preparedSource = result.preparedSource else { throw error }
@@ -331,7 +346,14 @@ package struct PortraitFlowDrawingProducer: DrawingProducing {
 
   package static func admit(result: PortraitRenderResult, input: Input, settings: Settings,
     origin: Origin) throws -> DrawingProduction<PortraitRenderResult> {
-    try admitBound(result: result, input: input, settings: settings, origin: origin.rawValue)
+    if let photo = input.photo, let frozen = try PortraitDrawingImages.input(result: result, data: input.data, photo: photo,
+      identity: .init(issuer: photo.reference.issuer)) {
+      var bound = result; bound.drawingInput = frozen
+      let prepared = Input(data: input.data, sourcePixelExtent: input.sourcePixelExtent, preparedSource: input.preparedSource,
+        input: .present(frozen.reference), parent: input.parent, photo: photo)
+      return try admitBound(result: bound, input: prepared, settings: settings, origin: origin.rawValue)
+    }
+    return try admitBound(result: result, input: input, settings: settings, origin: origin.rawValue)
   }
 
   /// Reusable semantic validator for this exact supplied artifact set.
@@ -394,7 +416,7 @@ package struct PortraitFlowDrawingProducer: DrawingProducing {
 /// or proof that arbitrary geometry was produced by a particular algorithm.
 package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
   package static let producerID = "adaptiveplotter.flow-native"
-  package static let version = "1"
+  package static let version = "2"
   package let schemaVersion: Int
   package let origin: String
   package let sourceSHA256: String
@@ -432,7 +454,7 @@ package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
     settings: PortraitFlowDrawingProducer.Settings) async throws -> (PortraitRenderResult, Self) {
     let result = try await PortraitImageAnalyzer().render(.init(data: input.data,
       pose: .front, style: .flowEdges, options: settings.analysisOptions, cachedRaster: nil,
-      strokeStyle: settings.strokeStyle, vectorOptions: settings.recipe.vectorOptions,
+      strokeStyle: settings.strokeStyle, vectorOptions: settings.vectorOptions,
       sourcePixelExtent: input.sourcePixelExtent, preparedSource: input.preparedSource))
     do {
       let claim = try Self(result: result, input: input, settings: settings, origin: "rendered",
@@ -450,7 +472,7 @@ package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
     settings: PortraitFlowDrawingProducer.Settings, origin: String,
     validation: ValidationPostcondition) throws {
     guard !input.data.isEmpty, ["rendered", "providedArtifacts", "reusedArtifacts"].contains(origin),
-      settings.nominalPenWidthMM.isFinite, settings.nominalPenWidthMM > 0 else {
+      settings.nominalPenWidthMM.map({ $0.isFinite && $0 > 0 }) ?? true else {
       throw DrawingExchangeError.invalidProducer(Self.producerID)
     }
     if case .none = input.input { throw DrawingExchangeError.invalidProducer("Flow requires an image input declaration") }
@@ -464,17 +486,17 @@ package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
       width.intValue > 0, height.intValue > 0 else {
       throw DrawingExchangeError.invalidProducer("Unreadable Flow source dimensions")
     }
-    schemaVersion = 1; self.origin = origin
+    schemaVersion = 2; self.origin = origin
     sourceSHA256 = PortraitCandidateCoding.digest(input.data)
     sourcePixelExtent = input.sourcePixelExtent; sourceWidth = width.intValue; sourceHeight = height.intValue
     self.input = input.input; parent = input.parent
     rasterSHA256 = PortraitCandidateCoding.digest(try encoder.encode(result.raster))
     rasterWidth = result.raster.width; rasterHeight = result.raster.height
     self.settings = settings; recipeRevision = FlowArtistRecipe.revision
-    rendererRevision = PortraitFlowRenderer.revision(for: settings.recipe.vectorOptions)
+    rendererRevision = PortraitFlowRenderer.revision(for: settings.vectorOptions)
     warpManifest = result.warpManifest; programHash = result.program.contentHash.description
     if origin == "rendered" {
-      var options = settings.recipe.vectorOptions.resolved(rasterHeight: result.raster.height)
+      var options = settings.vectorOptions.resolved(rasterHeight: result.raster.height)
       options.tonalStrength = max(PortraitStyle.flowEdges.tonalStrengthRange.lowerBound, options.tonalStrength)
       if let material = options.materialContext { options = try material.adapting(options, raster: result.raster) }
       let expected = "portrait-v3|metric=\(result.raster.metricProvenance)|\(result.raster.provenance)|pose=\(PortraitPose.front.rawValue)|style=\(PortraitStyle.flowEdges.rawValue)|\(options.provenance)|flow=\(rendererRevision)"

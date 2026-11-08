@@ -1,0 +1,19 @@
+{
+  "argv": [
+    "swift",
+    "build",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-common-build-fhf7uc2d/scratch",
+    "--target",
+    "DrawingLibraryTests"
+  ],
+  "start_utc": "2026-11-08T07:06:50.101375+00:00",
+  "stop_utc": "2026-11-08T07:06:59.404980+00:00",
+  "elapsed_seconds": 9.30308825476095,
+  "exit_code": 0,
+  "input_count": 740,
+  "changed_inputs": [],
+  "before_sha256": "f071ea03f210cc48748255ec35ab9593bb55f0a3797c81dd066ff158d3147580",
+  "after_sha256": "f071ea03f210cc48748255ec35ab9593bb55f0a3797c81dd066ff158d3147580",
+  "log_sha256": "9d21f82b38527d2c7747d2f495896f22fd18c504bc693b00a6052128ab4a723e"
+}

@@ -1,0 +1,20 @@
+{
+  "argv": [
+    "swift",
+    "run",
+    "--package-path",
+    "/Users/bullard/Projects/.worktrees/wt-task-89f7fee3b6c847e9ae9acebb9b901347-okay-i-think-a-lot-of-those-drawings-are-just-randomly-generated-and-not-selected-or-plotted/Tests/Fixtures/DrawingExchange/drawing-first/public-client",
+    "--scratch-path",
+    "/var/folders/c0/zjcj7q3d0mzf06v_qmdjk3vm0000gn/T/drawing-first-verification2-tppri552/client-scratch",
+    "DrawingLibraryPublicClient"
+  ],
+  "start_utc": "2026-11-08T07:22:14.911149+00:00",
+  "stop_utc": "2026-11-08T07:22:21.920622+00:00",
+  "elapsed_seconds": 7.009025297127664,
+  "exit_code": 0,
+  "input_count": 740,
+  "changed_inputs": [],
+  "before_sha256": "0221480cf27c295542b8d39b041778615fe8fb34dd00a26a4fecc775ca7d81a9",
+  "after_sha256": "0221480cf27c295542b8d39b041778615fe8fb34dd00a26a4fecc775ca7d81a9",
+  "log_sha256": "cded4d1b473af0b512f08cce776e606729baceabb43a8912ed89810d57d10281"
+}
