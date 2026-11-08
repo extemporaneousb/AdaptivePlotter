@@ -90,7 +90,18 @@ struct PortraitStudioCompositionTests {
       #expect(package.origin.programHash == candidate.program.contentHash)
       #expect(package.origin.captureID == candidate.photoID)
       #expect(DrawingPackageCodec.sha256(package.resultRecordJSON) == package.origin.resultRecordSHA256)
+      let contender = PortraitCandidateStore(directoryURL: authorURL)
+      let blocked = await contender.load()
+      #expect(!blocked.canWrite)
+      #expect(blocked.issues.contains { $0.contains("Another writer owns this library") })
       await author.shutdown()
+      // The owning composition remains retained, but all its consumers have drained.
+      #expect(author.isClosing)
+      await contender.closeLibrary()
+      let handoff = await contender.load()
+      #expect(handoff.canWrite)
+      #expect(!handoff.issues.contains { $0.contains("Another writer owns this library") })
+      await contender.closeLibrary()
 
       let reopened = PortraitStudioComposition(directoryURL: authorURL,
         camera: CameraCapture(driver: StudioTestCameraDriver()))

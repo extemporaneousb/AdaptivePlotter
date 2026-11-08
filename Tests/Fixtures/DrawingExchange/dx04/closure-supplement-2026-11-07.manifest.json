@@ -1,0 +1,514 @@
+{
+  "acceptedNormalRows": [
+    {
+      "applicability": "Source-level only: committed direct photo/filter bodies unchanged by later writer transaction/read-only native reader/style paths. Not a final29-image measurement.",
+      "observation": "read15",
+      "row": {
+        "RSSp50ratio": 1.0080770511824138,
+        "RSSp95ratio": 1.0080770511824138,
+        "cache": "warm",
+        "operation": "photo-first-page",
+        "p50ratio": 1.001387043138946,
+        "p95ratio": 1.0898498674441703,
+        "variants": [
+          {
+            "RSSp50Bytes": 295141376,
+            "RSSp95Bytes": 295141376,
+            "n": 30,
+            "p50ms": 50.9314201772213,
+            "p95ms": 52.917241118848324,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 297525248,
+            "RSSp95Bytes": 297525248,
+            "n": 30,
+            "p50ms": 51.00206425413489,
+            "p95ms": 57.671848218888044,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level only: committed direct photo/filter bodies unchanged by later writer transaction/read-only native reader/style paths. Not a final29-image measurement.",
+      "observation": "read15",
+      "row": {
+        "RSSp50ratio": 1.0094629727991948,
+        "RSSp95ratio": 1.0086051353226926,
+        "cache": "fresh",
+        "operation": "photo-first-page",
+        "p50ratio": 0.99318284244335,
+        "p95ratio": 1.0110713287928577,
+        "variants": [
+          {
+            "RSSp50Bytes": 293036032,
+            "RSSp95Bytes": 295116800,
+            "n": 20,
+            "p50ms": 68.38997034355998,
+            "p95ms": 79.48477193713188,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 295809024,
+            "RSSp95Bytes": 297656320,
+            "n": 20,
+            "p50ms": 67.92374514043331,
+            "p95ms": 80.36477398127317,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level only: committed direct photo/filter bodies unchanged by later writer transaction/read-only native reader/style paths. Not a final29-image measurement.",
+      "observation": "read15",
+      "row": {
+        "RSSp50ratio": 1.0111018868986479,
+        "RSSp95ratio": 1.0111018868986479,
+        "cache": "warm",
+        "operation": "photo-filtered-drawing-page",
+        "p50ratio": 0.9265720787306293,
+        "p95ratio": 0.9370438674418343,
+        "variants": [
+          {
+            "RSSp50Bytes": 291098624,
+            "RSSp95Bytes": 291098624,
+            "n": 30,
+            "p50ms": 1.65857607498765,
+            "p95ms": 1.7392141744494438,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 294330368,
+            "RSSp95Bytes": 294330368,
+            "n": 30,
+            "p50ms": 1.536790281534195,
+            "p95ms": 1.629719976335764,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level only: committed direct photo/filter bodies unchanged by later writer transaction/read-only native reader/style paths. Not a final29-image measurement.",
+      "observation": "read15",
+      "row": {
+        "RSSp50ratio": 1.0085850155007223,
+        "RSSp95ratio": 1.008823857924718,
+        "cache": "fresh",
+        "operation": "photo-filtered-drawing-page",
+        "p50ratio": 0.9867714419207777,
+        "p95ratio": 0.736220051141342,
+        "variants": [
+          {
+            "RSSp50Bytes": 291991552,
+            "RSSp95Bytes": 293371904,
+            "n": 20,
+            "p50ms": 6.2111131846904755,
+            "p95ms": 8.54211999103427,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 294498304,
+            "RSSp95Bytes": 295960576,
+            "n": 20,
+            "p50ms": 6.128949113190174,
+            "p95ms": 6.28888001665473,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level only: original default readRecords/readAsset bodies byte-for-byte unchanged; later readonly snapshot explicit-root overloads are used only when a provided readonly DB is passed. Writer call path and transaction17 code unchanged. Not a final29-image measurement.",
+      "observation": "writer17",
+      "row": {
+        "RSSp50ratio": 1.0175105655603112,
+        "RSSp95ratio": 1.0175105655603112,
+        "cache": "warm",
+        "operation": "retention-metadata-save",
+        "p50ratio": 1.0161311246316924,
+        "p95ratio": 0.9322650644247721,
+        "variants": [
+          {
+            "RSSp50Bytes": 304324608,
+            "RSSp95Bytes": 304324608,
+            "n": 30,
+            "p50ms": 11.321419849991798,
+            "p95ms": 17.207374796271324,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 309653504,
+            "RSSp95Bytes": 309653504,
+            "n": 30,
+            "p50ms": 11.504047084599733,
+            "p95ms": 16.041834373027086,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level only: original default readRecords/readAsset bodies byte-for-byte unchanged; later readonly snapshot explicit-root overloads are used only when a provided readonly DB is passed. Writer call path and transaction17 code unchanged. Not a final29-image measurement.",
+      "observation": "writer17",
+      "row": {
+        "RSSp50ratio": 1.012847906318506,
+        "RSSp95ratio": 1.010126652134323,
+        "cache": "fresh",
+        "operation": "retention-metadata-save",
+        "p50ratio": 1.0269165461218048,
+        "p95ratio": 0.9832563567217091,
+        "variants": [
+          {
+            "RSSp50Bytes": 295215104,
+            "RSSp95Bytes": 296886272,
+            "n": 20,
+            "p50ms": 63.5819248855114,
+            "p95ms": 70.40276192128658,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 299008000,
+            "RSSp95Bytes": 299892736,
+            "n": 20,
+            "p50ms": 65.2933306992054,
+            "p95ms": 69.22396318987012,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level after29: gallery/styles never call the changed record/asset helpers; no runtime production change beyond the explicit-root native reader path after28. Not a final29-image measurement.",
+      "observation": "reader28",
+      "row": {
+        "cache": "warm",
+        "maximumRSSRatio": 1.0150418061371689,
+        "operation": "gallery-first-page",
+        "p50ratio": 0.9129643300939867,
+        "p95ratio": 0.9627869011773472,
+        "variants": [
+          {
+            "RSSp50Bytes": 292458496,
+            "RSSp95Bytes": 292458496,
+            "maximumRSSBytes": 292458496,
+            "n": 30,
+            "p50ms": 4.11762110888958,
+            "p95ms": 4.633525852113962,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 296857600,
+            "RSSp95Bytes": 296857600,
+            "maximumRSSBytes": 296857600,
+            "n": 30,
+            "p50ms": 3.759241197258234,
+            "p95ms": 4.461097996681929,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level after29: gallery/styles never call the changed record/asset helpers; no runtime production change beyond the explicit-root native reader path after28. Not a final29-image measurement.",
+      "observation": "reader28",
+      "row": {
+        "cache": "fresh",
+        "maximumRSSRatio": 1.011166253101737,
+        "operation": "gallery-first-page",
+        "p50ratio": 0.8838995791683898,
+        "p95ratio": 0.938309979229057,
+        "variants": [
+          {
+            "RSSp50Bytes": 292782080,
+            "RSSp95Bytes": 293564416,
+            "maximumRSSBytes": 293822464,
+            "n": 20,
+            "p50ms": 12.751167640089989,
+            "p95ms": 15.132295899093151,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 296042496,
+            "RSSp95Bytes": 296902656,
+            "maximumRSSBytes": 297103360,
+            "n": 20,
+            "p50ms": 11.27075171098113,
+            "p95ms": 14.198784250766039,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level after29: gallery/styles never call the changed record/asset helpers; no runtime production change beyond the explicit-root native reader path after28. Not a final29-image measurement.",
+      "observation": "reader28",
+      "row": {
+        "cache": "warm",
+        "maximumRSSRatio": 0.9890818655115399,
+        "operation": "saved-style-catalog",
+        "p50ratio": 0.017670188594699692,
+        "p95ratio": 0.017944947601304884,
+        "variants": [
+          {
+            "RSSp50Bytes": 299749376,
+            "RSSp95Bytes": 299749376,
+            "maximumRSSBytes": 299749376,
+            "n": 30,
+            "p50ms": 58.810969814658165,
+            "p95ms": 65.94914477318525,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 296476672,
+            "RSSp95Bytes": 296476672,
+            "maximumRSSBytes": 296476672,
+            "n": 30,
+            "p50ms": 1.0392009280622005,
+            "p95ms": 1.1834539473056793,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Source-level after29: gallery/styles never call the changed record/asset helpers; no runtime production change beyond the explicit-root native reader path after28. Not a final29-image measurement.",
+      "observation": "reader28",
+      "row": {
+        "cache": "fresh",
+        "maximumRSSRatio": 1.002637830074025,
+        "operation": "saved-style-catalog",
+        "p50ratio": 0.056205572808329794,
+        "p95ratio": 0.06426558364702774,
+        "variants": [
+          {
+            "RSSp50Bytes": 295329792,
+            "RSSp95Bytes": 296542208,
+            "maximumRSSBytes": 296583168,
+            "n": 20,
+            "p50ms": 74.93946887552738,
+            "p95ms": 85.57142782956362,
+            "variant": "before"
+          },
+          {
+            "RSSp50Bytes": 295890944,
+            "RSSp95Bytes": 296980480,
+            "maximumRSSBytes": 297365504,
+            "n": 20,
+            "p50ms": 4.212015774101019,
+            "p95ms": 5.4992977529764175,
+            "variant": "after"
+          }
+        ]
+      }
+    },
+    {
+      "applicability": "Actual29 image3fc764f8 selected-only42helper/100operation followup; baseline5618060 image910f reused unchanged; same reader probe/driver/method/corpus.",
+      "observation": "selected29",
+      "row": {
+        "cache": "warm",
+        "ratios": {
+          "maxRSSBytes": 1.0123964054616856,
+          "p50ms": 0.5057380794542721,
+          "p95ms": 0.5193007617998366
+        },
+        "variants": {
+          "after": {
+            "maxRSSBytes": 296714240,
+            "p50ms": 4.504572134464979,
+            "p95ms": 4.943848121911287,
+            "samples": 30,
+            "sortedMilliseconds": [
+              4.242459777742624,
+              4.291220102459192,
+              4.30270005017519,
+              4.323015920817852,
+              4.350608680397272,
+              4.3561928905546665,
+              4.359432961791754,
+              4.371378105133772,
+              4.384811967611313,
+              4.395131953060627,
+              4.411575850099325,
+              4.421300254762173,
+              4.4596088118851185,
+              4.49221208691597,
+              4.504572134464979,
+              4.520532209426165,
+              4.531095735728741,
+              4.652556963264942,
+              4.670894239097834,
+              4.672035109251738,
+              4.676452372223139,
+              4.695985000580549,
+              4.724340047687292,
+              4.726841114461422,
+              4.754957742989063,
+              4.769062157720327,
+              4.8171281814575195,
+              4.853019956499338,
+              4.943848121911287,
+              4.959749989211559
+            ]
+          },
+          "before": {
+            "maxRSSBytes": 293081088,
+            "p50ms": 8.906926959753036,
+            "p95ms": 9.520201943814754,
+            "samples": 30,
+            "sortedMilliseconds": [
+              8.31545889377594,
+              8.352926932275295,
+              8.449718356132507,
+              8.454844821244478,
+              8.630105759948492,
+              8.65995418280363,
+              8.660692721605301,
+              8.70455102995038,
+              8.716391865164042,
+              8.763199672102928,
+              8.827773854136467,
+              8.842033799737692,
+              8.843363728374243,
+              8.863146882504225,
+              8.906926959753036,
+              8.926304057240486,
+              8.965397719293833,
+              8.987604174762964,
+              9.01916017755866,
+              9.04261926189065,
+              9.046134073287249,
+              9.046233724802732,
+              9.052316192537546,
+              9.167693089693785,
+              9.227929171174765,
+              9.241105988621712,
+              9.305556304752827,
+              9.48531599715352,
+              9.520201943814754,
+              10.200096759945154
+            ]
+          }
+        },
+        "withinBudget": true
+      }
+    },
+    {
+      "applicability": "Actual29 image3fc764f8 selected-only42helper/100operation followup; baseline5618060 image910f reused unchanged; same reader probe/driver/method/corpus.",
+      "observation": "selected29",
+      "row": {
+        "cache": "fresh",
+        "ratios": {
+          "maxRSSBytes": 1.011191902901553,
+          "p50ms": 0.6902884205791568,
+          "p95ms": 0.7276795480042894
+        },
+        "variants": {
+          "after": {
+            "maxRSSBytes": 297910272,
+            "p50ms": 13.492186088114977,
+            "p95ms": 15.181921888142824,
+            "samples": 20,
+            "sortedMilliseconds": [
+              12.331781908869743,
+              12.727498076856136,
+              12.912009842693806,
+              12.924287002533674,
+              13.089999090880156,
+              13.124221935868263,
+              13.319056946784258,
+              13.370039872825146,
+              13.447062112390995,
+              13.492186088114977,
+              13.662128243595362,
+              13.67139583453536,
+              13.70341470465064,
+              13.917852193117142,
+              13.93917016685009,
+              14.072954189032316,
+              14.15109308436513,
+              14.368479140102863,
+              15.181921888142824,
+              15.304524917155504
+            ]
+          },
+          "before": {
+            "maxRSSBytes": 294612992,
+            "p50ms": 19.545722752809525,
+            "p95ms": 20.863472018390894,
+            "samples": 20,
+            "sortedMilliseconds": [
+              17.540627624839544,
+              17.656905110925436,
+              17.753769177943468,
+              17.90072489529848,
+              18.058057874441147,
+              18.33399897441268,
+              18.363879062235355,
+              18.498001154512167,
+              19.0964643843472,
+              19.545722752809525,
+              19.57381796091795,
+              19.923535641282797,
+              20.126329269260168,
+              20.15490597113967,
+              20.309168845415115,
+              20.526892971247435,
+              20.717503037303686,
+              20.85211221128702,
+              20.863472018390894,
+              21.502274088561535
+            ]
+          }
+        },
+        "withinBudget": true
+      }
+    }
+  ],
+  "adoption": "pending",
+  "artifact": "closure-supplement-2026-11-07.json.gz",
+  "attemptID": "attempt-f6a54b542df74d8b87867c4a64faba12",
+  "compressedBytes": 1850615,
+  "currentSwiftDriverPins": 599,
+  "latestGate": "failed_first_gate; retry_pending",
+  "limits": [
+    "Software foundation only; no native app, production archive, physical plotter, controller/camera, remote Git or UI-thread claim.",
+    "Whole-helper lifetime RSS includes loader/hash/ACK/startup/copy/post-clock verification; not interval allocations/live cache. Filesystem cache was not evicted.",
+    "Selected record decode count and uninstrumented IO/SQL/hash work unknown. Zero candidate-record/metadata encoding counters are only those defined categories.",
+    "Historical comm-middle scans do not prove exhaustive descendant absence. Known child.wait/kill+wait/identity/source-freeze receipts remain separate. No actual overlap observed; earlier pre10 scanner coverage cannot be recertified from receipts alone.",
+    "Legacy quarantine bytes remain separately owned/availability-checked, not copied into portable backup. Exact selected backup generation only, no continuous/latest-loss guarantee.",
+    "O(N) backup metadata arrays/sort and typed per-publication bounds remain; no pre-DX05 claim of global metadata scalability.",
+    "Gate1 actual failed; no latest retry gate, adoption, final assessments, landing or cleanup yet.",
+    "Read15/photo+filter, writer17, gallery+styles28 observations apply only by documented unchanged call paths; they are not final29 test-image measurements. Selected28 failure remains retained/unpooled."
+  ],
+  "originalEvidenceSHA256": "078c12ff01d4f138c4e4289275ffe7929fb9c8a2d1b548e28017bdbf6ea8d865",
+  "retainedArtifacts": 1153,
+  "reusedOriginalArtifactKeys": 147,
+  "reviews": [
+    {
+      "authenticated": false,
+      "locator": "/root/dx04_reader_review",
+      "provenance": "caller_declared",
+      "scope": "Bounded source-only26 Store/Queries/Catalog lifetime/read routes and five reader tests; actual connection snapshots, pure pinned legacy styles fallback, pre-defer prior-drift refusal, borrowed shutdown ownership. No build/test/performance run by critic; no unresolved findings reported."
+    },
+    {
+      "authenticated": false,
+      "locator": "/root/dx04_reader_review delta29 and /root actual diff review",
+      "provenance": "caller_declared",
+      "scope": "Accepted two-file reader-only explicit-root overloads and actual four-file corruption test; original default helper bodies unchanged; snapshot proof/current-input checks retained. Source-only; actual tests and timings are separately retained executor observations."
+    },
+    {
+      "authenticated": false,
+      "locator": "/root messages accepting26/27/28/29 actual artifacts",
+      "provenance": "caller_declared",
+      "scope": "Root independently inspected/recomputed functional XML/body proofs,86 report routes, all126 normal28 and42 normal29 identity/ACK/process records and nearest-rank distributions. Selected28 failed tail retained/unpooled; final29 selected ratios accepted; no authenticated provenance claim."
+    }
+  ],
+  "schemaVersion": 1,
+  "sha256": "38e5210cf5482ea182343ddc732e1ed0f7443adff398875605089808775644b6",
+  "taskID": "task-4d7d637760c2485f9081fb3b258d5674",
+  "uncompressedBytes": 9914295,
+  "uncompressedSHA256": "d30efd6c7da3fc630b17459a299f0ab0f47cfefbe56959cea229649e56f0d030"
+}

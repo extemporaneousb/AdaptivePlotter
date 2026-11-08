@@ -8,19 +8,353 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing Exchange DX-04 single-writer catalog receipt, 2026-11-07
+
+The Library now owns one lifetime writer lease for its selected
+`library-v1.sqlite`, with immutable exchange objects, recoverable publication
+journals and explicitly selected metadata backup generations. This is an internal
+storage foundation: DX-05's common Library/identity/dependency cutover, DX-06's
+public mount/export transaction and DX-07's retention policy remain future work.
+
+Status: **implemented and measured software; configured gate/adoption pending**.
+Task `task-4d7d637760c2485f9081fb3b258d5674`, attempt
+`attempt-f6a54b542df74d8b87867c4a64faba12`, targets `main` from adopted DX-03
+`56180604569843fbc16ff450ef66142b15a5ebb0`. Immutable definition:
+`8065a34d7a31e16e4efd4ad7a66e135f04983859312204c99e8d6fb8b480b777`.
+The pre-gate source/tests/evidence commit is
+`6536ffcb9a4f630ee2c37dff8888f3b3707f3dd3`, tree
+`4b432916f3e4a3f18ddda5ba204db0f5502e5c4f` (20 approved files, excluding final
+documentation). The post-gate source/tests/driver/supplement prefix is
+`3cb66613b215316a86aa6cee9b384e54a475b255`, tree
+`365e7b8b32dd747a8232f03946a60bff979c8212`. The current owner-lifecycle
+source/evidence prefix is `40a8bd4d033b615a0320cf80575cbb72640a638a`, tree
+`fe4947c94e334e9ebcf98e39ce93d9a01e482b70`, excluding these final documentation
+amendments. None of these prefixes is canonical adoption.
+Configured run `dx04-single-writer-catalog-20261107` failed, event
+`23352469a239d6b80dbbba8812182d8c30e6ccc350cf2f50f1f6ee8ed4245042`:
+`docs-check` passed in 44.388 s; `quick-test` exited 2 after 1,110.112 s;
+`diff-check` did not run. The command output was not retained, so its test count
+and exact failure cause are unknown. Later diagnostic failures below are separate
+observations, not a reconstruction of that configured run. The replacement
+configured gate and canonical adoption remain pending and machine-owned.
+
+### Implemented behavior and recovery boundary
+
+- `PortraitLibraryWriterLease` acquires the descriptor-backed lease before SQL,
+  assets or recovery. Aliases of one physical root contend; distinct roots and
+  read-only connections remain independent. One lease admits one active writable
+  connection; SQLite closes before lease release, including failed initialization.
+  `PortraitLibraryDatabase` proves the selected root, marker, pathname/inode and
+  actual SQLite VFS file (`SQLITE_FCNTL_HAS_MOVED`) at open and operation boundaries.
+  Its synchronous transaction scope checks BEGIN, pre-COMMIT and post-COMMIT,
+  refuses nested/lost scopes or entry over an existing raw BEGIN, and rolls back
+  the actual retained connection. An uncertain after-COMMIT response does not invent a rollback.
+- Package-internal `PortraitExchangeCatalog` publishes verified packages through
+  `PortraitExchangeStorage`, maintains exact typed references/known links and
+  enforces issuer/revision identity consistency across record kinds. Complete
+  `dx_tx_file` path/digest inventories survive journal cleanup; retries recheck the package,
+  index, references and objects rather than trusting one surviving summary.
+  Same reference/same digest is idempotent; conflicting incoming bytes remain
+  inspectable. Opaque unfamiliar-major bags remain whole bytes, not fake photos
+  or drawings. A cached actor-lifetime catalog makes its `updateMetadata` operation
+  targeted (two changed rows including the shared revision), not a full-summary
+  rebuild. This new catalog operation is distinct from the legacy writer probe
+  measured below. New tables are lazy on the new API, preserving old reconciler
+  inputs.
+- The selected-exchange marker prevents missing/corrupt SQL from silently becoming
+  an empty or legacy catalog. Actual read helpers use one operation-local read-only
+  selection; actor `ensureLibraryGraph` reuses its real owner and refuses an
+  exchange-selected, uncommitted legacy bootstrap. Existing ReviewStore byte
+  retention is unchanged: its six actual mutating callers synchronously establish
+  owned-DB preconditions; `retainReviewBytes` itself is not a universal lease guard.
+- Storage uses descriptor-rooted 64 KiB streams and exclusive immutable CAS
+  installation. Private preparing state is published only after the bag and
+  journal are durable. Cleanup durably renames private state before removal;
+  interrupted private phases remain inspectable/skipped. A corrupt published
+  journal refuses recovery instead of being deleted. No broad CAS garbage
+  collection or geometry-based metadata reconstruction is introduced.
+- `PortraitExchangeMetadataBackup` writes a small v2 manifest plus hashed JSONL
+  inventory. Restore names one explicit generation, validates SQL/local object
+  closure before selection, preserves a forensic copy of the old SQL and uses
+  one atomic SQL rename with both parents synchronized. Fresh selection establishes
+  its marker first; physical-root aliases resolve consistently. There is no
+  automatic latest-generation choice. Selected SQL/local referenced assets,
+  including review assets, are covered; externally owned PortraitQuarantine bytes
+  remain external. Their SQL facts and bounded metadata/streamed original hashes
+  are verified, not copied
+  into a portable backup or granted new evidence/physical authority.
+
+### Verification and paired metadata observations
+
+The checked [evidence manifest](../Tests/Fixtures/DrawingExchange/dx04/software-evidence-2026-11-07.manifest.json)
+and [compressed bundle](../Tests/Fixtures/DrawingExchange/dx04/software-evidence-2026-11-07.json.gz)
+retain exact UTF-8 contents, original lengths and SHA-256 for 2,577 artifact
+entries: **1,906,204 compressed / 13,243,813 decoded bytes**, bundle SHA-256
+`078c12ff01d4f138c4e4289275ffe7929fb9c8a2d1b548e28017bdbf6ea8d865`;
+manifest SHA-256
+`5ffcef17c4c1b17903bf73f7f832050eef14da02aa2f7569f165af6785d173be`.
+Coordinator inspection checked every entry and the original 596 source hashes;
+review provenance remains caller-declared, not authenticated. Historical failures,
+source-specific successful checks and the eight accepted performance comparisons
+are retained separately; diagnostic `/tmp` paths are not the durable receipt.
+
+| Check | Recorded scope/result |
+|---|---|
+| Transaction guard regression | Three tests included in the narrow run passed, 0.114 s; one or 100 state writes require three full opened-file proofs, not a proof for every statement. |
+| Original source-17 narrow functional run | 70 framework-reported tests: 69 executed passes and one declared parent-helper skip, 55.456 s. |
+| Actual child-process evidence | 80 unique helper PIDs: 72 publication SIGKILL cases over seven distinct immutable objects, seven restore kills (four existing/three fresh roots) and one held writer. Alias contention, readers, distinct roots and kill/reacquire were exercised. These are child-body proofs, not 80 additional unit tests. |
+| Affected legacy run | Six suites, 47 reported: 44 executed passes and three explicit opt-in skips, 15.631 s. |
+
+Paired normal metadata measurements use the pinned DX-01 small corpus (40 photos,
+200 native drawings and one generic 20,000-stroke drawing), with the exchange
+marker absent. Baseline owner code is adopted `5618060`; the measured baseline
+paths are unchanged from DX-01. The three read probes retain the original API
+bodies. The one-occurrence `mutationDelta` writer probe is a new paired test,
+not a historical DX-01 writer measurement. Counter/identity checks retain exact
+corpus and selection pins. The historical accepted set is 300 source-15 read operations and
+100 source-17 writer operations, with eight excluded warmups; overlapping or
+failed earlier observations are not added to that count.
+
+| Operation | Warm p95, baseline → candidate (ms) | Fresh-helper p95, baseline → candidate (ms) |
+|---|---:|---:|
+| Photo first page | 52.917 → 57.672 | 79.485 → 80.365 |
+| Photo-filtered drawing page | 1.739 → 1.630 | 8.542 → 6.289 |
+| Gallery first page | 3.991 → 3.558 | 18.311 → 13.764 |
+| One-occurrence metadata save | 17.207 → 16.042 | 70.403 → 69.224 |
+
+The read rows are the accepted source-15 snapshot: all six p95/RSS comparisons
+passed the stated 10% budget, with maximum RSS ratios below 1.012. These actual
+read bodies do not call `PortraitLibraryDatabase.transaction`; their unchanged
+branches support applicability after the final transaction-only correction.
+They were **not all remeasured on the source-17 image or the later source-29 reader image**.
+The source-15 gallery row is historical and superseded by source-28 gallery
+measurements after the read-only query route changed; it does not establish
+current-gallery applicability. The writer row is
+source 17: 42 helpers, 100 measured operations (30 warm and 20 fresh per variant),
+plus two excluded warmups. Each read operation likewise uses 30 warm and 20
+fresh samples per variant. RSS is helper-process lifetime high water; warm rows
+share a cumulative peak and filesystem caches are uncontrolled. Warm writer p50
+is 11.321 → 11.504 ms, peak helper RSS 304,324,608 → 309,653,504 bytes; fresh p50 is 63.582 → 65.293 ms, peak RSS
+296,976,384 → 300,130,304 bytes. SQL reports **206 changed rows**, not 206 statements,
+for each writer operation. Store counters cover their declared owner seams;
+allocations, native paint, OS-cold behavior and live-cache memory remain unknown.
+No broad performance-improvement, 10× new-catalog scale or native-UI claim follows.
+
+Earlier normal runs 10/11 and the source-15 writer exceeded latency budget and
+remain failed observations; the latter warm p95 ratio was 1.21347. They are not
+replaced by the accepted rows above. Compiler-only runs executed zero tests;
+earlier runtime/legacy fixture failures held an old writer or asserted textual
+`/var` paths and were corrected without relabeling them passes. Diagnostics 13/14
+already refused displaced reads with SQLite `disk I/O error`; no successful stale
+projection or data corruption was reproduced. The explicit VFS/path/inode checks
+strengthen opened-file proof and error reporting rather than fixing demonstrated
+stale-data corruption. Review is bounded source/evidence inspection with
+caller-declared provenance, not authenticated independent acceptance or a full
+configured/native/physical gate.
+
+### Post-gate reader corrections and source-specific closure observations
+
+The separately checked [closure supplement manifest](../Tests/Fixtures/DrawingExchange/dx04/closure-supplement-2026-11-07.manifest.json)
+and [compressed supplement](../Tests/Fixtures/DrawingExchange/dx04/closure-supplement-2026-11-07.json.gz)
+retain 1,153 exact UTF-8 artifacts, 147 exact references to original-bundle keys,
+599 source/driver pins and 12 separately source-scoped accepted operation/cache
+rows. Sizes are **1,850,615 compressed / 9,914,295 decoded bytes**; compressed
+SHA-256 is
+`38e5210cf5482ea182343ddc732e1ed0f7443adff398875605089808775644b6`,
+decoded SHA-256 is
+`d30efd6c7da3fc630b17459a299f0ab0f47cfefbe56959cea229649e56f0d030`,
+and manifest SHA-256 is
+`f5c1acd67bd048f927543f01e63d4aa549eb5abbbacb3f0db7f3de568e26c512`.
+Coordinator inspection checked every entry's length/hash and all 599 pins at
+source-29 packaging time (not after the later composition-owner correction),
+all 147 original references, all 19 scanner links, the actual helper positive
+control and all 86 child XML reports (six complete, 80 partial). The original
+bundle remains unchanged at its separately recorded `078c12ff…` digest. These
+checks preserve source-specific evidence and failed trials; they do not replace
+the pending configured gate or establish canonical adoption.
+
+The failed configured gate remains failed. Diagnostic 18 separately recorded
+29 failures among 137 executed tests. The corrections establish independent
+read-only snapshots for saved styles and typed queries, check prior SQL drift
+before initializing the first Exchange facade, and refresh the fingerprint after
+known owned DDL or recovery while preserving pre-existing drift refusal. They
+also release actual store owners before cold restart or corruption checks. Source 29 adds explicit-root overloads only for readers,
+removing nine redundant SQLite root selections while retaining record/source/
+raster/metadata hash verification. The default writer and legacy `readRecords`
+and `readAsset` bodies remain byte-for-byte unchanged from source 17. Four actual
+hash-failure cases run with a live writer and include repaired-data positive
+controls. The bounded scope refinement includes the existing actual reader owner
+`Sources/PortraitLibrary/PortraitLibraryQueries.swift`; it does not cut over the
+public Library API or change UI, Core, Runtime or Artists production code in
+that reader correction. The later, separately bounded composition-owner change
+is recorded below.
+
+| Later observation | Recorded scope/result |
+|---|---|
+| Source-26 diagnostic | 137 executed passes and nine skips. |
+| Source-26 narrow and legacy | 69 executed passes plus one skip; 44 executed passes plus three skips, respectively. |
+| Reporter 27 | Five parent passes and one skip; 86 child routes comprise six normally completed one-helper-case XML reports and 80 intentional SIGKILL routes with partial XML. Those 80 partial reports are not test passes. |
+| Source-29 focused run | 45 XML cases: 43 executed passes and two skips; source pins unchanged and stopped-process proof checked. |
+| Bounded reader criticism | Source-only inspections of sources 26 and 29 reported no findings; this is not configured-gate or authenticated independent acceptance. |
+
+Historical process scans placed `comm` before other `ps` columns, truncating
+executable paths (including `/Library/Develop…`). The 19 retained historical
+arrays for runs 10–17 therefore do not prove exhaustive helper absence. Actual
+wait/PID evidence is unaffected; no overlap was observed, but the old scans alone
+cannot exclude it. The corrected command is `ps -ax -o pid=,ppid=,comm=`. A real
+helper positive control is detected by that command and missed by the old scan.
+
+Normal source-28 observations retain 126 helpers, 300 measured operations and
+six excluded warmups. All structural checks passed; gallery/style p95 ratios
+met the 1.10 budget, but exact selected-drawing fresh-helper p95 failed at
+**1.139948**. This failed trial is retained separately, not pooled with source 29.
+
+Both source-28 reader fixtures retain 40 photos, 200 native plus one generic
+drawing and 403 immutable files. The gallery probe uses the unchanged original
+DX-01 gold with snapshot limit 100. Only the saved-style probe uses a disposable
+SQL derivative with three synthetic styles; its SQL is 634,880 bytes, SHA-256
+`3d0d131ac3d1350d1ec66528d716794af7e89018030b077c073e1021e1bcb72b`.
+Other logical rows, bindings and assets remain unchanged. The paired saved-style
+probe is new, not a historical DX-01 measurement. Each
+row uses 30 warm or 20 fresh samples per variant. Gallery/style reads verified
+zero asset bytes and encoded zero candidate records or metadata.
+
+| Source-28 reader/mode | p50, baseline → candidate (ms) | p95, baseline → candidate (ms) | Maximum helper RSS, baseline → candidate (bytes) |
+|---|---:|---:|---:|
+| Gallery, warm | 4.118 → 3.759 | 4.634 → 4.461 | 292,458,496 → 296,857,600 |
+| Gallery, fresh helper | 12.751 → 11.271 | 15.132 → 14.199 | 293,822,464 → 297,103,360 |
+| Saved styles, warm | 58.811 → 1.039 | 65.949 → 1.183 | 299,749,376 → 296,476,672 |
+| Saved styles, fresh helper | 74.939 → 4.212 | 85.571 → 5.499 | 296,583,168 → 297,365,504 |
+
+Source 29 remeasured the exact selected native drawing reader with 42 actual
+helpers, 100 measured operations and two excluded warmups: 30 warm and 20 fresh
+samples per variant. Coordinator inspection independently checked process/image
+identity, ACKs, measurements and nearest-rank statistics. Both modes met the
+1.10 p95 and maximum-RSS budgets.
+
+| Selected native drawing reader | p50, baseline → candidate (ms) | p95, baseline → candidate (ms) | Maximum helper RSS, baseline → candidate (bytes) |
+|---|---:|---:|---:|
+| Warm | 8.907 → 4.505 | 9.520 → 4.944 (0.519301×) | 293,081,088 → 296,714,240 (1.012396×) |
+| Fresh helper | 19.546 → 13.492 | 20.863 → 15.182 (0.727680×) | 294,612,992 → 297,910,272 (1.011192×) |
+
+Every source-29 measured read verified 6,961 asset bytes (376 source plus
+6,585 raster) with zero candidate-record or metadata encodes. Record decode
+counts were not measured. SQL bytes, revision, 200 native plus one generic drawing and
+403 files remained unchanged. These observations apply to this exact reader
+path; source-15 photo/filter observations and the source-17 writer observation
+retain only their separately established source-path applicability. They do not
+establish final-whole-image, native paint, allocation, live-cache memory or
+OS-cold filesystem behavior. Helper RSS remains lifetime high water. No signed
+app restart, production archive promotion, camera/device or physical operation
+was performed or authorized by these checks.
+
+### Second configured failure and composition-owner lifecycle correction
+
+The separately checked [owner-lifecycle supplement manifest](../Tests/Fixtures/DrawingExchange/dx04/owner-lifecycle-supplement-2026-11-07.manifest.json)
+and [compressed supplement](../Tests/Fixtures/DrawingExchange/dx04/owner-lifecycle-supplement-2026-11-07.json.gz)
+retain 25 exact UTF-8 artifacts, 235 unambiguous prior-artifact references and
+599 source pins verified at this lifecycle-correction packaging point. Sizes are
+**305,257 compressed / 1,093,459 decoded bytes**; compressed SHA-256 is
+`1c43db306bfbd718b91c75c40884aa17673e91e6d082b40375564023c459e7dc`,
+decoded SHA-256 is
+`0a3beee60315950082658148ab993876c6bdbbc034622cd77c17aef79d0fe974`,
+and manifest SHA-256 is
+`6799b3f2e3575ee92af668efcfaeb91226d3e94ff364fdfa0eba0fe983d744aa`.
+Coordinator inspection checked every artifact's length/hash, all prior references
+and all source pins; the source delta from closure source 29 is exactly the three
+approved composition/attempt-history source and test paths. Embedded XML retains
+the second configured failure and both source-30/source-31 focused results. Both
+prior bundles remain unchanged at their separately recorded digests.
+
+The configured retry on frozen source `4d773c8`, tree `e501eb5`, also failed,
+event `17d6c0782affd248d77547e8044230fb92817ae4cbab679f1db8dc3da075ea7d`.
+`docs-check` passed in 45.811 s; `quick-test` exited 2 after 1,057.986 s;
+`diff-check` did not run. The machine receipt is completed, current and not a
+replay. Blackdog stdout was not retained. The retained XML, rather than absent
+stdout, reports **2,094 cases: 2,046 executed (2,041 passes and five failures),
+48 skips, ten failure elements across five cases and zero errors**. XML size is
+336,132 bytes, SHA-256
+`0560e7f27b08b2aba09045bf6c3c5c2f7d1670ecafe961c93813a48e143504c6`.
+The outer wrapper exited 1; actual wait/process evidence records no active helper
+with the corrected `comm`-last scan and an unchanged clean frozen tree. Neither
+configured failure is relabeled as a pass.
+
+Inspection of those five failures and their actual owners found four
+`PortraitAttemptHistoryTests.swift` fixtures retaining a store across true cold
+restart or seed-phase boundaries. The fixtures now name, drain and close those
+actual store owners before reopening. The fifth, composition authoring-round-trip
+case exposed the production owner: `PortraitStudioComposition` creates the store
+shared by model, review and artist consumers. Shutdown previously drained those
+consumers without closing that owned store. The narrow authorized refinement in
+`Sources/PortraitStudio/PortraitStudioComposition.swift` retains the private
+actual store and closes it only after all consumers drain.
+`PortraitStudioModel.shutdown()` remains a drain operation and does not close
+its borrowed store. The associated composition regression tests writer-lease
+release and positive writable handoff after shutdown.
+
+Source-30 focused verification executed 32 cases: 31 passes and one new-test
+failure. All original assertions in the five previously failing cases passed; the new test incorrectly
+required an empty issues list and rejected the informational recovery warning
+`Unassociated archive records…retained for recovery`. That failed observation is
+retained separately. Source 31 adjusts the assertion to permit informational
+recovery warnings while checking writable handoff and absence of a writer issue.
+Its focused run passed **32 XML cases, all 32 executed, zero skips, failures or
+errors**, in 11.670 s test time / 25.0846 s wall time, exit 0. Source pins remained
+unchanged and the corrected process scan found no active helper. Source/delta
+review accepted the bounded actual-owner correction; this focused result is not
+a full configured gate.
+
+The original evidence bundle and source-29 closure supplement remain immutable.
+Their pins and observations retain their original source scopes. The source-15
+photo/filter, source-17 writer, source-28 gallery/styles and source-29 selected
+reader measurements apply only to unchanged measured paths; none is a final
+whole-image measurement after the composition lifecycle correction. A third
+configured gate and canonical adoption remain pending. DX-05 still requires
+DX-04 adoption; this receipt does not introduce identity or width-contract work.
+
+### Resource limits and retained acceptance scope
+
+Backup inventory is bounded to two million entries, 1 GiB, 1 KiB per line and a
+64 KiB stream buffer. Caller arrays and sorting still use O(N) metadata. Publication
+intent and journal limits are separately 32 MiB and 128 MiB with typed refusal;
+not every pathological Core 256 MiB closure must fit them, and carrier-v1 budgets
+are unchanged. The 10,000-reference/30,000-link/10,000-metadata/20,000-path encoding
+proof and 100,001-entry metadata-only inventory proof are not 100,001 actual
+files or a full archive-scale benchmark. External quarantine metadata is bounded
+to 8 MiB while large original bytes are streamed and fingerprinted.
+
+The retained DX-04 contract permits the existing Database/CandidateStore/Library
+and new exchange storage/query files with DB tests: one writer, immutable
+manifests/object hashes, digest-pinned lookup, transactional links and recoverable
+metadata/retention/tombstone backup plus staging journal; rebuild only derived
+rows. Same-ref/same-digest is a no-op, different digest a preserved conflict.
+Gate coverage includes asset/SQL publication crash boundaries, competing writers,
+metadata restore, missing objects and restart recovery. Recovery finishes or
+safely collects unreferenced staging, never reconstructing metadata from geometry.
+No production archive promotion, broad cleanup, public Library cutover or physical
+readiness/retry/evidence authority is claimed.
+
 ## Drawing Exchange DX-03 closed-carrier receipt, 2026-11-07
 
-Status: **implemented source and measured inert-software evidence; final configured gate and adoption remain machine-owned**.
+Status: **adopted** at canonical `56180604569843fbc16ff450ef66142b15a5ebb0`,
+tree `3297b28062e1340185ffca99346644f84c5b01b1`.
 Task `task-6209a9f4548346f3abe26c035dddb56f`, attempt
 `attempt-f51db17600b24b52a6d81439c49ce570`, targets `main` from adopted DX-02
 `66b830b15ac70fdd6dfbf08ddc5be440fe1568e7`. The immutable outcome definition is
 `3f38da3999559b37fee9cca21ebc204f5f94da1a913c385448f769356ce68bcb`.
-The task source/evidence commit is `aa93101af5851228191462d51f482f24c6a2c9ac`,
-tree `441ab6740f2a1fcd7c7d2332c6035b5b23c1fbd9`: 96 code/test/evidence files,
-excluding the final documentation edits. This is not canonical adoption.
-Configured run `dx03-inert-carrier-closure-20261107` is planned and was not yet
-invoked when this receipt was prepared. The authoritative Blackdog task/run owns
-its eventual result and adoption; the observations below do not predict either.
+The pre-adoption source/evidence snapshot was
+`aa93101af5851228191462d51f482f24c6a2c9ac`, tree
+`441ab6740f2a1fcd7c7d2332c6035b5b23c1fbd9` (96 code/test/evidence files), followed
+by documentation commit `df357d20de1ed112e1923fe1b3757394c7806726`. Blackdog
+squashed those into the canonical adoption above. Configured run
+`dx03-inert-carrier-closure-20261107` passed docs-check **45.731 s**, quick-test
+**1003.677 s** and diff-check **0.034 s**, event
+`0651f5d4049f9759096897ab4eb66e3f460c1fc7d1ea89db86c3efce30accfe1`.
+Configured output was not retained, so no full-suite test count is inferred.
+All five current criteria and outcome/compliance were recorded met with
+caller-declared, unauthenticated provenance. The historical evidence bundle below
+was prepared before that gate/adoption; its pending fields are not rewritten as
+foreknowledge of later machine results.
 
 ### Implemented boundary and preserved callers
 
@@ -194,7 +528,8 @@ additive telemetry/inventory changes. The earlier legacy
 Those narrow snapshots are not summed into a full-suite or final-gate count. The
 independent Python run used the still-current reader/carrier sources and reported
 **124 tests: 122 passed and two explicit case-insensitive-directory skips** in
-3.841 s. Final configured validation is separate and was not yet invoked.
+3.841 s. Those were pre-gate source-bound observations; the later configured
+result is recorded separately at the start of this receipt.
 
 Earlier observations are not relabeled as final passes. Initial Swift builds
 succeeded while carrier positives failed at the staging path boundary; canonical

@@ -16,7 +16,8 @@ struct PortraitAttemptHistoryTests {
   func restartAndFeedback() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-history-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let owner = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: owner)
     let candidate = try portraitPersistenceCandidate()
     let record = try PortraitAttemptRecord.prepare(candidate: candidate, pen: portraitTestStyle())
     collection.recordAttempt(candidate, record: record)
@@ -28,6 +29,8 @@ struct PortraitAttemptHistoryTests {
     collection.setFeedback(.unknown, for: candidate.id)
     collection.saveStyle(name: "My ink", recipe: candidate.recipe)
     await collection.awaitPersistence()
+    await collection.awaitLibrarySynchronization()
+    await owner.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     let exact = try #require(restored.attempts.first)
@@ -96,7 +99,8 @@ struct PortraitAttemptHistoryTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-navigation-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }
     let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
+    let owner = PortraitCandidateStore(directoryURL: directory)
+    let model = PortraitStudioModel(renderer: renderer, candidateStore: owner)
     let pen = try portraitTestStyle()
     model.style = .contours
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -117,6 +121,7 @@ struct PortraitAttemptHistoryTests {
     #expect(await renderer.requests.count == calls)
     #expect(!model.isProcessing && !model.isExploring)
     await model.shutdown()
+    await owner.closeLibrary()
     let restored = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
     await restored.sketches.load()
     await restored.loadPhotoBrowser()
@@ -161,10 +166,13 @@ struct PortraitAttemptHistoryTests {
   func legacySourceDiscovery() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-legacy-sources-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let owner = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: owner)
     let legacy = try portraitPersistenceCandidate()
     #expect(collection.retain(candidate: legacy, reason: .shortlisted) == nil)
     await collection.awaitPersistence()
+    await collection.awaitLibrarySynchronization()
+    await owner.closeLibrary()
     let renderer = ExplorationTestRenderer()
     let model = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
     await model.sketches.load()
@@ -185,7 +193,8 @@ struct PortraitAttemptHistoryTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-regenerate-\(UUID())")
     defer { try? FileManager.default.removeItem(at: directory) }
     let renderer = ExplorationTestRenderer()
-    let model = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
+    let owner = PortraitCandidateStore(directoryURL: directory)
+    let model = PortraitStudioModel(renderer: renderer, candidateStore: owner)
     let pen = try portraitTestStyle()
     model.style = .contours
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
@@ -211,6 +220,7 @@ struct PortraitAttemptHistoryTests {
     #expect(reimported.createdAt > regenerated.createdAt)
     #expect(reimported.photoID != original.photoID)
     await model.shutdown()
+    await owner.closeLibrary()
     #expect(model.sketches.persistenceState == .saved)
     let restored = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
     await restored.sketches.load()

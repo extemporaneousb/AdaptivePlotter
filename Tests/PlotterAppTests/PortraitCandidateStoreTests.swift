@@ -18,7 +18,8 @@ struct PortraitCandidateStoreTests {
     let photo = PortraitPhoto(id: candidate.photoID, data: candidate.sourceData, label: "Original",
       capturedAt: candidate.createdAt, frameID: nil, captureNanoseconds: nil, pose: .front,
       captureSessionID: candidate.captureSessionID)
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     collection.retainSourcePhoto(photo)
     #expect(collection.retain(candidate: candidate, reason: .shortlisted) == nil)
     await collection.awaitPersistence()
@@ -26,6 +27,7 @@ struct PortraitCandidateStoreTests {
     collection.remove(candidate.id)
     await collection.awaitPersistence()
     #expect(try Data(contentsOf: asset) == photo.data)
+    await collectionStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     #expect(restored.entries.isEmpty)
@@ -60,7 +62,8 @@ struct PortraitCandidateStoreTests {
   func directReviewerAndConcurrentStudioLoad() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let writer = PortraitSketchCollection(store: writerStore)
     let candidates = try (1...16).map { try portraitPersistenceCandidate(seed: UInt64($0)) }
     for candidate in candidates {
       #expect(writer.retain(candidate: candidate, reason: .physicalAttempt(attemptID: UUID())) == nil)
@@ -68,6 +71,7 @@ struct PortraitCandidateStoreTests {
     await writer.awaitPersistence()
     let indexURL = directory.appendingPathComponent("library-v1.sqlite")
     let before = try Data(contentsOf: indexURL)
+    await writerStore.closeLibrary()
     let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
     #expect(studio.sketches.persistenceState == .loading)
     // Both UI entry points call this existing owner; concurrent open/load must
@@ -89,7 +93,8 @@ struct PortraitCandidateStoreTests {
   func restartAndTriggers() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     let candidate = try portraitPersistenceCandidate()
     #expect(collection.retain(candidate: candidate, reason: .shortlisted) == nil)
     #expect(collection.retain(candidate: candidate, reason: .projectionAccepted(acceptanceID: UUID())) == nil)
@@ -99,6 +104,7 @@ struct PortraitCandidateStoreTests {
     await collection.awaitPersistence()
     #expect(collection.persistenceState == .saved)
     #expect(collection.unresolvedMutations == 0)
+    await collectionStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     let retained = try #require(restored.entries.first)
@@ -117,7 +123,8 @@ struct PortraitCandidateStoreTests {
   func transientAndAncestry() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     await collection.load()
     let ancestor = try portraitPersistenceCandidate(seed: 1)
     let child = try portraitPersistenceCandidate(seed: 2, lineage: .init(parentID: ancestor.id,
@@ -130,7 +137,10 @@ struct PortraitCandidateStoreTests {
     #expect(try emptyCatalog.scalar("SELECT COUNT(*) FROM photo") == "0")
     #expect(collection.retain(candidate: child, reason: .shortlisted) == nil)
     await collection.awaitPersistence()
-    let result = await PortraitCandidateStore(directoryURL: directory).load()
+    await collectionStore.closeLibrary()
+    let resultStore = PortraitCandidateStore(directoryURL: directory)
+    let result = await resultStore.load()
+    await resultStore.closeLibrary()
     #expect(result.archive.entries.map(\.id) == [child.id])
     #expect(result.archive.entries[0].candidate.lineage.parentID == ancestor.id)
   }
@@ -139,7 +149,8 @@ struct PortraitCandidateStoreTests {
   func dedupAndNoFIFO() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     let first = try portraitPersistenceCandidate(seed: 1)
     #expect(collection.rate(candidate: first, rating: 1, scope: .screenSketch,
       presentation: try .init(inkWidthMM: 0.4)) == nil)
@@ -164,7 +175,10 @@ struct PortraitCandidateStoreTests {
           includingPropertiesForKeys: nil).reduce(0) { try $0 + Data(contentsOf: $1).count }
     #expect(collection.retainedBytes == actualBytes)
     #expect(try PortraitCandidateStore.retainedByteCount(snapshot: collection.archive) > first.sourceData.count)
-    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    await collectionStore.closeLibrary()
+    let restoredStore = PortraitCandidateStore(directoryURL: directory)
+    let restored = await restoredStore.load()
+    await restoredStore.closeLibrary()
     #expect(restored.canWrite)
     #expect(restored.archive.entries.count == 40)
   }
@@ -199,7 +213,9 @@ struct PortraitCandidateStoreTests {
     let source = Data([17, 18])
     try source.write(to: assets.appendingPathComponent(PortraitCandidateCoding.digest(source)))
     try Data("unfinished".utf8).write(to: directory.appendingPathComponent("staging-interrupted.json"))
-    let result = await PortraitCandidateStore(directoryURL: directory).load()
+    let resultStore = PortraitCandidateStore(directoryURL: directory)
+    let result = await resultStore.load()
+    await resultStore.closeLibrary()
     #expect(result.canWrite)
     #expect(result.archive.entries.isEmpty)
     #expect(result.issues.contains { $0.contains("Interrupted save") })
@@ -211,13 +227,16 @@ struct PortraitCandidateStoreTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let first = try portraitPersistenceCandidate(seed: 1)
-    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let writer = PortraitSketchCollection(store: writerStore)
     _ = writer.retain(candidate: first, reason: .shortlisted)
     await writer.awaitPersistence()
     let index = directory.appendingPathComponent("library-v1.sqlite")
     let validIndex = try Data(contentsOf: index), corruptIndex = Data("broken".utf8)
+    await writerStore.closeLibrary()
     try corruptIndex.write(to: index)
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     let second = try portraitPersistenceCandidate(seed: 2)
     _ = collection.retain(candidate: second, reason: .shortlisted)
     await collection.awaitPersistence()
@@ -229,6 +248,7 @@ struct PortraitCandidateStoreTests {
     collection.retryPersistence()
     await collection.awaitPersistence()
     #expect(collection.persistenceState == .saved)
+    await collectionStore.closeLibrary()
     let durable = PortraitCandidateStore(directoryURL:directory)
     let identities = [PortraitDrawingIdentity(candidateID:first.id,photoID:first.photoID),
       PortraitDrawingIdentity(candidateID:second.id,photoID:second.photoID)]
@@ -239,6 +259,7 @@ struct PortraitCandidateStoreTests {
     #expect(ancestryRows.count == 2)
     #expect(retained.map(\.candidate) == [first,second])
     #expect(retained.map { $0.reasons.map(\.reason) } == [[.shortlisted],[.shortlisted]])
+    await durable.closeLibrary()
     await collection.load()
     #expect(collection.entries.count == 2)
     #expect(try PortraitCandidateCoding.encoder().encode(collection.entries)
@@ -252,13 +273,15 @@ struct PortraitCandidateStoreTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidate = try portraitPersistenceCandidate()
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     _ = collection.retain(candidate: candidate, reason: .shortlisted)
     await collection.awaitPersistence()
     let index = directory.appendingPathComponent("library-v1.sqlite")
     let indexBytes = try Data(contentsOf: index)
     let asset = directory.appendingPathComponent("assets").appendingPathComponent(candidate.sourceSHA256)
     try FileManager.default.removeItem(at: asset)
+    await collectionStore.closeLibrary()
     let store = PortraitCandidateStore(directoryURL: directory)
     let result = await store.load()
     #expect(!result.canWrite)
@@ -272,7 +295,8 @@ struct PortraitCandidateStoreTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     try Data([1]).write(to: directory)
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     let deleted = try portraitPersistenceCandidate(seed: 1), kept = try portraitPersistenceCandidate(seed: 2)
     _ = collection.retain(candidate: deleted, reason: .shortlisted)
     _ = collection.rate(candidate: kept, rating: 1, scope: .screenSketch, presentation: try .init())
@@ -285,7 +309,10 @@ struct PortraitCandidateStoreTests {
     collection.retryPersistence()
     await collection.awaitPersistence()
     #expect(collection.persistenceState == .saved)
-    let result = await PortraitCandidateStore(directoryURL: directory).load()
+    await collectionStore.closeLibrary()
+    let resultStore = PortraitCandidateStore(directoryURL: directory)
+    let result = await resultStore.load()
+    await resultStore.closeLibrary()
     #expect(result.archive.entries.map(\.id) == [kept.id])
     #expect(result.archive.tombstones.contains { $0.kind == .drawing && $0.identity == PortraitDrawingIdentity(candidateID:deleted.id,photoID:deleted.photoID).id })
   }
@@ -294,14 +321,18 @@ struct PortraitCandidateStoreTests {
   func explicitSourceDeletion() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     let candidate = try portraitPersistenceCandidate()
     _ = collection.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: try .init())
     await collection.awaitPersistence()
     let labelID = try #require(collection.labels.first?.id)
     collection.deleteSource(photoID:candidate.photoID)
     await collection.awaitPersistence()
-    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    await collectionStore.closeLibrary()
+    let restoredStore = PortraitCandidateStore(directoryURL: directory)
+    let restored = await restoredStore.load()
+    await restoredStore.closeLibrary()
     #expect(restored.archive.entries.isEmpty)
     #expect(restored.archive.labels.first?.id == labelID)
     #expect(restored.archive.withdrawnLabelIDs.contains(labelID.uuidString))
@@ -315,14 +346,18 @@ struct PortraitCandidateStoreTests {
   func sharedAssetDeletion() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     let first = try portraitPersistenceCandidate(seed: 1), second = try portraitPersistenceCandidate(seed: 2)
     _ = collection.retain(candidate: first, reason: .shortlisted)
     _ = collection.retain(candidate: second, reason: .shortlisted)
     await collection.awaitPersistence()
     collection.remove(first.id)
     await collection.awaitPersistence()
-    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    await collectionStore.closeLibrary()
+    let restoredStore = PortraitCandidateStore(directoryURL: directory)
+    let restored = await restoredStore.load()
+    await restoredStore.closeLibrary()
     #expect(restored.canWrite)
     #expect(restored.archive.entries.map(\.id) == [second.id])
     #expect(restored.archive.entries.first?.candidate.sourceData == second.sourceData)
@@ -333,7 +368,8 @@ struct PortraitCandidateStoreTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidate = try portraitPersistenceCandidate()
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     _ = collection.retain(candidate: candidate, reason: .shortlisted)
     await collection.awaitPersistence()
     collection.deleteSource(photoID:candidate.photoID)
@@ -344,6 +380,7 @@ struct PortraitCandidateStoreTests {
     let raster = assets.appendingPathComponent(candidate.rasterSHA256)
     try candidate.sourceData.write(to: source)
     try PortraitCandidateCoding.encoder().encode(candidate.raster).write(to: raster)
+    await collectionStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     #expect(restored.entries.isEmpty)
@@ -358,7 +395,8 @@ struct PortraitCandidateStoreTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidate = try portraitPersistenceCandidate()
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let collectionStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: collectionStore)
     _ = collection.retain(candidate: candidate, reason: .shortlisted)
     await collection.awaitPersistence()
     collection.deleteSource(photoID:candidate.photoID)
@@ -366,6 +404,7 @@ struct PortraitCandidateStoreTests {
     let source = directory.appendingPathComponent("assets").appendingPathComponent(candidate.sourceSHA256)
     try candidate.sourceData.write(to: source)
     let fault = PortraitDeletionFault()
+    await collectionStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory, removeAsset: { url in
       try fault.remove(url)
     }))
@@ -406,7 +445,10 @@ struct PortraitCandidateStoreTests {
     #expect(await store.assetBytesVerified == verified)
     #expect(await store.metadataBytesEncoded - metadataBytes < metadataBytes / 10)
     #expect(try recordURLs.map { try Data(contentsOf: $0) } == before)
-    let restarted = await PortraitCandidateStore(directoryURL: directory).load()
+    await store.closeLibrary()
+    let restartedStore = PortraitCandidateStore(directoryURL: directory)
+    let restarted = await restartedStore.load()
+    await restartedStore.closeLibrary()
     #expect(restarted.canWrite && restarted.archive.entries.count == 40)
     #expect(restarted.archive.entries[20].reasons.last?.reason == .physicalAttempt(attemptID: runID))
     let committedIndex = try Data(contentsOf: directory.appendingPathComponent("library-v1.sqlite"))
@@ -440,11 +482,17 @@ struct PortraitCandidateStoreTests {
     let records = directory.appendingPathComponent("records")
     let committed = try #require(FileManager.default.contentsOfDirectory(at: records, includingPropertiesForKeys: nil).first)
     try Data("uncommitted".utf8).write(to: records.appendingPathComponent(String(repeating: "a", count: 64)))
-    let restored = await PortraitCandidateStore(directoryURL: directory).load()
+    await store.closeLibrary()
+    let restoredStore = PortraitCandidateStore(directoryURL: directory)
+    let restored = await restoredStore.load()
+    await restoredStore.closeLibrary()
     #expect(restored.canWrite && restored.archive.entries.count == 1)
     #expect(restored.issues.contains { $0.contains("Unassociated archive records") })
     try Data("corrupt".utf8).write(to: committed)
-    let failed = await PortraitCandidateStore(directoryURL: directory).load()
+    await store.closeLibrary()
+    let failedStore = PortraitCandidateStore(directoryURL: directory)
+    let failed = await failedStore.load()
+    await failedStore.closeLibrary()
     #expect(!failed.canWrite)
   }
 

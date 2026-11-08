@@ -29,6 +29,7 @@ struct DrawingTransferLibraryTests {
     let before = try Data(contentsOf: database)
     #expect(try await store.importDrawingPackage(bytes) == drawing)
     #expect(try Data(contentsOf: database) == before)
+    await store.closeLibrary()
     let reopened = PortraitCandidateStore(directoryURL: directory)
     #expect(try reopened.loadDrawing(drawing.id) == drawing)
     #expect(try await reopened.exportDrawingPackage(drawing) == bytes)
@@ -91,23 +92,27 @@ struct DrawingTransferLibraryTests {
     let bytes = try DrawingPackageCodec.encode(transferTestPackage())
     let drawing = try await PortraitCandidateStore(directoryURL: directory).importDrawingPackage(bytes)
     let database = directory.appendingPathComponent("library-v1.sqlite")
-    let db = try PortraitLibraryDatabase(url: database)
-    let value = try db.scalar("SELECT reference FROM generic_drawing WHERE id=?", [drawing.id])
-    let encoded = try #require(value)
-    let reference = try db.decode(SavedDrawingRecordReference.self, encoded)
-    let hash = try #require(reference.recordSHA256)
-    let recordURL = directory.appendingPathComponent("records").appendingPathComponent(hash)
-    if damage == "record" { try FileManager.default.removeItem(at: recordURL) }
-    else if damage == "reference" {
-      try db.execute("UPDATE generic_drawing SET reference=? WHERE id=?", ["{malformed", drawing.id])
-    } else { try db.execute("DELETE FROM generic_drawing WHERE id=?", [drawing.id]) }
+    let encoded: String, recordURL: URL
+    do {
+      let db = try PortraitLibraryDatabase(url: database)
+      let value = try db.scalar("SELECT reference FROM generic_drawing WHERE id=?", [drawing.id])
+      encoded = try #require(value)
+      let reference = try db.decode(SavedDrawingRecordReference.self, encoded)
+      let hash = try #require(reference.recordSHA256)
+      recordURL = directory.appendingPathComponent("records").appendingPathComponent(hash)
+      if damage == "record" { try FileManager.default.removeItem(at: recordURL) }
+      else if damage == "reference" {
+        try db.execute("UPDATE generic_drawing SET reference=? WHERE id=?", ["{malformed", drawing.id])
+      } else { try db.execute("DELETE FROM generic_drawing WHERE id=?", [drawing.id]) }
+    }
     let before = try Data(contentsOf: database)
     let recordExisted = FileManager.default.fileExists(atPath: recordURL.path)
     let reopened = PortraitCandidateStore(directoryURL: directory)
     await #expect(throws: (any Error).self) { try await reopened.importDrawingPackage(bytes, restoreDeleted: true) }
     #expect(try Data(contentsOf: database) == before)
     #expect(FileManager.default.fileExists(atPath: recordURL.path) == recordExisted)
-    #expect(try db.scalar("SELECT reference FROM generic_drawing WHERE id=?", [drawing.id])
+    let checked = try PortraitLibraryDatabase(url:database,readOnly:true)
+    #expect(try checked.scalar("SELECT reference FROM generic_drawing WHERE id=?", [drawing.id])
       == (damage == "row" ? nil : damage == "reference" ? "{malformed" : encoded))
   }
 

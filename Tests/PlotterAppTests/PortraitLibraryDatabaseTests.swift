@@ -11,6 +11,83 @@ import Testing
 struct PortraitLibraryDatabaseTests {
   private func root() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("portrait-sql-"+UUID().uuidString) }
 
+  @Test("Synchronous transaction guards are bounded, nesting refuses, throws rollback, and after-COMMIT remains uncertain")
+  func transactionOwnershipScope() throws {
+    let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
+    let db = try PortraitLibraryDatabase(url: directory.appendingPathComponent("library-v1.sqlite"))
+    for count in [1, 100] {
+      let before = db.selectedFileValidationCount
+      try db.transaction {
+        #expect(throws: (any Error).self) { try db.transaction { try db.setState("nested", "must not publish") } }
+        for value in 0..<count { try db.setState("probe", String(value)) }
+      }
+      #expect(db.selectedFileValidationCount - before == 3)
+    }
+    enum Abort: Error { case requested }
+    #expect(throws: Abort.self) { try db.transaction { try db.setState("probe", "rolled back"); throw Abort.requested } }
+    #expect(try db.scalar("SELECT value FROM state WHERE key='probe'") == "99")
+    try db.execute("BEGIN")
+    #expect(throws: (any Error).self) { try db.transaction { try db.setState("nested", "raw transaction") } }
+    try db.setState("raw", "caller still owns transaction")
+    try db.execute("ROLLBACK")
+    #expect(try db.scalar("SELECT value FROM state WHERE key='raw'") == nil)
+    db.injectFault = { if $0 == .afterCommit { throw Abort.requested } }
+    #expect(throws: Abort.self) { try db.transaction { try db.setState("probe", "committed despite response") } }
+    #expect(try db.scalar("SELECT value FROM state WHERE key='probe'") == "committed despite response")
+    db.injectFault = nil
+    try db.transaction { try db.setState("probe", "next transaction works") }
+    let before = db.selectedFileValidationCount
+    try db.setState("outside", "fully guarded")
+    #expect(db.selectedFileValidationCount - before == 1)
+  }
+
+  @Test("Rolled back and SQLite auto-aborted guarded scopes refuse later autocommitted statements")
+  func transactionOwnershipScopeLost() throws {
+    let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
+    let db = try PortraitLibraryDatabase(url: directory.appendingPathComponent("library-v1.sqlite"))
+    try db.setState("probe", "original")
+    for automatic in [false, true] {
+      var scopeError: (any Error)?
+      do {
+        try db.transaction {
+          if automatic {
+            #expect(throws: (any Error).self) { try db.execute("INSERT OR ROLLBACK INTO state(key,value) VALUES('probe','collision')") }
+          } else { try db.execute("ROLLBACK") }
+          #expect(throws: (any Error).self) { try db.setState("must-not-autocommit", "forbidden") }
+        }
+      } catch { scopeError = error }
+      #expect(scopeError != nil)
+      #expect(try db.scalar("SELECT value FROM state WHERE key='must-not-autocommit'") == nil)
+      #expect(try db.scalar("SELECT value FROM state WHERE key='probe'") == "original")
+      try db.transaction { try db.setState("recovered", automatic ? "auto" : "explicit") }
+    }
+  }
+
+  @Test("Before-COMMIT unlink or replacement refuses publication and rollback leaves selected replacement bytes untouched")
+  func transactionOwnershipScopeSelection() throws {
+    for replacement in [false, true] {
+      let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
+      let selected = directory.appendingPathComponent("current/library-v1.sqlite")
+      let prepared = directory.appendingPathComponent("replacement/library-v1.sqlite")
+      do { let other = try PortraitLibraryDatabase(url: prepared); try other.setState("probe", "replacement") }
+      let replacementBytes = try Data(contentsOf: prepared)
+      let db = try PortraitLibraryDatabase(url: selected)
+      try db.setState("probe", "original")
+      db.injectFault = { point in
+        guard point == .beforeCommit else { return }
+        try FileManager.default.moveItem(at: selected, to: selected.deletingLastPathComponent().appendingPathComponent("retained-original.sqlite"))
+        if replacement { try replacementBytes.write(to: selected, options: .atomic) }
+      }
+      #expect(throws: (any Error).self) { try db.transaction { try db.setState("probe", "must not commit") } }
+      if replacement {
+        #expect(try Data(contentsOf: selected) == replacementBytes)
+        let reader = try PortraitLibraryDatabase(url: selected, readOnly: true)
+        #expect(try reader.scalar("SELECT value FROM state WHERE key='probe'") == "replacement")
+      } else { #expect(!FileManager.default.fileExists(atPath: selected.path)) }
+      #expect(throws: (any Error).self) { try db.setState("outside", "must refuse stale owner") }
+    }
+  }
+
   @MainActor
   @Test("Deleted captures remain in every fallback uniqueness census and committed bindings never fall through")
   func deletedOccurrenceRecoveryCensus() async throws {
@@ -62,7 +139,7 @@ struct PortraitLibraryDatabaseTests {
       try await store.bindRunOccurrence(intent:staged,candidate:a,archive:archive)
       try await store.reconcileEvidence(archive:archive)
       #expect(try await store.librarySelection(workID:staged.runID.description).photo.id == a.photoID)
-      let db = try PortraitLibraryDatabase(url:location.appendingPathComponent("library-v1.sqlite"))
+      let db = try await store.libraryDatabase()
       if deleted { try db.execute("UPDATE drawing SET deleted=1 WHERE photo_id=?",[a.photoID.uuidString.lowercased()]) }
       else { try db.setState("binding_record:"+staged.runID.description,String(repeating:"0",count:64)) }
       try db.setState("evidence_dirty","1")
@@ -135,6 +212,7 @@ struct PortraitLibraryDatabaseTests {
     #expect(try db.rows("SELECT * FROM generic_drawing") == beforeGeneric)
     #expect(try db.rows("SELECT * FROM label") == beforeLabel)
     #expect(try db.rows("SELECT * FROM photo WHERE id=?",[candidate.photoID.uuidString.lowercased()]) == beforePhoto)
+    await cold.closeLibrary()
     let reopened = PortraitCandidateStore(directoryURL:directory)
     #expect(try await reopened.librarySnapshot().photos.count == 2)
     let exact = try await reopened.loadRetainedOccurrence(.init(candidateID:candidate.id,photoID:candidate.photoID))
@@ -195,8 +273,10 @@ struct PortraitLibraryDatabaseTests {
     }
     #expect(!FileManager.default.fileExists(atPath:missingAsset.path))
     try rasterBytes.write(to:selectedRaster)
-    let selectedDB = try PortraitLibraryDatabase(url:source.appendingPathComponent("library-v1.sqlite"))
-    try selectedDB.execute("INSERT INTO quarantine(id,reason,manifest) VALUES('fixture-unresolved','missing original files','{}')")
+    do {
+      let selectedDB = try PortraitLibraryDatabase(url:source.appendingPathComponent("library-v1.sqlite"))
+      try selectedDB.execute("INSERT INTO quarantine(id,reason,manifest) VALUES('fixture-unresolved','missing original files','{}')")
+    }
     let missingReceipt = PortraitLibraryReconciler.Receipt(sourcePortraitSHA256:receipt.sourcePortraitSHA256,sourceEvidenceSHA256:receipt.sourceEvidenceSHA256,
       backupManifestSHA256:receipt.backupManifestSHA256,auditSHA256:nil,photoCount:receipt.photoCount,drawingCount:receipt.drawingCount,
       workCount:receipt.workCount,plottedWorkCount:receipt.plottedWorkCount,quarantineCount:1,destination:source.path)
@@ -208,7 +288,10 @@ struct PortraitLibraryDatabaseTests {
         legacyDirectory:legacy,evidenceArchive:rawURL,backupDirectory:backup,expectedDatabaseSHA256:databaseHash)
     }
     #expect(!FileManager.default.fileExists(atPath:missingQuarantine.path))
-    try selectedDB.execute("DELETE FROM quarantine")
+    do {
+      let selectedDB = try PortraitLibraryDatabase(url:source.appendingPathComponent("library-v1.sqlite"))
+      try selectedDB.execute("DELETE FROM quarantine")
+    }
     try PortraitCandidateCoding.encoder().encode(receipt).write(to:source.appendingPathComponent("reconciliation-receipt.json"))
     databaseHash = PortraitCandidateCoding.digest(try Data(contentsOf:source.appendingPathComponent("library-v1.sqlite")))
     _ = try await DrawingRunEvidenceStore(fileURL:rawURL).annotateReview(.init(scope:.drawing("promotion"),text:"New raw generation"))
@@ -258,13 +341,15 @@ struct PortraitLibraryDatabaseTests {
   @Test("Unsupported schema and corrupt database never mutate or masquerade as an empty catalog")
   func unsupportedSchema() async throws {
     let directory = root();defer{try? FileManager.default.removeItem(at:directory)}
-    let db = try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"))
-    try db.execute("PRAGMA user_version=99")
-    let before = try Data(contentsOf:db.url)
-    #expect(throws:(any Error).self) { _ = try PortraitLibraryDatabase(url:db.url) }
+    let sql = directory.appendingPathComponent("library-v1.sqlite")
+    var db: PortraitLibraryDatabase? = try PortraitLibraryDatabase(url:sql)
+    try #require(db).execute("PRAGMA user_version=99")
+    let before = try Data(contentsOf:sql)
+    db = nil // The following failures must prove schema refusal, not writer contention.
+    #expect(throws:(any Error).self) { _ = try PortraitLibraryDatabase(url:sql) }
     let loaded = await PortraitCandidateStore(directoryURL:directory).load()
     #expect(!loaded.canWrite && !loaded.issues.isEmpty)
-    #expect(try Data(contentsOf:db.url) == before)
+    #expect(try Data(contentsOf:sql) == before)
   }
 
   @Test("Before-commit disk-full fault rolls back every new child and preserves previous generation")
@@ -273,7 +358,7 @@ struct PortraitLibraryDatabaseTests {
     let store = PortraitCandidateStore(directoryURL:directory)
     let candidate = try portraitPersistenceCandidate()
     try await store.save(snapshot:.init(entries:[.init(candidate:candidate,reasons:[])]))
-    let db = try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"))
+    let db = try await store.libraryDatabase()
     let before = try db.generation
     db.injectFault = { point in if point == .beforeCommit { throw NSError(domain:NSPOSIXErrorDomain,code:28) } }
     #expect(throws:(any Error).self) {
@@ -352,7 +437,7 @@ struct PortraitLibraryDatabaseTests {
     let candidate = try portraitPersistenceCandidate()
     let store = PortraitCandidateStore(directoryURL:directory)
     try await store.save(snapshot:.init(entries:[.init(candidate:candidate,reasons:[])]))
-    let db = try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"))
+    let db = try await store.libraryDatabase()
     let legacy = directory.appendingPathComponent("index-v1.json")
     let original = Data("legacy-generation".utf8)
     try original.write(to:legacy)
@@ -383,6 +468,7 @@ struct PortraitLibraryDatabaseTests {
       savedStyles:index.savedStyles,sourcePhotos:references,photoCatalog:references,savedDrawings:index.savedDrawings,drawingCatalog:index.drawingCatalog)
     try publishFixture(index)
     await #expect(throws:(any Error).self) { try await store.save(snapshot:loaded.archive) }
+    await store.closeLibrary()
     let reopened = PortraitCandidateStore(directoryURL:canonical,legacyDirectoryURL:legacy)
     let refreshed = await reopened.load();#expect(refreshed.canWrite)
     #expect(try await reopened.librarySnapshot().photos.contains{$0.id == extra.id})
@@ -399,6 +485,7 @@ struct PortraitLibraryDatabaseTests {
     #expect(try await store.librarySnapshot().photos.first?.actualCapturedAt == nil)
     let loaded = await store.load()
     try await store.save(snapshot:loaded.archive)
+    await store.closeLibrary()
     let reopened = PortraitCandidateStore(directoryURL:directory)
     #expect(try await reopened.librarySnapshot().photos.first?.actualCapturedAt == nil)
   }
@@ -409,7 +496,7 @@ struct PortraitLibraryDatabaseTests {
     let candidate = try portraitPersistenceCandidate()
     let store = PortraitCandidateStore(directoryURL:directory)
     try await store.save(snapshot:.init(entries:[.init(candidate:candidate,reasons:[])]))
-    let db = try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"))
+    let db = try await store.libraryDatabase()
     let falsePhoto = PortraitPhoto(id:UUID(),data:candidate.sourceData,label:"False association",capturedAt:Date(),frameID:nil,captureNanoseconds:nil,pose:.front)
     try db.execute("UPDATE photo SET reference=?",[try db.encode(PortraitPhotoReference(falsePhoto))])
     try db.integrityCheck()

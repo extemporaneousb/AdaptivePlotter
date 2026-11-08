@@ -1,3 +1,4 @@
+import Darwin
 import PortraitArtists
 import CSQLite
 import Foundation
@@ -22,7 +23,13 @@ package struct PreparedPortraitOccurrence {
 /// legacy-compatible catalog reads open read-only connections and transactions.
 package final class PortraitLibraryDatabase {
   package let url: URL
+  private let rootURL: URL
+  private let catalogPath: String
   private var db: OpaquePointer?
+  private var openedIdentity: (device: dev_t, inode: ino_t)?
+  package let writerLease: PortraitLibraryWriterLease?
+  private var guardedTransaction = false
+  package private(set) var selectedFileValidationCount = 0
   private let encoder = PortraitCandidateCoding.encoder()
   package enum Fault: String { case beforeCommit, afterCommit }
   package var injectFault: ((Fault) throws -> Void)?
@@ -32,31 +39,79 @@ package final class PortraitLibraryDatabase {
     return try connection.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1"
   }
 
-  package init(url: URL, readOnly: Bool = false) throws {
+  package init(url: URL, readOnly: Bool = false, writerLease suppliedLease: PortraitLibraryWriterLease? = nil) throws {
     self.url = url
-    if !readOnly { try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true) }
-    let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) | SQLITE_OPEN_FULLMUTEX
-    guard sqlite3_open_v2(url.path, &db, flags, nil) == SQLITE_OK else { throw failure() }
-    sqlite3_busy_timeout(db, 5000)
-    try execute("PRAGMA foreign_keys=ON")
-    guard try scalar("PRAGMA foreign_keys") == "1" else { throw PortraitLibraryError.database("foreign key enforcement unavailable") }
-    let existingVersion = try scalar("PRAGMA user_version")
-    guard existingVersion == "0" || existingVersion == "1" || existingVersion == "2" else { throw PortraitLibraryError.database("unsupported schema") }
-    if !readOnly {
-      try execute("PRAGMA journal_mode=DELETE")
-      try execute("PRAGMA synchronous=FULL")
-      if existingVersion == "0" { try execute(Self.schema) }
+    self.rootURL = url.deletingLastPathComponent()
+    self.catalogPath = url.path
+    if readOnly {
+      guard suppliedLease == nil else { throw PortraitLibraryError.database("Read-only connection cannot borrow a writer lease") }
+      writerLease = nil
+      try PortraitExchangeCatalogSelection.validate(root: rootURL, database: url)
+    } else {
+      let lease = try suppliedLease ?? PortraitLibraryWriterLease(root: rootURL)
+      try lease.assertMatches(root: rootURL)
+      writerLease = lease
+      try PortraitExchangeCatalogSelection.validate(root: rootURL, database: url)
     }
-    guard let version = try scalar("PRAGMA user_version"), version == "1" || version == "2" else {
-      throw PortraitLibraryError.database("unsupported schema")
-    }
+    var selected = stat()
+    if lstat(catalogPath, &selected) == 0 {
+      guard selected.st_mode & S_IFMT == S_IFREG, selected.st_nlink == 1 else { throw PortraitLibraryError.database("Catalog must be a regular private file") }
+    } else if errno != ENOENT { throw PortraitLibraryError.database("Catalog path unavailable") }
+    try writerLease?.claimDatabase()
+    do {
+      let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) | SQLITE_OPEN_FULLMUTEX
+      guard sqlite3_open_v2(catalogPath, &db, flags, nil) == SQLITE_OK else { throw failure() }
+      var opened = stat()
+      guard lstat(catalogPath, &opened) == 0, opened.st_mode & S_IFMT == S_IFREG, opened.st_nlink == 1 else { throw PortraitLibraryError.database("Opened catalog path changed") }
+      openedIdentity = (opened.st_dev, opened.st_ino)
+      try assertSelectedFile()
+      sqlite3_busy_timeout(db, 5000)
+      try execute("PRAGMA foreign_keys=ON")
+      guard try scalar("PRAGMA foreign_keys") == "1" else { throw PortraitLibraryError.database("foreign key enforcement unavailable") }
+      let existingVersion = try scalar("PRAGMA user_version")
+      guard existingVersion == "0" || existingVersion == "1" || existingVersion == "2" else { throw PortraitLibraryError.database("unsupported schema") }
+      if !readOnly {
+        try execute("PRAGMA journal_mode=DELETE")
+        try execute("PRAGMA synchronous=FULL")
+        if existingVersion == "0" { try execute(Self.schema) }
+      }
+      guard let version = try scalar("PRAGMA user_version"), version == "1" || version == "2" else {
+        throw PortraitLibraryError.database("unsupported schema")
+      }
+    } catch { sqlite3_close(db); db = nil; writerLease?.releaseDatabase(); throw error }
   }
-  deinit { sqlite3_close(db) }
+  // Close SQLite before releasing the lifetime lease, including failed init.
+  deinit { sqlite3_close(db); writerLease?.releaseDatabase() }
 
   private func failure() -> PortraitLibraryError {
     .database(db.map { String(cString: sqlite3_errmsg($0)) } ?? "connection unavailable")
   }
+  package func assertSelectedFile() throws {
+    selectedFileValidationCount += 1
+    guard let db, let openedIdentity else { throw PortraitLibraryError.database("Opened catalog identity is unavailable") }
+    try writerLease?.assertMatches(root: rootURL)
+    try PortraitExchangeCatalogSelection.validate(root: rootURL, database: url)
+    // The VFS owns the actual opened descriptor. A pathname stat immediately
+    // after sqlite3_open alone could already describe a replacement file.
+    var moved: Int32 = 0
+    guard sqlite3_file_control(db, "main", SQLITE_FCNTL_HAS_MOVED, &moved) == SQLITE_OK else {
+      throw PortraitLibraryError.database("SQLite VFS cannot prove opened catalog selection")
+    }
+    guard moved == 0 else { throw PortraitLibraryError.database("Opened catalog was moved, deleted or replaced") }
+    var current = stat()
+    guard lstat(catalogPath, &current) == 0, current.st_mode & S_IFMT == S_IFREG, current.st_nlink == 1,
+      current.st_dev == openedIdentity.device, current.st_ino == openedIdentity.inode else {
+      throw PortraitLibraryError.database("Selected catalog disappeared or was replaced; close the owner and explicitly recover")
+    }
+  }
   package func execute(_ sql: String, _ values: [String?] = []) throws {
+    if guardedTransaction {
+      guard sqlite3_get_autocommit(db) == 0 else { throw PortraitLibraryError.database("Guarded catalog transaction was lost") }
+    } else { try assertSelectedFile() }
+    try executeOnConnection(sql, values)
+  }
+  /// Cleanup uses the actual retained connection even when the selected pathname changed.
+  private func executeOnConnection(_ sql: String, _ values: [String?] = []) throws {
     if values.isEmpty {
       guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw failure() }
       return
@@ -96,15 +151,31 @@ package final class PortraitLibraryDatabase {
     guard let value else { throw PortraitLibraryError.database("required payload missing") }
     return try JSONDecoder().decode(type, from: Data(value.utf8))
   }
+  /// A synchronous, nonescaping operation owns one connection and lease. Its
+  /// trusted statements must not COMMIT/END the transaction themselves.
   package func transaction<T>(_ operation: () throws -> T) throws -> T {
-    try execute("BEGIN IMMEDIATE")
+    guard !guardedTransaction, sqlite3_get_autocommit(db) != 0 else {
+      throw PortraitLibraryError.database("Nested catalog transactions are unsupported")
+    }
+    try execute("BEGIN IMMEDIATE") // Full actual-file/root/lock/marker proof.
+    guardedTransaction = true
+    defer { guardedTransaction = false }
+    var committed = false
     do {
       let value = try operation()
       try injectFault?(.beforeCommit)
-      try execute("COMMIT")
+      guard sqlite3_get_autocommit(db) == 0 else { throw PortraitLibraryError.database("Guarded catalog transaction was lost") }
+      try assertSelectedFile()
+      try executeOnConnection("COMMIT")
+      committed = true
+      guardedTransaction = false
+      try assertSelectedFile()
       try injectFault?(.afterCommit)
       return value
-    } catch { try? execute("ROLLBACK"); throw error }
+    } catch {
+      if !committed, sqlite3_get_autocommit(db) == 0 { try? executeOnConnection("ROLLBACK") }
+      throw error
+    }
   }
   package func integrityCheck() throws {
     guard try scalar("PRAGMA integrity_check") == "ok", try rows("PRAGMA foreign_key_check").isEmpty else {
@@ -363,6 +434,10 @@ package final class PortraitLibraryDatabase {
   }
 
   package func backup(to destination: URL) throws {
+    try assertSelectedFile()
+    let destinationLease = try PortraitLibraryWriterLease(root: destination.deletingLastPathComponent())
+    try destinationLease.assertMatches(root: destination.deletingLastPathComponent())
+    defer { withExtendedLifetime(destinationLease) {} }
     var target: OpaquePointer?
     guard sqlite3_open_v2(destination.path,&target,SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,nil) == SQLITE_OK, let target else { throw failure() }
     defer { sqlite3_close(target) }

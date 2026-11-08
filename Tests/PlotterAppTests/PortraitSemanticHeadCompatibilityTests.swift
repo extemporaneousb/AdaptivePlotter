@@ -41,6 +41,7 @@ struct PortraitSemanticHeadCompatibilityTests {
     try await writer.save(snapshot: .init(entries: candidates.map {
       .init(candidate: $0, reasons: [.init(reason: .shortlisted)])
     }))
+    await writer.closeLibrary()
     let loaded = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(loaded.canWrite)
     #expect(loaded.archive.entries.count == 2)

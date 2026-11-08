@@ -12,7 +12,8 @@ struct PortraitSavedStyleLoadingTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidate = try portraitPersistenceCandidate()
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     collection.saveStyle(name: "Keep this", recipe: candidate.recipe)
     for seed in 1...16 { _ = collection.retain(candidate: try portraitPersistenceCandidate(seed: UInt64(seed)), reason: .shortlisted) }
     await collection.awaitPersistence()
@@ -37,6 +38,8 @@ struct PortraitSavedStyleLoadingTests {
     try FileManager.default.removeItem(at: records[0])
     let store = PortraitCandidateStore(directoryURL: directory)
     #expect(try await store.loadSavedStyles().map(\.name) == ["Keep this"])
+    await collection.awaitPersistence()
+    await writerStore.closeLibrary()
     let restored = PortraitSketchCollection(store: store)
     await restored.load()
     #expect(restored.savedStyles.map(\.name) == ["Keep this"])
@@ -59,11 +62,13 @@ struct PortraitSavedStyleLoadingTests {
   func catalogFailureAndRetry() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let writer = PortraitSketchCollection(store: writerStore)
     writer.saveStyle(name: "Original", recipe: try portraitPersistenceCandidate().recipe)
     await writer.awaitPersistence()
     let url = directory.appendingPathComponent("library-v1.sqlite")
     let valid = try Data(contentsOf:url)
+    await writerStore.closeLibrary()
     try Data("corrupt SQLite".utf8).write(to:url)
     let reader = PortraitSketchCollection(store: .init(directoryURL: directory))
     await reader.load()
@@ -81,7 +86,8 @@ struct PortraitSavedStyleLoadingTests {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidate = try portraitPersistenceCandidate()
-    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let writer = PortraitSketchCollection(store: writerStore)
     _ = writer.retain(candidate: candidate, reason: .shortlisted)
     writer.saveStyle(name: "Legacy", recipe: candidate.recipe)
     await writer.awaitPersistence()
@@ -97,6 +103,7 @@ struct PortraitSavedStyleLoadingTests {
     let legacy = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1,
       "sha256": PortraitCandidateCoding.digest(payload), "payload": payload.base64EncodedString()])
     let index = directory.appendingPathComponent("index-v1.json")
+    await writerStore.closeLibrary()
     try legacy.write(to: index)
     try FileManager.default.removeItem(at:directory.appendingPathComponent("library-v1.sqlite"))
     let legacyStore = PortraitCandidateStore(directoryURL: directory)
@@ -110,6 +117,7 @@ struct PortraitSavedStyleLoadingTests {
     #expect(try PortraitLibraryDatabase(url:directory.appendingPathComponent("library-v1.sqlite"),readOnly:true).generation.revision > 0)
     reader.saveStyle(name: "New", recipe: candidate.recipe)
     await reader.awaitPersistence()
+    await legacyStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     #expect(restored.entries.first?.candidate.program == candidate.program)

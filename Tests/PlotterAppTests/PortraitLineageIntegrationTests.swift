@@ -63,7 +63,8 @@ struct PortraitLineageIntegrationTests {
   func equalContentCaptureOccurrences() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let studio = PortraitStudioModel(candidateStore: writerStore)
     let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
     defer { fixture.stores.remove() }
     let app = fixture.application
@@ -137,6 +138,7 @@ struct PortraitLineageIntegrationTests {
       await studio.sketches.awaitPersistence()
       #expect(studio.projectedDrawing?.sourcePhotoID == second.photoID)
       await app.shutdown()
+      await writerStore.closeLibrary()
       let restarted = PortraitSketchCollection(store: .init(directoryURL: directory,
         evidenceArchiveURL: fixture.stores.evidencePort.archiveURL))
       let after = try await restarted.librarySnapshot()
@@ -276,7 +278,8 @@ struct PortraitLineageIntegrationTests {
   func stagedCaptureDeletionCannotReassignRun() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let studio = PortraitStudioModel(candidateStore: writerStore)
     let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
     defer { fixture.stores.remove() }
     let app = fixture.application
@@ -326,6 +329,7 @@ struct PortraitLineageIntegrationTests {
       #expect(survivor.works.map(\.runID) == [survivingIntent.runID])
       await #expect(throws: (any Error).self) { try await studio.sketches.librarySelection(workID: deletedIntent.runID.description) }
       await app.shutdown()
+      await writerStore.closeLibrary()
       let reopened = PortraitSketchCollection(store: .init(directoryURL: directory, evidenceArchiveURL: rawURL))
       await reopened.reconcileDrawingEvidence(raw, sourceURL: rawURL)
       #expect(reopened.libraryState == .saved)
@@ -436,10 +440,12 @@ struct PortraitLineageIntegrationTests {
     let photo = PortraitPhoto(id: candidate.photoID, data: candidate.sourceData, label: "Before the first run",
       capturedAt: candidate.createdAt, frameID: nil, captureNanoseconds: nil, pose: .front,
       sourcePixelExtent: candidate.sourcePixelExtent, captureSessionID: candidate.captureSessionID)
-    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let writer = PortraitSketchCollection(store: writerStore)
     writer.retainSourcePhoto(photo)
     await writer.awaitPersistence()
     #expect(writer.persistenceState == .saved)
+    await writerStore.closeLibrary() // Absent-evidence reconciliation publishes SQL state.
     let rawURL = directory.appendingPathComponent("raw/drawings.json")
     let port = DrawingRunEvidencePort(store: .init(fileURL: rawURL))
     let reader = PortraitSketchCollection(store: .init(directoryURL: directory, evidenceArchiveURL: rawURL))

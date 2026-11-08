@@ -1,0 +1,73 @@
+{
+  "adoption": "pending",
+  "artifact": "owner-lifecycle-supplement-2026-11-07.json.gz",
+  "attemptID": "attempt-f6a54b542df74d8b87867c4a64faba12",
+  "compressedBytes": 305257,
+  "functional31": {
+    "activeAfter": [],
+    "caseCount": 32,
+    "errorElements": 0,
+    "exitCode": 0,
+    "failureElements": 0,
+    "skippedElements": 0,
+    "sourceUnchanged": true,
+    "stopCommand": [
+      "ps",
+      "-ax",
+      "-o",
+      "pid=,ppid=,comm="
+    ],
+    "suites": [
+      {
+        "errors": "0",
+        "failures": "0",
+        "name": "TestResults",
+        "skipped": "0",
+        "tests": "32",
+        "time": "11.669616703"
+      }
+    ],
+    "wallSeconds": 25.084564924240112
+  },
+  "gate2EventID": "17d6c0782affd248d77547e8044230fb92817ae4cbab679f1db8dc3da075ea7d",
+  "gate2Status": "failed",
+  "latestConfiguredRetry": "pending",
+  "limits": [
+    "Gate2 FAILED/current on source4d773c8; focused31 green does not substitute for a future configured full gate. No assessment/adoption/landing/cleanup yet.",
+    "Only actual composition owner closes its store after all consumers drain; model shutdown remains borrowed and does not release injected/shared ownership.",
+    "No new performance wave: the sole production delta is composition lifetime ownership. All Library modules, existing frozen probes/drivers/input/image observation files unchanged; earlier accepted15/17/28/29 timing applicability is source-path scoped, not a new final31-image or lifetimeRSS claim.",
+    "Prior078c and38e521 bundles immutable; historical process-scan caveats and external-owner/O(N)/publication-limit/software-only boundaries remain in force.",
+    "Docs are concurrently owned by a separate worker: excluded from source hash inventory and exact three-path patch. Their status at packaging is not source validation."
+  ],
+  "previousEvidence": [
+    {
+      "artifact": "software-evidence-2026-11-07.json.gz",
+      "sha256": "078c12ff01d4f138c4e4289275ffe7929fb9c8a2d1b548e28017bdbf6ea8d865",
+      "unchanged": true
+    },
+    {
+      "artifact": "closure-supplement-2026-11-07.json.gz",
+      "sha256": "38e5210cf5482ea182343ddc732e1ed0f7443adff398875605089808775644b6",
+      "unchanged": true
+    }
+  ],
+  "retainedArtifacts": 25,
+  "reusedPreviousArtifactKeys": 235,
+  "review": {
+    "authenticated": false,
+    "locator": "/root/dx04_reader_review critic30 + /root actual3pathdiff review",
+    "provenance": "caller_declared",
+    "scope": "Bounded source-only owningComposition retain/close-after-all-consumers-shutdown, four genuine attempt-history cold-owner handoffs and meaningful retained-composition lease release+exact export assertions. No compiler/test/performance by critic; root inspected actual31 XML/source/stop receipts separately. BorrowedModel.shutdown unchanged."
+  },
+  "schemaVersion": 1,
+  "sha256": "1c43db306bfbd718b91c75c40884aa17673e91e6d082b40375564023c459e7dc",
+  "sourceDeltaPaths": [
+    "Sources/PortraitStudio/PortraitStudioComposition.swift",
+    "Tests/PlotterAppTests/PortraitAttemptHistoryTests.swift",
+    "Tests/PortraitStudioTests/PortraitStudioCompositionTests.swift"
+  ],
+  "sourcePins": 599,
+  "taskID": "task-4d7d637760c2485f9081fb3b258d5674",
+  "uncompressedBytes": 1093459,
+  "uncompressedSHA256": "0a3beee60315950082658148ab993876c6bdbbc034622cd77c17aef79d0fe974"
+}

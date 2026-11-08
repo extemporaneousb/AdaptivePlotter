@@ -89,13 +89,15 @@ struct PortraitPhotoBrowserTests {
     let candidate = try portraitPersistenceCandidate()
     try await PortraitCandidateStore(directoryURL: directory).save(snapshot: .init(
       entries: [.init(candidate: candidate, reasons: [.init(reason: .shortlisted)])], sourcePhotos: photos))
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     await collection.loadPhotoBrowser()
     #expect(collection.photoReferences.count == 100 && collection.entries.isEmpty)
     let added = PortraitPhoto(id: UUID(), data: Data([9]), label: "New capture",
       capturedAt: Date(), frameID: nil, captureNanoseconds: nil, pose: .front)
     collection.retainSourcePhoto(added)
     await collection.awaitPersistence()
+    await writerStore.closeLibrary()
     let restored = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(restored.canWrite && restored.archive.sourcePhotos?.count == 207)
     #expect(restored.archive.entries.map(\.id) == [candidate.id])
@@ -167,7 +169,8 @@ struct PortraitPhotoBrowserTests {
       captureSessionID: candidate.captureSessionID)
     try await PortraitCandidateStore(directoryURL: directory).save(snapshot: .init(
       entries: [.init(candidate: candidate, reasons: [], attempt: record)], sourcePhotos: [original]))
-    let model = PortraitStudioModel(renderer: ExplorationTestRenderer(), candidateStore: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let model = PortraitStudioModel(renderer: ExplorationTestRenderer(), candidateStore: writerStore)
     let collection = model.sketches
     await model.loadPhotoBrowser()
     let reference = try #require(collection.photoReferences.first)
@@ -177,7 +180,7 @@ struct PortraitPhotoBrowserTests {
     await collection.awaitPersistence()
     let reader = PortraitCandidateStore(directoryURL: directory)
     #expect(throws: (any Error).self) { try reader.loadPhoto(reference) }
-    let deleted = await reader.load()
+    let deleted = await writerStore.load() // Actual mutation owner rereads disk; independent pixel reader remains above/below.
     #expect(deleted.canWrite && deleted.archive.entries.isEmpty && deleted.archive.sourcePhotos?.isEmpty == true)
     #expect(deleted.archive.tombstones.first?.kind == .photo)
     #expect(deleted.archive.tombstones.first?.identity == original.id.uuidString.lowercased())

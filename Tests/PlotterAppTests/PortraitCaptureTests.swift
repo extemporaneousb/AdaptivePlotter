@@ -43,6 +43,8 @@ struct PortraitCaptureTests {
     #expect(model.sketches.sourcePhotos.contains { $0.id == late.id && $0.data == late.data })
     try history.expectPreserved()
     await model.shutdown()
+    // A cold writer restart is a caller-owned handoff after model work has drained.
+    await store.closeLibrary()
     let reopened = await PortraitCandidateStore(directoryURL: history.directory).load()
     #expect(reopened.canWrite)
     #expect(reopened.archive.sourcePhotos?.contains { $0.id == late.id && $0.data == late.data } == true)
@@ -54,11 +56,13 @@ struct PortraitCaptureTests {
   func originalSurvivesCacheAdmissionFailure() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PortraitCandidateStore(directoryURL: directory)
     let model = PortraitStudioModel(renderer: SourceFailureRenderer(), photoAcquirer: BurstPhotoAcquirer(),
-      photoRetention: .init(maximumCount: 0, maximumBytes: 0), candidateStore: .init(directoryURL: directory))
+      photoRetention: .init(maximumCount: 0, maximumBytes: 0), candidateStore: store)
     await model.importPhoto(URL(fileURLWithPath: "/tmp/9"), strokeStyle: try portraitTestStyle())
     #expect(model.recentPhotos.isEmpty && model.program == nil)
     await model.shutdown()
+    await store.closeLibrary()
     let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(reloaded.canWrite && reloaded.archive.entries.isEmpty)
     #expect(reloaded.archive.sourcePhotos?.count == 1)
@@ -71,7 +75,8 @@ struct PortraitCaptureTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let renderer = try PausedBurstRenderer()
-    let model = PortraitStudioModel(renderer: renderer, candidateStore: .init(directoryURL: directory))
+    let store = PortraitCandidateStore(directoryURL: directory)
+    let model = PortraitStudioModel(renderer: renderer, candidateStore: store)
     let pen = try portraitTestStyle()
     model.setPhoto(Data([1]), for: .front, strokeStyle: pen)
     try await renderer.waitUntilEntered()
@@ -80,6 +85,7 @@ struct PortraitCaptureTests {
     await renderer.release()
     await model.awaitRendering()
     await model.shutdown()
+    await store.closeLibrary()
     #expect(model.program == nil && model.selectedPhotoID == nil)
     let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(reloaded.canWrite && reloaded.archive.entries.isEmpty)
@@ -93,8 +99,9 @@ struct PortraitCaptureTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let renderer = try PausedBurstRenderer()
+    let store = PortraitCandidateStore(directoryURL: directory)
     let model = PortraitStudioModel(renderer: renderer, photoAcquirer: BurstPhotoAcquirer(),
-      candidateStore: .init(directoryURL: directory))
+      candidateStore: store)
     let pen = try portraitTestStyle()
     let importing = Task { await model.importPhoto(URL(fileURLWithPath: "/tmp/7"), strokeStyle: pen) }
     try await renderer.waitUntilEntered()
@@ -106,6 +113,7 @@ struct PortraitCaptureTests {
     await cancellation.value
     await importing.value
     await model.shutdown()
+    await store.closeLibrary()
     let restored = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(restored.canWrite)
     #expect(restored.archive.entries.isEmpty)
@@ -118,10 +126,11 @@ struct PortraitCaptureTests {
   func durableSourcesWithoutDrawing() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
+    let store = PortraitCandidateStore(directoryURL: directory)
     let model = PortraitStudioModel(renderer: SourceFailureRenderer(), photoAcquirer: BurstPhotoAcquirer(),
       frameSource: try RepeatingPortraitFrames(), captureClock: AdvancingPortraitClock(),
       photoRetention: .init(maximumCount: 1, maximumBytes: 4),
-      candidateStore: .init(directoryURL: directory))
+      candidateStore: store)
     let pen = try portraitTestStyle()
     await model.capture(strokeStyle: pen)
     let captured = try #require(model.recentPhotos.first)
@@ -131,8 +140,10 @@ struct PortraitCaptureTests {
     #expect(model.recentPhotos.count == 1)
     #expect(model.program == nil && model.completedCandidate == nil)
     await model.shutdown()
+    await store.closeLibrary()
+    let restartedStore = PortraitCandidateStore(directoryURL: directory)
     let restarted = PortraitStudioModel(renderer: SourceFailureRenderer(),
-      candidateStore: .init(directoryURL: directory))
+      candidateStore: restartedStore)
     await restarted.sketches.load()
     await restarted.loadPhotoBrowser()
     #expect(restarted.recentPhotos.isEmpty)
@@ -146,6 +157,7 @@ struct PortraitCaptureTests {
     #expect(restored.selectionProvenance == captured.selectionProvenance)
     restarted.deleteRetainedSource(imported.id, strokeStyle: pen)
     await restarted.shutdown()
+    await restartedStore.closeLibrary()
     let reloaded = await PortraitCandidateStore(directoryURL: directory).load()
     #expect(reloaded.canWrite)
     #expect(reloaded.archive.sourcePhotos?.map(\.id) == [captured.id])

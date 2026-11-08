@@ -160,11 +160,12 @@ private struct AxisMetricApplicationFixture {
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
     let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
     let portraitCheckpoints = PortraitCheckpointStore(directory: stores.directory.appendingPathComponent("styles"))
-    let portrait = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits")))
+    let portraitStore = PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits"))
+    let portrait = PortraitStudioModel(candidateStore: portraitStore)
     if withPortraitCheckpoint {
       let (scope, archive) = try portraitTrainingFixture()
-      let source = PortraitCandidateStore(directoryURL: stores.directory.appendingPathComponent("portraits"))
-      try await source.save(snapshot: archive)
+      // Seed through the same owner borrowed by the model; this is not a second writer.
+      try await portraitStore.save(snapshot: archive)
       await portrait.sketches.load()
       await portrait.loadPhotoBrowser()
       _ = await portraitCheckpoints.load()

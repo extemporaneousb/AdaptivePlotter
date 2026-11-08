@@ -18,13 +18,15 @@ struct SavedDrawingStoreTests {
     let program = try DrawingProgram(id: source.program.id, fieldExtent: source.program.fieldExtent,
       strokes: source.program.strokes, source: .init(kind: "authored", sourceIdentifier: "source-free-fixture"))
     let drawing = SavedDrawing(program: program)
-    let writer = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL:directory)
+    let writer = PortraitSketchCollection(store:writerStore)
     #expect(await writer.saveDrawing(drawing) == nil)
     let firstIndex = try Data(contentsOf: directory.appendingPathComponent("library-v1.sqlite"))
     #expect(await writer.saveDrawing(drawing) == nil)
     #expect(try Data(contentsOf: directory.appendingPathComponent("library-v1.sqlite")) == firstIndex)
     #expect(writer.entries.isEmpty && writer.sketches.count == 1)
     #expect(writer.sketches.first?.sourceImageData == nil)
+    await writerStore.closeLibrary()
     let reader = PortraitSketchCollection(store: .init(directoryURL: directory))
     await reader.loadDrawingBrowser()
     #expect(!reader.historyLoadHasCompleted && reader.archive.entries.isEmpty && reader.archive.savedDrawings == nil)
@@ -90,8 +92,9 @@ struct SavedDrawingStoreTests {
     #expect(throws: (any Error).self) { try reader.loadDrawing(oldest.id) }
     let index = directory.appendingPathComponent("library-v1.sqlite")
     let bytes = try Data(contentsOf: index)
+    await writer.closeLibrary()
     let loaded = await reader.load()
-    #expect(!loaded.canWrite)
+    #expect(!loaded.canWrite && !loaded.issues.contains{$0.contains("Another writer")})
     await #expect(throws: (any Error).self) { try await reader.save(snapshot: loaded.archive) }
     #expect(try Data(contentsOf: index) == bytes)
   }
@@ -148,10 +151,15 @@ struct SavedDrawingStoreTests {
     let model = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
     var performed = false
     let error = await model.acceptProjection(candidate) {
-      let persisted = await PortraitCandidateStore(directoryURL: directory).load()
-      #expect(persisted.archive.savedDrawings?.first?.id == candidate.id)
-      performed = true
-      return nil
+      do {
+        // This independent read-only connection proves durable Save while the
+        // model's actual writer remains alive throughout the handoff callback.
+        let page = try PortraitCandidateStore(directoryURL:directory).loadDrawingPage()
+        let persisted = page.drawings.first{$0.id == candidate.id}
+        #expect(persisted?.id == candidate.id && persisted?.isSaved == true)
+        performed = true
+        return nil
+      } catch { return error.localizedDescription }
     }
     #expect(error == nil && performed && model.projectedDrawing?.id == candidate.id)
     #expect(model.sketches.sketches.map(\.id) == [candidate.id])

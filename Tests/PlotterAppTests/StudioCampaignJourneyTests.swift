@@ -62,7 +62,8 @@ struct StudioCampaignJourneyTests {
     defer { try? FileManager.default.removeItem(at: directory) }
     let candidatesURL = directory.appendingPathComponent("candidates")
     let materialsURL = directory.appendingPathComponent("materials")
-    let firstModel = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
+    let firstStore = PortraitCandidateStore(directoryURL: candidatesURL)
+    let firstModel = PortraitStudioModel(candidateStore: firstStore)
     await firstModel.sketches.load()
     await firstModel.loadPhotoBrowser()
     firstModel.options = .init(cropToFace: false, removeBackground: false)
@@ -73,7 +74,9 @@ struct StudioCampaignJourneyTests {
     await firstModel.sketches.awaitPersistence()
     let beforeReload = firstModel.sketches.archive
     await firstModel.shutdown()
-    let model = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
+    await firstStore.closeLibrary()
+    let store = PortraitCandidateStore(directoryURL: candidatesURL)
+    let model = PortraitStudioModel(candidateStore: store)
     await model.sketches.load()
     await model.loadPhotoBrowser()
     let reloadedBytes = try studioJourneyBytes(model.sketches.archive)
@@ -166,8 +169,10 @@ struct StudioCampaignJourneyTests {
       #expect(model.sketches.labels == labelsBeforeDraw)
       try assertStudioCandidate(model.sketches.entries.first { $0.id == authored.id }?.candidate, equals: authored)
       await app.shutdown()
-
-      let restored = PortraitStudioModel(candidateStore: PortraitCandidateStore(directoryURL: candidatesURL))
+      // The drawing operation and shared model persistence have drained before restart.
+      await store.closeLibrary()
+      let restoredStore = PortraitCandidateStore(directoryURL: candidatesURL)
+      let restored = PortraitStudioModel(candidateStore: restoredStore)
       await restored.sketches.load()
       await restored.loadPhotoBrowser()
       try assertStudioCandidate(restored.sketches.entries.first { $0.id == adapted.id }?.candidate, equals: adapted)
@@ -183,6 +188,7 @@ struct StudioCampaignJourneyTests {
         #expect(ExactFrameProvenance(frame: frame) == reference.frame)
       }
       await restored.shutdown()
+      await restoredStore.closeLibrary()
       // Optional retained test artifact, outside operational application data.
       // It preserves the real fixture stores for the one aggregate review.
       if let destination = ProcessInfo.processInfo.environment["STUDIO_CAMPAIGN_EVIDENCE_DIRECTORY"] {

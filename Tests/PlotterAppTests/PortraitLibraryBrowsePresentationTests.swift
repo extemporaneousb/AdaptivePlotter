@@ -204,7 +204,8 @@ struct PortraitLibraryBrowsePresentationTests {
   func deleteOneCaptureDrawing() async throws {
     let directory = temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(candidateStore: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let studio = PortraitStudioModel(candidateStore: writerStore)
     let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
     defer { fixture.stores.remove() }
     let app = fixture.application
@@ -246,8 +247,8 @@ struct PortraitLibraryBrowsePresentationTests {
       studio.sketches.deleteDrawing(firstIdentity)
       await studio.sketches.awaitPersistence()
       #expect(try Data(contentsOf: fixture.stores.evidencePort.archiveURL) == before)
-      let fresh = PortraitStudioModel(candidateStore: .init(directoryURL: directory,
-        evidenceArchiveURL: fixture.stores.evidencePort.archiveURL))
+      // Active authoring adapters share one actual actor owner.
+      let fresh = PortraitStudioModel(candidateStore: writerStore)
       await fresh.sketches.load()
       #expect(fresh.sketches.entries.contains { $0.candidate.photoID == second.photoID })
       let roots = try await fresh.sketches.librarySnapshot()
@@ -269,6 +270,10 @@ struct PortraitLibraryBrowsePresentationTests {
       #expect(try await studio.sketches.librarySelection(photoID: first.photoID).drawings.isEmpty)
       await fresh.shutdown()
       await app.shutdown()
+      await writerStore.closeLibrary()
+      let restarted = PortraitCandidateStore(directoryURL: directory, evidenceArchiveURL: fixture.stores.evidencePort.archiveURL)
+      #expect(try await restarted.librarySelection(photoID: second.photoID).drawings.map(\.identity) == [secondIdentity])
+      #expect(try await restarted.loadDrawing(secondIdentity).program == survivor.program)
     } catch { await app.shutdown(); throw error }
   }
 

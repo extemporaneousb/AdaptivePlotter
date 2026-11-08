@@ -1,0 +1,310 @@
+{
+  "acceptedNormalRows": [
+    {
+      "RSSp50ratio": 1.0080770511824138,
+      "RSSp95ratio": 1.0080770511824138,
+      "applicability": "Measured source15/read image6fb994be; final source17 change limited to DB.transaction/execute active-scope path, not entered by these committed read bodies; source-level applicability reviewed, not a final17-image timing",
+      "cache": "warm",
+      "maximumLifetimeRSSBytes": {
+        "after": 297525248,
+        "before": 295141376
+      },
+      "maximumLifetimeRSSRatio": 1.0080770511824138,
+      "operation": "photo-first-page",
+      "p50ratio": 1.001387043138946,
+      "p95ratio": 1.0898498674441703,
+      "variants": [
+        {
+          "RSSp50Bytes": 295141376,
+          "RSSp95Bytes": 295141376,
+          "n": 30,
+          "p50ms": 50.9314201772213,
+          "p95ms": 52.917241118848324,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 297525248,
+          "RSSp95Bytes": 297525248,
+          "n": 30,
+          "p50ms": 51.00206425413489,
+          "p95ms": 57.671848218888044,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.0094629727991948,
+      "RSSp95ratio": 1.0086051353226926,
+      "applicability": "Measured source15/read image6fb994be; final source17 change limited to DB.transaction/execute active-scope path, not entered by these committed read bodies; source-level applicability reviewed, not a final17-image timing",
+      "cache": "fresh",
+      "maximumLifetimeRSSBytes": {
+        "after": 298385408,
+        "before": 295673856
+      },
+      "maximumLifetimeRSSRatio": 1.009170753331671,
+      "operation": "photo-first-page",
+      "p50ratio": 0.99318284244335,
+      "p95ratio": 1.0110713287928577,
+      "variants": [
+        {
+          "RSSp50Bytes": 293036032,
+          "RSSp95Bytes": 295116800,
+          "n": 20,
+          "p50ms": 68.38997034355998,
+          "p95ms": 79.48477193713188,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 295809024,
+          "RSSp95Bytes": 297656320,
+          "n": 20,
+          "p50ms": 67.92374514043331,
+          "p95ms": 80.36477398127317,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.0111018868986479,
+      "RSSp95ratio": 1.0111018868986479,
+      "applicability": "Measured source15/read image6fb994be; final source17 change limited to DB.transaction/execute active-scope path, not entered by these committed read bodies; source-level applicability reviewed, not a final17-image timing",
+      "cache": "warm",
+      "maximumLifetimeRSSBytes": {
+        "after": 294330368,
+        "before": 291098624
+      },
+      "maximumLifetimeRSSRatio": 1.0111018868986479,
+      "operation": "photo-filtered-drawing-page",
+      "p50ratio": 0.9265720787306293,
+      "p95ratio": 0.9370438674418343,
+      "variants": [
+        {
+          "RSSp50Bytes": 291098624,
+          "RSSp95Bytes": 291098624,
+          "n": 30,
+          "p50ms": 1.65857607498765,
+          "p95ms": 1.7392141744494438,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 294330368,
+          "RSSp95Bytes": 294330368,
+          "n": 30,
+          "p50ms": 1.536790281534195,
+          "p95ms": 1.629719976335764,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.0085850155007223,
+      "RSSp95ratio": 1.008823857924718,
+      "applicability": "Measured source15/read image6fb994be; final source17 change limited to DB.transaction/execute active-scope path, not entered by these committed read bodies; source-level applicability reviewed, not a final17-image timing",
+      "cache": "fresh",
+      "maximumLifetimeRSSBytes": {
+        "after": 296685568,
+        "before": 293842944
+      },
+      "maximumLifetimeRSSRatio": 1.009673956982952,
+      "operation": "photo-filtered-drawing-page",
+      "p50ratio": 0.9867714419207777,
+      "p95ratio": 0.736220051141342,
+      "variants": [
+        {
+          "RSSp50Bytes": 291991552,
+          "RSSp95Bytes": 293371904,
+          "n": 20,
+          "p50ms": 6.2111131846904755,
+          "p95ms": 8.54211999103427,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 294498304,
+          "RSSp95Bytes": 295960576,
+          "n": 20,
+          "p50ms": 6.128949113190174,
+          "p95ms": 6.28888001665473,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.0090580972421577,
+      "RSSp95ratio": 1.0090580972421577,
+      "applicability": "Measured source15/read image6fb994be; final source17 change limited to DB.transaction/execute active-scope path, not entered by these committed read bodies; source-level applicability reviewed, not a final17-image timing",
+      "cache": "warm",
+      "maximumLifetimeRSSBytes": {
+        "after": 296587264,
+        "before": 293924864
+      },
+      "maximumLifetimeRSSRatio": 1.0090580972421577,
+      "operation": "gallery-first-page",
+      "p50ratio": 0.8756638281070386,
+      "p95ratio": 0.8916539687995932,
+      "variants": [
+        {
+          "RSSp50Bytes": 293924864,
+          "RSSp95Bytes": 293924864,
+          "n": 30,
+          "p50ms": 3.9637931622564793,
+          "p95ms": 3.990874160081148,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 296587264,
+          "RSSp95Bytes": 296587264,
+          "n": 30,
+          "p50ms": 3.4709502942860126,
+          "p95ms": 3.558478783816099,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.0117726296883551,
+      "RSSp95ratio": 1.0111688166638744,
+      "applicability": "Measured source15/read image6fb994be; final source17 change limited to DB.transaction/execute active-scope path, not entered by these committed read bodies; source-level applicability reviewed, not a final17-image timing",
+      "cache": "fresh",
+      "maximumLifetimeRSSBytes": {
+        "after": 297353216,
+        "before": 293969920
+      },
+      "maximumLifetimeRSSRatio": 1.0115089870419396,
+      "operation": "gallery-first-page",
+      "p50ratio": 1.0613910135698224,
+      "p95ratio": 0.7516539204922419,
+      "variants": [
+        {
+          "RSSp50Bytes": 291909632,
+          "RSSp95Bytes": 293388288,
+          "n": 20,
+          "p50ms": 11.9274677708745,
+          "p95ms": 18.311095889657736,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 295346176,
+          "RSSp95Bytes": 296665088,
+          "n": 20,
+          "p50ms": 12.659707106649876,
+          "p95ms": 13.763607013970613,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.0175105655603112,
+      "RSSp95ratio": 1.0175105655603112,
+      "applicability": "Measured actual final source17/writer imagebe984109; transaction scope active on this path",
+      "cache": "warm",
+      "maximumLifetimeRSSBytes": {
+        "after": 309653504,
+        "before": 304324608
+      },
+      "maximumLifetimeRSSRatio": 1.0175105655603112,
+      "operation": "retention-metadata-save",
+      "p50ratio": 1.0161311246316924,
+      "p95ratio": 0.9322650644247721,
+      "variants": [
+        {
+          "RSSp50Bytes": 304324608,
+          "RSSp95Bytes": 304324608,
+          "n": 30,
+          "p50ms": 11.321419849991798,
+          "p95ms": 17.207374796271324,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 309653504,
+          "RSSp95Bytes": 309653504,
+          "n": 30,
+          "p50ms": 11.504047084599733,
+          "p95ms": 16.041834373027086,
+          "variant": "after"
+        }
+      ]
+    },
+    {
+      "RSSp50ratio": 1.012847906318506,
+      "RSSp95ratio": 1.010126652134323,
+      "applicability": "Measured actual final source17/writer imagebe984109; transaction scope active on this path",
+      "cache": "fresh",
+      "maximumLifetimeRSSBytes": {
+        "after": 300130304,
+        "before": 296976384
+      },
+      "maximumLifetimeRSSRatio": 1.0106201037184155,
+      "operation": "retention-metadata-save",
+      "p50ratio": 1.0269165461218048,
+      "p95ratio": 0.9832563567217091,
+      "variants": [
+        {
+          "RSSp50Bytes": 295215104,
+          "RSSp95Bytes": 296886272,
+          "n": 20,
+          "p50ms": 63.5819248855114,
+          "p95ms": 70.40276192128658,
+          "variant": "before"
+        },
+        {
+          "RSSp50Bytes": 299008000,
+          "RSSp95Bytes": 299892736,
+          "n": 20,
+          "p50ms": 65.2933306992054,
+          "p95ms": 69.22396318987012,
+          "variant": "after"
+        }
+      ]
+    }
+  ],
+  "adoption": "pending",
+  "artifact": "software-evidence-2026-11-07.json.gz",
+  "attemptID": "attempt-f6a54b542df74d8b87867c4a64faba12",
+  "baseCommit": "56180604569843fbc16ff450ef66142b15a5ebb0",
+  "compressedBytes": 1906204,
+  "compression": "gzip9/mtime0; compact sorted UTF8 JSON",
+  "configuredGate": {
+    "status": "not_invoked"
+  },
+  "counts": {
+    "acceptedNormalRows": 8,
+    "acceptedReadMeasuredOps": 300,
+    "acceptedWarmupsExcluded": 8,
+    "acceptedWriterMeasuredOps": 100,
+    "latestBoundaryProofs": 80,
+    "latestLegacyExecutedPassed": 44,
+    "latestLegacySkipped": 3,
+    "latestNarrowExecutedPassed": 69,
+    "latestNarrowSkipped": 1,
+    "retainedArtifacts": 2577
+  },
+  "failureHistoryIDs": [
+    "narrow1",
+    "smoke2",
+    "narrow4",
+    "narrow5",
+    "legacy7",
+    "build9",
+    "normal10",
+    "normal11",
+    "narrow12",
+    "counterfactual13_diagnostic14",
+    "normal15",
+    "transaction16"
+  ],
+  "limits": [
+    "No physical/nativeapp/production-archive/remoteGit/controller/camera evidence.",
+    "No final configured gate, criterion assessments, Git commit/adoption/cleanup at packaging time.",
+    "No broad DX01 giant baseline/Flow rerender rerun; no10k fully admitted artwork latency claim from synthetic metadata rows.",
+    "Ordinary metadata instrumented zero media/record categories do not prove all IO/decodes/hashes zero.",
+    "No authenticated delegation/reviewer provenance or zero-intervention/time/cost claim."
+  ],
+  "reviewProvenance": "caller_declared; not authenticated",
+  "schemaVersion": 1,
+  "scope": "DX04 single catalog storage/writer lease/exact immutable publication/recoverable journal and selected metadata generations; software-only foundation. Legacy callers retained for DX05; public import/export/mount DX06 and retention caller policy DX07 unchanged.",
+  "sha256": "078c12ff01d4f138c4e4289275ffe7929fb9c8a2d1b548e28017bdbf6ea8d865",
+  "targetBranch": "main",
+  "taskID": "task-4d7d637760c2485f9081fb3b258d5674",
+  "uncompressedBytes": 13243813,
+  "uncompressedSHA256": "7211c81a2820ef68ebafb36e30c54b1e51fc3cd8a4f578ee97331897b8a76139"
+}

@@ -119,7 +119,8 @@ struct PortraitPreferenceCollectionTests {
     for deleteSource in [false, true] {
       let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-deletion-\(UUID().uuidString)")
       defer { try? FileManager.default.removeItem(at: directory) }
-      let archive = PortraitSketchCollection(store: .init(directoryURL: directory))
+      let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let archive = PortraitSketchCollection(store: writerStore)
       let preferences = LegacyPortraitPreferenceExportFixture(collection: archive)
       let candidate = try portraitPersistenceCandidate()
       _ = archive.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: try .init())
@@ -171,7 +172,8 @@ struct PortraitPreferenceCollectionTests {
       let newExample = try #require(preferences.examples.first)
       #expect(newExample.id != deletedLabel.id && newExample.candidate.createdAt == fresh.createdAt)
       #expect(archive.archive.withdrawnLabelIDs.contains(deletedLabel.id.uuidString))
-      let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
+      await writerStore.closeLibrary()
+    let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
       await restored.load()
       #expect(LegacyPortraitPreferenceExportFixture(collection: restored).examples.count == 1)
       #expect(restored.labels.count == 2)
@@ -182,7 +184,8 @@ struct PortraitPreferenceCollectionTests {
   func captureScopedLabels(deletePhoto: Bool) async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-label-occurrences-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     let first = try portraitPersistenceCandidate(seed: 984)
     let second = try PortraitCandidate(sourceData: first.sourceData, sourcePixelExtent: first.sourcePixelExtent,
       raster: first.raster, recipe: first.recipe, program: first.program, photoID: UUID(),
@@ -212,7 +215,9 @@ struct PortraitPreferenceCollectionTests {
     #expect(collection.archive.withdrawnLabelIDs.contains(firstLabel.id.uuidString))
     #expect(collection.archive.withdrawnLabelIDs.contains(firstRevision.id.uuidString))
     #expect(!collection.archive.withdrawnLabelIDs.contains(secondLabel.id.uuidString))
-    let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
+    await writerStore.closeLibrary()
+    let restoredStore = PortraitCandidateStore(directoryURL: directory)
+    let restored = PortraitSketchCollection(store: restoredStore)
     await restored.load()
     #expect(restored.persistenceState == .saved && restored.labels.count == 3)
     for original in [firstLabel, secondLabel, firstRevision] {
@@ -227,6 +232,7 @@ struct PortraitPreferenceCollectionTests {
     let next = try #require(restored.labels.last)
     #expect(next.previousRevisionID == secondLabel.id)
     await restored.awaitPersistence()
+    await restoredStore.closeLibrary()
     let reopened = PortraitSketchCollection(store: .init(directoryURL: directory))
     await reopened.load()
     #expect(Set(LegacyPortraitPreferenceExportFixture(collection: reopened).examples.map(\.id)) == Set([secondLabel.id, next.id]))
@@ -236,7 +242,8 @@ struct PortraitPreferenceCollectionTests {
   func batchedOccurrenceMetadata() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-occurrence-metadata-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     let first = try portraitPersistenceCandidate(seed: 985)
     let second = try PortraitCandidate(sourceData: first.sourceData, sourcePixelExtent: first.sourcePixelExtent,
       raster: first.raster, recipe: first.recipe, program: first.program, photoID: UUID(),
@@ -252,6 +259,7 @@ struct PortraitPreferenceCollectionTests {
     #expect(collection.retain(candidate: first, reason: .shortlisted) == nil)
     await collection.awaitPersistence()
     #expect(collection.persistenceState == .saved && collection.unresolvedMutations == 0)
+    await writerStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     let canonical = try #require(restored.entries.first)
@@ -273,7 +281,8 @@ struct PortraitPreferenceCollectionTests {
   func committedFeedbackKeepsCapture() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-feedback-capture-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     let first = try portraitPersistenceCandidate(seed: 987)
     let second = try PortraitCandidate(sourceData: first.sourceData, sourcePixelExtent: first.sourcePixelExtent,
       raster: first.raster, recipe: first.recipe, program: first.program, photoID: UUID(),
@@ -296,6 +305,7 @@ struct PortraitPreferenceCollectionTests {
     // owner loads canonical history, then reads only that occurrence's metadata.
     await restored.loadDrawingBrowser(photoID: second.photoID)
     #expect(restored.entries.isEmpty && !restored.historyLoadHasCompleted)
+    await writerStore.closeLibrary()
     restored.setFeedback(.rejected, for: second.id)
     await restored.awaitPersistence()
     #expect(restored.persistenceState == .saved)
@@ -308,7 +318,8 @@ struct PortraitPreferenceCollectionTests {
   func batchedWithdrawnPredecessor() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-withdrawn-ancestry-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     let candidate = try portraitPersistenceCandidate(seed: 988)
     #expect(collection.rate(candidate: candidate, rating: 4, scope: .screenSketch, presentation: try .init()) == nil)
     let predecessor = try #require(collection.labels.last)
@@ -318,6 +329,7 @@ struct PortraitPreferenceCollectionTests {
     collection.withdrawLabel(predecessor.id)
     await collection.awaitPersistence()
     #expect(collection.persistenceState == .saved && collection.unresolvedMutations == 0)
+    await writerStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     #expect(restored.persistenceState == .saved && restored.labels.count == 2)
@@ -332,7 +344,8 @@ struct PortraitPreferenceCollectionTests {
   func newDeletionKeepsSavedSibling(clear: Bool) async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("portrait-deletion-sibling-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: directory) }
-    let collection = PortraitSketchCollection(store: .init(directoryURL: directory))
+    let writerStore = PortraitCandidateStore(directoryURL: directory)
+    let collection = PortraitSketchCollection(store: writerStore)
     let first = try portraitPersistenceCandidate(seed: 989)
     #expect(collection.rate(candidate: first, rating: 4, scope: .screenSketch, presentation: try .init()) == nil)
     let keptLabel = try #require(collection.labels.first)
@@ -349,6 +362,7 @@ struct PortraitPreferenceCollectionTests {
     #expect(collection.persistenceState == .saved)
     #expect(collection.tombstones.last?.kind == .drawing)
     #expect(collection.tombstones.last?.affectedCandidateIDs.isEmpty == true)
+    await writerStore.closeLibrary()
     let restored = PortraitSketchCollection(store: .init(directoryURL: directory))
     await restored.load()
     let firstProjection = try await restored.librarySelection(photoID: first.photoID)

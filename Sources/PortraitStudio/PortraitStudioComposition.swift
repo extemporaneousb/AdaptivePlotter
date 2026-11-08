@@ -24,6 +24,7 @@ final class PortraitStudioComposition {
   private(set) var isBusy = false
   private(set) var isClosing = false
   private var startedDeviceID: CameraDeviceID?
+  @ObservationIgnored private let store: PortraitCandidateStore
   @ObservationIgnored private let files = PortraitStudioFiles()
   @ObservationIgnored private var startup: Task<Void, Never>?
   @ObservationIgnored private var action: Task<Void, Never>?
@@ -38,6 +39,7 @@ final class PortraitStudioComposition {
     camera: CameraCapture = CameraCapture(materializationPolicy:
       LiveFrameMaterializationPolicy(minimumPreviewIntervalNanoseconds: 33_333_333))) {
     let store = PortraitCandidateStore(directoryURL: directoryURL)
+    self.store = store
     let model = PortraitStudioModel(camera: camera, candidateStore: store)
     self.model = model
     browser = PortraitStudioLibraryModel(sketches: model.sketches)
@@ -161,5 +163,6 @@ final class PortraitStudioComposition {
     await review.shutdown()
     await artist.shutdown()
     await model.shutdown()
+    await store.closeLibrary()
   }
 }

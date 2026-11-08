@@ -101,67 +101,77 @@ extension PortraitCandidateStore {
     durableCandidateFiles[identity.id] = try Dictionary(uniqueKeysWithValues:files.map{($0,try VerifiedFileState($0))})
   }
 
-  private func checkedCandidate(_ identity:PortraitDrawingIdentity,recordHash:String) throws -> StoredCandidate {
-    let db = try libraryDatabase()
+  private func checkedCandidate(_ identity:PortraitDrawingIdentity,recordHash:String, database provided: PortraitLibraryDatabase? = nil) throws -> StoredCandidate {
+    let db = try provided ?? libraryDatabase()
     _ = try db.checkedDrawing(identity.id)
     guard let row = try db.rows("SELECT candidate_id,photo_id,source_hash,program_hash,raster_hash,recipe_hash,candidate_record FROM drawing WHERE id=? AND deleted=0",[identity.id]).first else { throw PortraitLibraryError.missingDrawing }
-    let stored = try JSONDecoder().decode(StoredCandidate.self,from:readRecords(recordHash))
+    let bytes: Data
+    if let provided { bytes = try readRecords(recordHash, selectedRoot: provided.url.deletingLastPathComponent()) }
+    else { bytes = try readRecords(recordHash) }
+    let stored = try JSONDecoder().decode(StoredCandidate.self,from:bytes)
     guard stored.id == row[0],stored.photoID.uuidString.lowercased() == row[1],stored.sourceSHA256 == row[2],
       stored.program.contentHash.description == row[3],stored.rasterSHA256 == row[4],stored.recipeSHA256 == row[5],recordHash == row[6] else { throw PortraitLibraryError.database("candidate payload conflicts with normalized identity") }
     return stored
   }
 
   package func loadDrawing(_ identity: PortraitDrawingIdentity) throws -> SavedDrawing {
-    try ensureLibraryGraph()
-    let db = try libraryDatabase();try assertCurrentInputs(db)
-    guard let hash = try db.scalar("SELECT candidate_record FROM drawing WHERE id=? AND deleted=0",[identity.id]) else { throw PortraitLibraryError.missingDrawing }
-    let stored = try checkedCandidate(identity,recordHash:hash)
-    guard stored.id == identity.candidateID,stored.photoID == identity.photoID else { throw PortraitLibraryError.missingDrawing }
-    return SavedDrawing(candidate:try stored.materialize(source:readAsset(stored.sourceSHA256),raster:readAsset(stored.rasterSHA256)))
+    let db = try libraryReadDatabase()
+    return try readLibrarySnapshot(db, checkEvidence: true) {
+      let selectedRoot = db.url.deletingLastPathComponent()
+      guard let hash = try db.scalar("SELECT candidate_record FROM drawing WHERE id=? AND deleted=0",[identity.id]) else { throw PortraitLibraryError.missingDrawing }
+      let stored = try checkedCandidate(identity,recordHash:hash,database:db)
+      guard stored.id == identity.candidateID,stored.photoID == identity.photoID else { throw PortraitLibraryError.missingDrawing }
+      return SavedDrawing(candidate:try stored.materialize(source:readAsset(stored.sourceSHA256, selectedRoot: selectedRoot),raster:readAsset(stored.rasterSHA256, selectedRoot: selectedRoot)))
+    }
   }
 
   package func loadRetainedOccurrence(_ identity: PortraitDrawingIdentity) throws -> PortraitRetainedCandidate {
-    try ensureLibraryGraph()
-    let db = try libraryDatabase();try assertCurrentInputs(db,checkEvidence:false)
-    guard let row = try db.rows("SELECT candidate_record,metadata_record FROM drawing WHERE id=? AND deleted=0",[identity.id]).first,
-      let candidateHash = row[0],let metadataHash = row[1] else { throw PortraitLibraryError.missingDrawing }
-    let stored = try checkedCandidate(identity,recordHash:candidateHash)
-    let candidate = try stored.materialize(source:readAsset(stored.sourceSHA256),raster:readAsset(stored.rasterSHA256))
-    let metadata = try JSONDecoder().decode(EntryMetadata.self,from:readRecords(metadataHash))
-    guard metadata.candidateID == identity.candidateID else { throw PortraitLibraryError.database("selected occurrence metadata conflicts with normalized identity") }
-    return .init(candidate:candidate,reasons:metadata.reasons,exploration:metadata.exploration,attempt:metadata.attempt)
+    let db = try libraryReadDatabase()
+    return try readLibrarySnapshot(db, checkEvidence: false) {
+      let selectedRoot = db.url.deletingLastPathComponent()
+      guard let row = try db.rows("SELECT candidate_record,metadata_record FROM drawing WHERE id=? AND deleted=0",[identity.id]).first,
+        let candidateHash = row[0],let metadataHash = row[1] else { throw PortraitLibraryError.missingDrawing }
+      let stored = try checkedCandidate(identity,recordHash:candidateHash,database:db)
+      let candidate = try stored.materialize(source:readAsset(stored.sourceSHA256, selectedRoot: selectedRoot),raster:readAsset(stored.rasterSHA256, selectedRoot: selectedRoot))
+      let metadata = try JSONDecoder().decode(EntryMetadata.self,from:readRecords(metadataHash, selectedRoot: selectedRoot))
+      guard metadata.candidateID == identity.candidateID else { throw PortraitLibraryError.database("selected occurrence metadata conflicts with normalized identity") }
+      return .init(candidate:candidate,reasons:metadata.reasons,exploration:metadata.exploration,attempt:metadata.attempt)
+    }
   }
 
   package func librarySnapshot(filter: PortraitLibraryFilter = .allPhotos, after cursor: PortraitLibraryCursor? = nil,
     limit requested: Int = 100) throws -> PortraitLibrarySnapshot {
-    try ensureLibraryGraph()
-    let db = try libraryDatabase();try assertCurrentInputs(db)
-    let generation = try db.generation
-    if let cursor, cursor.generation != generation || cursor.filter != filter { throw PortraitLibraryError.staleGeneration }
-    let offset = cursor?.offset ?? 0,limit = min(100,max(1,requested))
-    let photos: [PortraitLibraryPhoto],works: [PortraitLibraryWork],total: Int
-    if filter == .plottedWorks {
-      let whereSQL = "FROM work w JOIN drawing d ON d.id=w.drawing_id JOIN photo p ON p.id=d.photo_id WHERE w.executed=1 AND w.deleted=0 AND d.deleted=0 AND p.deleted=0"
-      works = try db.rows("SELECT w.id " + whereSQL + " ORDER BY w.id LIMIT ? OFFSET ?",[String(limit),String(offset)]).map { try db.workProjection($0[0]!) }
-      photos = [];total = Int(try db.scalar("SELECT COUNT(*) " + whereSQL) ?? "0") ?? 0
-    } else {
-      let existence = "EXISTS(SELECT 1 FROM drawing d JOIN work w ON w.drawing_id=d.id WHERE d.photo_id=p.id AND d.deleted=0 AND w.deleted=0 AND w.executed=1)"
-      let predicate = filter == .photosWithPlottedWorks ? " AND " + existence : filter == .photosWithoutPlottedWorks ? " AND NOT " + existence : ""
-      let whereSQL = "FROM photo p WHERE p.deleted=0" + predicate
-      photos = try db.rows("SELECT p.id,(SELECT COUNT(*) FROM drawing d WHERE d.photo_id=p.id AND d.deleted=0),(SELECT COUNT(*) FROM drawing d JOIN work w ON w.drawing_id=d.id WHERE d.photo_id=p.id AND d.deleted=0 AND w.deleted=0 AND w.executed=1) " + whereSQL + " ORDER BY p.captured_at DESC,p.id LIMIT ? OFFSET ?",[String(limit),String(offset)]).map { row in
-        .init(reference:try db.checkedPhoto(row[0]!),drawingCount:Int(row[1]!)!,plottedWorkCount:Int(row[2]!)!)
+    let db = try libraryReadDatabase()
+    return try readLibrarySnapshot(db, checkEvidence: true) {
+      let generation = try db.generation
+      if let cursor, cursor.generation != generation || cursor.filter != filter { throw PortraitLibraryError.staleGeneration }
+      let offset = cursor?.offset ?? 0,limit = min(100,max(1,requested))
+      let photos: [PortraitLibraryPhoto],works: [PortraitLibraryWork],total: Int
+      if filter == .plottedWorks {
+        let whereSQL = "FROM work w JOIN drawing d ON d.id=w.drawing_id JOIN photo p ON p.id=d.photo_id WHERE w.executed=1 AND w.deleted=0 AND d.deleted=0 AND p.deleted=0"
+        works = try db.rows("SELECT w.id " + whereSQL + " ORDER BY w.id LIMIT ? OFFSET ?",[String(limit),String(offset)]).map { try db.workProjection($0[0]!) }
+        photos = [];total = Int(try db.scalar("SELECT COUNT(*) " + whereSQL) ?? "0") ?? 0
+      } else {
+        let existence = "EXISTS(SELECT 1 FROM drawing d JOIN work w ON w.drawing_id=d.id WHERE d.photo_id=p.id AND d.deleted=0 AND w.deleted=0 AND w.executed=1)"
+        let predicate = filter == .photosWithPlottedWorks ? " AND " + existence : filter == .photosWithoutPlottedWorks ? " AND NOT " + existence : ""
+        let whereSQL = "FROM photo p WHERE p.deleted=0" + predicate
+        photos = try db.rows("SELECT p.id,(SELECT COUNT(*) FROM drawing d WHERE d.photo_id=p.id AND d.deleted=0),(SELECT COUNT(*) FROM drawing d JOIN work w ON w.drawing_id=d.id WHERE d.photo_id=p.id AND d.deleted=0 AND w.deleted=0 AND w.executed=1) " + whereSQL + " ORDER BY p.captured_at DESC,p.id LIMIT ? OFFSET ?",[String(limit),String(offset)]).map { row in
+          .init(reference:try db.checkedPhoto(row[0]!),drawingCount:Int(row[1]!)!,plottedWorkCount:Int(row[2]!)!)
+        }
+        works = [];total = Int(try db.scalar("SELECT COUNT(*) " + whereSQL) ?? "0") ?? 0
       }
-      works = [];total = Int(try db.scalar("SELECT COUNT(*) " + whereSQL) ?? "0") ?? 0
+      guard try db.generation == generation else { throw PortraitLibraryError.staleGeneration }
+      return .init(generation:generation,photos:photos,drawings:[],works:works,
+        next:offset + limit < total ? .init(generation:generation,filter:filter,offset:offset+limit) : nil)
     }
-    try assertCurrentInputs(db)
-    guard try db.generation == generation else { throw PortraitLibraryError.staleGeneration }
-    return .init(generation:generation,photos:photos,drawings:[],works:works,
-      next:offset + limit < total ? .init(generation:generation,filter:filter,offset:offset+limit) : nil)
   }
 
   package func librarySelection(photoID: UUID, drawingIdentity: PortraitDrawingIdentity? = nil) throws -> PortraitLibrarySelection {
-    try ensureLibraryGraph()
-    let db = try libraryDatabase();try assertCurrentInputs(db)
+    let db = try libraryReadDatabase()
+    return try readLibrarySnapshot(db) { try queryLibrarySelection(db, photoID: photoID, drawingIdentity: drawingIdentity) }
+  }
+  private func queryLibrarySelection(_ db: PortraitLibraryDatabase, photoID: UUID,
+    drawingIdentity: PortraitDrawingIdentity? = nil) throws -> PortraitLibrarySelection {
     let generation = try db.generation
     guard let row = try db.rows("SELECT id,(SELECT COUNT(*) FROM drawing d WHERE d.photo_id=p.id AND d.deleted=0),(SELECT COUNT(*) FROM drawing d JOIN work w ON w.drawing_id=d.id WHERE d.photo_id=p.id AND d.deleted=0 AND w.deleted=0 AND w.executed=1) FROM photo p WHERE id=? AND deleted=0",[photoID.uuidString.lowercased()]).first else { throw PortraitLibraryError.missingPhoto }
     let photo = PortraitLibraryPhoto(reference:try db.checkedPhoto(row[0]!),drawingCount:Int(row[1]!)!,plottedWorkCount:Int(row[2]!)!)
@@ -179,14 +189,13 @@ extension PortraitCandidateStore {
       guard identity.photoID == photoID, let selectedRow = try db.rows("SELECT summary,candidate_record,historical_record FROM drawing WHERE id=? AND deleted=0",[identity.id]).first else { throw PortraitLibraryError.missingDrawing }
       let historical = try selectedRow[2].map { try JSONDecoder().decode(PortraitHistoricalDrawing.self,from:readRecords($0)) }
       selected = try db.checkedDrawing(identity.id)
-      if let hash = selectedRow[1] { program = try checkedCandidate(identity,recordHash:hash).program }
+      if let hash = selectedRow[1] { program = try checkedCandidate(identity,recordHash:hash,database:db).program }
       else {
         guard let historical,historical.identity == identity,historical.sourceSHA256 == photo.reference.sourceSHA256,
           historical.program.contentHash.description == selected?.summary.programContentHash else { throw PortraitLibraryError.database("historical payload conflicts with normalized ancestry") }
         program = historical.program
       }
     }
-    try assertCurrentInputs(db)
     guard try db.generation == generation else { throw PortraitLibraryError.staleGeneration }
     return .init(generation:generation,photo:photo,drawings:drawings,works:works,selectedDrawing:selected,program:program,selectedWorkID:selectedWork)
   }
@@ -194,12 +203,13 @@ extension PortraitCandidateStore {
     try librarySelection(photoID:drawingIdentity.photoID,drawingIdentity:drawingIdentity)
   }
   package func librarySelection(workID: String) throws -> PortraitLibrarySelection {
-    try ensureLibraryGraph()
-    let db = try libraryDatabase();try assertCurrentInputs(db)
-    guard let row = try db.rows("SELECT d.candidate_id,d.photo_id FROM work w JOIN drawing d ON d.id=w.drawing_id WHERE w.id=? AND w.deleted=0 AND d.deleted=0",[workID]).first,let photo = UUID(uuidString:row[1]!) else { throw PortraitLibraryError.missingDrawing }
-    var selection = try librarySelection(drawingIdentity:.init(candidateID:row[0]!,photoID:photo))
-    selection.selectedWorkID = workID
-    return selection
+    let db = try libraryReadDatabase()
+    return try readLibrarySnapshot(db) {
+      guard let row = try db.rows("SELECT d.candidate_id,d.photo_id FROM work w JOIN drawing d ON d.id=w.drawing_id WHERE w.id=? AND w.deleted=0 AND d.deleted=0",[workID]).first,let photo = UUID(uuidString:row[1]!) else { throw PortraitLibraryError.missingDrawing }
+      var selection = try queryLibrarySelection(db, photoID:photo, drawingIdentity:.init(candidateID:row[0]!,photoID:photo))
+      selection.selectedWorkID = workID
+      return selection
+    }
   }
 
   package func bindRunOccurrence(intent: DrawingRunIntent, candidate: PortraitCandidate,

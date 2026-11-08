@@ -130,6 +130,7 @@ struct PortraitReviewStoreTests {
     }
     let skipped = try await store.appendReviewLabel(comparisonID: comparison.id,
       choices: [.overall: .skip], reviewerID: "fixture-reviewer", expectedRevisionID: first.id)
+    await store.closeLibrary()
     let reopened = PortraitCandidateStore(directoryURL: root.appendingPathComponent("library"))
     #expect(try await reopened.loadReviewComparison(id: comparison.id) == comparison)
     #expect(try await reopened.reviewLabelHead(comparisonID: comparison.id) == skipped)
@@ -162,6 +163,7 @@ struct PortraitReviewStoreTests {
       #expect(outcome.origin == nil && outcome.packageSHA256 == nil)
       #expect(outcome.runtimeEnvironmentJSON != request.environmentJSON)
     }
+    await store.closeLibrary()
     let reopened = PortraitCandidateStore(directoryURL: root.appendingPathComponent("library"))
     let page = try await reopened.reviewGenerationPage(limit: 8)
     #expect(page.count == 5 && page.filter { $0.status == nil }.count == 1)
@@ -243,7 +245,7 @@ struct PortraitReviewStoreTests {
     #expect(manifest.results.first?.split == .train)
   }
 
-  @Test("Review writes preserve same-actor native saves and an external selector change remains a blocker")
+  @Test("Review writes preserve same-actor native saves and an out-of-band selector change remains a blocker")
   func nativeSaveOwnership() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -264,16 +266,17 @@ struct PortraitReviewStoreTests {
       groups: .init(subjectID: "native-person", photoSessionID: "native-session", declaration: "fixture operator"))
     archive.entries.append(.init(candidate: third, reasons: []))
     try await store.save(snapshot: archive)
-    let reopened = PortraitCandidateStore(directoryURL: root)
-    #expect(await reopened.load().canWrite)
-    #expect(try await reopened.reviewComparisonPage().contains(where: { $0.id == comparison.id }))
-    let external = try PortraitLibraryDatabase(url: root.appendingPathComponent("library-v1.sqlite"))
-    try external.transaction { try external.setState("external-test-change", "1"); try external.bumpRevision() }
-    await #expect(throws: (any Error).self) {
-      try await store.appendReviewLabel(comparisonID: comparison.id, choices: [.overall: .b], reviewerID: nil,
-        expectedRevisionID: try await store.reviewLabelHead(comparisonID: comparison.id)?.id)
+    #expect(try await store.reviewComparisonPage().contains(where:{$0.id == comparison.id}))
+    let head = try await store.reviewLabelHead(comparisonID:comparison.id)?.id
+    #expect(throws:(any Error).self) { _ = try PortraitLibraryDatabase(url:root.appendingPathComponent("library-v1.sqlite")) }
+    // The real competing writer is refused. Inject an out-of-band change through
+    // the actual owner's connection without closing/reloading its generation cache.
+    let external = try await store.libraryDatabase()
+    try external.transaction { try external.setState("external-test-change","1"); try external.bumpRevision() }
+    await #expect(throws:PortraitCandidateStoreError.self) {
+      try await store.appendReviewLabel(comparisonID:comparison.id,choices:[.overall:.b],reviewerID:nil,expectedRevisionID:head)
     }
-    await #expect(throws: (any Error).self) { try await store.save(snapshot: archive) }
+    await #expect(throws:PortraitCandidateStoreError.self) { try await store.save(snapshot:archive) }
   }
 }
 

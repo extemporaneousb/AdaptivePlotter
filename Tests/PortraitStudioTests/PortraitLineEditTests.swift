@@ -96,6 +96,10 @@ struct PortraitLineEditTests {
     let reopened = PortraitSketchCollection(store: PortraitCandidateStore(directoryURL: directory))
     let loaded = try await reopened.drawingForBrowsing(edited.id)
     #expect(loaded == edited)
+    // Browsing coexists with the owner; export saves first and needs a writer handoff.
+    await sketches.awaitPersistence()
+    await sketches.awaitLibrarySynchronization()
+    await store.closeLibrary()
     #expect(try await reopened.exportDrawingPackage(loaded) == bytes)
     let receiver = PortraitSketchCollection(store: PortraitCandidateStore(directoryURL: directory.appendingPathComponent("receiver")))
     let imported = try await receiver.importDrawingPackage(bytes)

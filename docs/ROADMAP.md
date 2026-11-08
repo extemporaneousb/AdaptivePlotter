@@ -11,14 +11,16 @@ this roadmap does not restate or reorder them.
 
 ## Drawing Exchange
 
-Status: DX-01 and DX-02 are adopted; the dated
-[DX-02 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-02-typed-contract-receipt-2026-11-06)
-records canonical adoption and its final configured run. DX-03's implemented
-carrier/validation scope and inert software observations are retained in its
-[dated receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-03-closed-carrier-receipt-2026-11-07);
-its final configured gate and adoption remain machine-owned. DX-04 is dependency-ready
-through adopted DX-02; DX-05 still requires DX-03 and DX-04. No ticket below is
-implementation or acceptance evidence, and this status does not select work.
+Status: DX-01 through DX-03 are adopted; the dated
+[DX-03 receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-03-closed-carrier-receipt-2026-11-07)
+records canonical adoption and its configured gate. DX-04's implemented storage
+foundation and measured software evidence are retained in its
+[dated receipt](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07);
+its two configured gates failed; subsequent reader and composition-owner
+corrections, focused checks and source-specific measurements are recorded there.
+The third configured gate and adoption remain pending. DX-05 still requires
+adopted DX-03 and completed DX-04. This status does not select work; no unfinished
+ticket below is implementation or acceptance evidence.
 The accepted target is [Drawing Exchange](DRAWING_EXCHANGE.md). The Flow Edge Dojo
 section below describes the shipped baseline and outstanding model evaluation;
 it does not authorize a competing portfolio, retention or storage authority.
@@ -86,23 +88,12 @@ M5 does not imply M6 or physical readiness.
 
 ### Ticket acceptance contracts
 
-DX-01's baseline, DX-02's typed-contract adoption and DX-03's implemented
-carrier/validation scope are retained in their dated
-[Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-03-closed-carrier-receipt-2026-11-07).
-Those receipts preserve the accepted scope, gate and recovery constraints and
-separate source/evidence observations from authoritative validation/adoption.
-The contracts below remain unfinished and keep the existing dependency DAG.
-
-**DX-04 — Build single-writer catalog and immutable object storage.** Allowed:
-`Sources/PortraitLibrary/PortraitLibraryDatabase.swift`, `PortraitCandidateStore.swift`,
-`PortraitLibrary.swift`, new exchange storage/query files in that module and DB tests.
-Use one writer lease, immutable manifests/object hashes, digest-pinned typed lookup,
-transactional links, recoverable mutable metadata/retention/tombstone backup and
-staging journal. Rebuild only derived index rows. Resolve same ref/same digest as
-no-op and same ref/different digest as preserved conflict. Gate: crash injection
-before/after each asset and SQLite publication boundary, competing writer refusal,
-metadata restore, missing-object detection and restart recovery. Recovery finishes
-or safely collects unreferenced staging; never infer retention from geometry.
+DX-01's baseline, adopted DX-02/DX-03 contracts and DX-04's implemented
+single-writer storage scope are retained in their dated
+[Current Evidence receipts](CURRENT_EVIDENCE.md#drawing-exchange-dx-04-single-writer-catalog-receipt-2026-11-07).
+Those receipts retain accepted scope/gate/recovery constraints and distinguish
+source observations from authoritative validation/adoption. The contracts below
+remain unfinished; the existing dependency DAG is unchanged.
 
 **DX-05 — Introduce common Library API and retire shadow identity paths.** Allowed:
 `Sources/PortraitLibrary/{SavedDrawing,PortraitLibraryQueries,PortraitSketchCollection,PortraitCandidateStore,DrawingTransfer}.swift`,

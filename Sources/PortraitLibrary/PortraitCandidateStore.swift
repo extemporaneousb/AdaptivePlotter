@@ -153,6 +153,7 @@ package actor PortraitCandidateStore {
   package nonisolated let legacyDirectoryURL: URL
   private var installingCanonical = false
   private var database: PortraitLibraryDatabase?
+  var cachedExchangeCatalog: PortraitExchangeCatalog?
   private var committedGeneration: PortraitLibraryGeneration?
   package var evidenceRecordHashes: [UUID:(DrawingRunEvidenceRecord,String)] = [:]
   package var evidenceAttemptHashes: [UUID:(DrawingRunAttemptState,String)] = [:]
@@ -205,8 +206,23 @@ package actor PortraitCandidateStore {
   package nonisolated var canonicalLibraryCommitted: Bool { (try? PortraitLibraryDatabase.hasCommittedGeneration(at:databaseURL)) == true }
   private var indexURL: URL { !legacyReadOnly && canonicalLibraryCommitted ? databaseURL : legacyIndexURL }
   package func libraryDatabase() throws -> PortraitLibraryDatabase {
-    if let database { return database }
+    if let database {
+      try database.assertSelectedFile()
+      return database
+    }
     let opened = try PortraitLibraryDatabase(url: databaseURL); database = opened; return opened
+  }
+  package func closeLibrary() {
+    cachedExchangeCatalog = nil
+    database = nil
+    committedGeneration = nil; committedIndexState = nil; lastReadIndexState = nil
+    hasInspected = false; writeBlock = nil; fullHistoryWriteBlock = nil
+    loadedRecordHash = nil
+    drawingRecords.removeAll(); verifiedDrawings.removeAll(); candidateRecords.removeAll()
+    metadataRecords.removeAll(); verifiedMetadata.removeAll(); labelRecords.removeAll(); verifiedLabels.removeAll()
+    verifiedCandidates.removeAll(); verifiedPhotos.removeAll(); verifiedFiles.removeAll(); fileByteCounts.removeAll()
+    durableCandidateCache.removeAll(); durableCandidateFiles.removeAll(); projectionMediaFiles.removeAll()
+    evidenceRecordHashes.removeAll(); evidenceAttemptHashes.removeAll()
   }
   private var payloadRoot: URL { !installingCanonical && indexURL != databaseURL ? (legacyReadRootOverride ?? legacyDirectoryURL) : directoryURL }
   private var blobDirectory: URL { payloadRoot.appendingPathComponent("assets", isDirectory: true) }
@@ -216,15 +232,32 @@ package actor PortraitCandidateStore {
   /// The committed recipe catalog needs neither candidate geometry nor assets.
   /// Legacy indexes still pay their JSON/checksum cost, but skip materialization.
   package func loadSavedStyles() throws -> [PortraitSavedStyle] {
-    if FileManager.default.fileExists(atPath:databaseURL.path) { _ = try libraryDatabase().generation }
-    guard FileManager.default.fileExists(atPath: indexURL.path) else {
+    let selected = try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL)
+    var catalogFile = stat()
+    if lstat(databaseURL.path, &catalogFile) == 0 {
+      // Existing SQL errors are never converted to legacy/empty styles, even
+      // before Exchange authority is selected.
+      let db = try PortraitLibraryDatabase(url: databaseURL, readOnly: true)
+      if try db.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1" {
+        return try readLibrarySnapshot(db, checkInputs: false) {
+          try db.scalar("SELECT value FROM state WHERE key='styles'").map { try db.decode([PortraitSavedStyle].self, $0) } ?? []
+        }
+      }
+      guard !selected else { throw PortraitLibraryError.database("Selected exchange catalog has no committed legacy graph") }
+    } else if errno != ENOENT { throw PortraitLibraryError.database("Catalog path unavailable") }
+    guard try !PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL) else {
+      throw PortraitLibraryError.database("Selected exchange catalog has no committed legacy graph")
+    }
+    let legacyURL = legacyIndexURL
+    guard FileManager.default.fileExists(atPath: legacyURL.path) else {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
         throw PortraitCandidateStoreError.invalidIndex("The archive location is not a directory.")
       }
       return []
     }
-    let envelope = try readIndex()
+    let (envelope, state) = try Self.browseIndex(legacyURL)
+    lastReadIndexState = state
     if envelope.schemaVersion >= 3 {
       return try JSONDecoder().decode(IndexedArchive.self, from: envelope.payload).savedStyles ?? []
     }
@@ -267,6 +300,20 @@ package actor PortraitCandidateStore {
     fileByteCounts[recordDirectory.appendingPathComponent(hash)] = data.count
     return data
   }
+
+  /// The caller has proved this committed SQL root within one readonly snapshot.
+  package func readRecords(_ hash: String, selectedRoot: URL) throws -> Data {
+    guard validHash(hash) else { throw PortraitCandidateStoreError.invalidIndex("invalid record identity") }
+    let url = selectedRoot.appendingPathComponent("records", isDirectory: true).appendingPathComponent(hash)
+    let (data, state) = try VerifiedFileState.read(url)
+    guard PortraitCandidateCoding.digest(data) == hash else {
+      throw PortraitCandidateStoreError.invalidIndex("record checksum mismatch; original file preserved")
+    }
+    verifiedFiles[url] = state
+    fileByteCounts[url] = data.count
+    return data
+  }
+
 
   private func loadArchive() -> PortraitCandidateStoreLoadResult {
     hasInspected = true
@@ -463,9 +510,17 @@ package actor PortraitCandidateStore {
   }
 
   package func ensureLibraryGraph() throws {
-    guard !canonicalLibraryCommitted else { return }
+    let selected = try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL)
+    let db = try libraryDatabase()
+    if try db.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1" { return }
+    let selectedNow = try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL)
+    guard !selected && !selectedNow else {
+      throw PortraitLibraryError.database("Selected exchange catalog has no committed legacy graph; explicit reconciliation required")
+    }
     let loaded = load()
-    guard loaded.canWrite,canonicalLibraryCommitted else { throw PortraitLibraryError.database(loaded.issues.joined(separator:" ")) }
+    guard loaded.canWrite, try db.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1" else {
+      throw PortraitLibraryError.database(loaded.issues.joined(separator: " "))
+    }
   }
 
   /// Mutation ownership needs immutable label ancestry and metadata, not every
@@ -517,6 +572,17 @@ package actor PortraitCandidateStore {
     return total
   }
 
+  /// First-facade schema/recovery work may change this owner's SQL fingerprint.
+  /// Refuse earlier drift before accepting any of those known owned mutations.
+  package func validateExchangeCatalogInitialization(_ db: PortraitLibraryDatabase) throws {
+    if let committedIndexState {
+      guard try VerifiedFileState(indexURL) == committedIndexState else {
+        throw PortraitCandidateStoreError.invalidIndex("The committed index changed; reload before retrying.")
+      }
+    }
+    if let committedGeneration, try db.generation != committedGeneration { throw PortraitLibraryError.staleGeneration }
+  }
+
   package func refreshCommittedLibraryGeneration() {
     committedGeneration = try? libraryDatabase().generation
     committedIndexState = try? VerifiedFileState(databaseURL)
@@ -555,6 +621,7 @@ package actor PortraitCandidateStore {
 
   private func loadVerifiedHistory() -> PortraitCandidateStoreLoadResult {
     do {
+      _ = try libraryDatabase()
       let originalIndex = legacySourceIndexURL
       let exists = FileManager.default.fileExists(atPath:originalIndex.path)
       let currentHash = exists ? PortraitCandidateCoding.digest(try Data(contentsOf:originalIndex)) : nil
@@ -594,6 +661,7 @@ package actor PortraitCandidateStore {
   }
 
   private func preserveVerifiedLegacyPayloads() throws {
+    _ = try libraryDatabase()
     guard (legacyReadRootOverride ?? legacyDirectoryURL) != directoryURL else { return }
     for (source,state) in verifiedFiles where source != legacyIndexURL {
       guard try VerifiedFileState(source) == state else { throw PortraitLibraryError.staleGeneration }
@@ -637,11 +705,11 @@ package actor PortraitCandidateStore {
       installingCanonical = false
       if !didCommit { verifiedCandidates.removeAll();verifiedMetadata.removeAll() }
     }
+    let db = try libraryDatabase()
     let manager = FileManager.default
     try manager.createDirectory(at: blobDirectory, withIntermediateDirectories: true)
     try manager.createDirectory(at: recordDirectory, withIntermediateDirectories: true)
     let encoder = PortraitCandidateCoding.encoder()
-    let db = try libraryDatabase()
     let previousTombstones = try db.decode([PortraitArchiveTombstone].self,db.scalar("SELECT value FROM state WHERE key='tombstones'") ?? "[]")
     let authoredTombstones = previousTombstones + snapshot.tombstones
     var occurrenceOrder: [PortraitDrawingIdentity] = []
@@ -872,6 +940,7 @@ package actor PortraitCandidateStore {
   }
 
   package func installMetadata<T: Encodable>(_ value: T, encoder: JSONEncoder) throws -> String {
+    _ = try libraryDatabase()
     let bytes = try encoder.encode(value)
     metadataBytesEncoded += bytes.count
     let hash = PortraitCandidateCoding.digest(bytes)
@@ -882,6 +951,7 @@ package actor PortraitCandidateStore {
   }
 
   private func installCandidatePayload(_ candidate: PortraitCandidate, encoder: JSONEncoder) throws -> String {
+    _ = try libraryDatabase()
     let bytes = try encoder.encode(StoredCandidate(candidate))
     recordBytesEncoded += bytes.count
     let hash = PortraitCandidateCoding.digest(bytes),url = recordDirectory.appendingPathComponent(hash)
@@ -1064,7 +1134,21 @@ package actor PortraitCandidateStore {
     return data
   }
 
+  /// This explicit root is supplied only by a proven committed readonly snapshot.
+  package func readAsset(_ hash: String, selectedRoot: URL) throws -> Data {
+    guard validHash(hash) else { throw PortraitCandidateStoreError.invalidAsset(hash) }
+    let url = selectedRoot.appendingPathComponent("assets", isDirectory: true).appendingPathComponent(hash)
+    let (data, state) = try VerifiedFileState.read(url)
+    assetBytesVerified += data.count
+    guard PortraitCandidateCoding.digest(data) == hash else { throw PortraitCandidateStoreError.invalidAsset(hash) }
+    verifiedFiles[url] = state
+    fileByteCounts[url] = data.count
+    return data
+  }
+
+
   private func install(_ data: Data, hash: String) throws {
+    _ = try libraryDatabase()
     let url = blobDirectory.appendingPathComponent(hash)
     if let previous = verifiedFiles[url], try VerifiedFileState(url) == previous { return }
     guard validHash(hash), PortraitCandidateCoding.digest(data) == hash else {
@@ -1072,9 +1156,7 @@ package actor PortraitCandidateStore {
     }
     if FileManager.default.fileExists(atPath: url.path) { _ = try readAsset(hash); return }
     try data.write(to: url, options: .atomic)
-    let handle = try FileHandle(forWritingTo: url)
-    try handle.synchronize()
-    try handle.close()
+    try synchronize(url)
     _ = try readAsset(hash)
   }
 }
@@ -1086,7 +1168,8 @@ extension PortraitCandidateStore {
   package nonisolated func loadPhotoPage(after previous: PortraitPhotoPageCursor? = nil,
     limit requestedLimit: Int = 100) throws -> PortraitPhotoPage {
     let limit = min(100, max(1, requestedLimit))
-    let url = browseCommitURL
+    let selection = try browseSelection()
+    let url = selection.url
     guard FileManager.default.fileExists(atPath: url.path) else {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
@@ -1094,7 +1177,7 @@ extension PortraitCandidateStore {
       }
       return .init(photos: [], next: nil, savedStyles: [], candidateRecordsRead: 0)
     }
-    let (envelope, state) = try Self.browseIndex(url)
+    let (envelope, state) = try Self.browseIndex(url, database: selection.database)
     if let previous, previous.indexState != state { throw PortraitPhotoBrowserError.archiveChanged }
     var cursor = previous ?? .init(indexState: state)
     let catalog = try browseCatalog(envelope)
@@ -1136,8 +1219,9 @@ extension PortraitCandidateStore {
   }
 
   package nonisolated func loadPhoto(_ reference: PortraitPhotoReference) throws -> PortraitPhoto {
-    let indexURL = browseCommitURL
-    let (envelope, state) = try Self.browseIndex(indexURL)
+    let selection = try browseSelection()
+    let indexURL = selection.url
+    let (envelope, state) = try Self.browseIndex(indexURL, database: selection.database)
     let catalog = try browseCatalog(envelope)
     // A new candidate can update legacy-derived display metadata without
     // changing source identity. Use current committed provenance for that exact
@@ -1173,14 +1257,78 @@ extension PortraitCandidateStore {
     return photo
   }
 
-  package nonisolated var browsePayloadRoot: URL { canonicalLibraryCommitted ? directoryURL : legacyDirectoryURL }
-  package nonisolated var browseCommitURL: URL { canonicalLibraryCommitted ? databaseURL : legacySourceIndexURL }
+  package nonisolated var browsePayloadRoot: URL { exchangeCatalogSelected || canonicalLibraryCommitted ? directoryURL : legacyDirectoryURL }
+  package nonisolated var browseCommitURL: URL { exchangeCatalogSelected || canonicalLibraryCommitted ? databaseURL : legacySourceIndexURL }
+  private nonisolated var exchangeCatalogSelected: Bool { PortraitExchangeCatalogSelection.markerPresent(root: directoryURL) }
+  private nonisolated func validateSelectedCatalog() throws {
+    try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL)
+    if exchangeCatalogSelected { _ = try PortraitLibraryDatabase(url: databaseURL, readOnly: true).generation }
+  }
 
-  nonisolated private static func browseIndex(_ url: URL) throws -> (IndexEnvelope, VerifiedFileState) {
+  /// One operation-local connection proves selection and serves the query. Absence
+  /// is re-observed on every call, including immediately before legacy fallback.
+  private nonisolated func browseSelection() throws -> (url: URL, database: PortraitLibraryDatabase?) {
+    let selected = try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL)
+    do {
+      let db = try PortraitLibraryDatabase(url: databaseURL, readOnly: true)
+      if selected {
+        _ = try db.generation
+        return (databaseURL, db)
+      }
+      if try db.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1" {
+        return (databaseURL, db)
+      }
+      if try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL) {
+        _ = try db.generation
+        return (databaseURL, db)
+      }
+    } catch {
+      let selectedNow = try PortraitExchangeCatalogSelection.validate(root: directoryURL, database: databaseURL)
+      if selected || selectedNow { throw error }
+    }
+    return (legacySourceIndexURL, nil)
+  }
+
+  /// Committed readers do not borrow the writer. Legacy import remains an
+  /// explicit owned operation only when no committed native graph is selected.
+  package func libraryReadDatabase() throws -> PortraitLibraryDatabase {
+    let selection = try browseSelection()
+    if let db = selection.database,
+      try db.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1" { return db }
+    try ensureLibraryGraph()
+    let db = try PortraitLibraryDatabase(url: databaseURL, readOnly: true)
+    guard try db.scalar("SELECT value FROM state WHERE key='portrait_graph_selected'") == "1" else {
+      throw PortraitLibraryError.database("Native library graph is not committed")
+    }
+    return db
+  }
+
+  /// All SQL in one read operation uses this actual opened connection. Atomic
+  /// replacement, generation drift and changed authoritative inputs refuse.
+  package func readLibrarySnapshot<T>(_ db: PortraitLibraryDatabase, checkInputs: Bool = true,
+    checkEvidence: Bool = true, _ operation: () throws -> T) throws -> T {
+    try db.assertSelectedFile()
+    let state = try VerifiedFileState(db.url)
+    try db.execute("BEGIN")
+    defer { try? db.execute("ROLLBACK") }
+    let generation = try db.generation
+    if checkInputs { try assertCurrentInputs(db, checkEvidence: checkEvidence) }
+    let value = try operation()
+    if checkInputs { try assertCurrentInputs(db, checkEvidence: checkEvidence) }
+    try db.assertSelectedFile()
+    guard try VerifiedFileState(db.url) == state, try db.generation == generation else {
+      throw PortraitLibraryError.staleGeneration
+    }
+    return value
+  }
+
+  package nonisolated static func browseIndex(_ url: URL, database: PortraitLibraryDatabase? = nil) throws -> (IndexEnvelope, VerifiedFileState) {
     if url.pathExtension == "sqlite" {
-      let db = try PortraitLibraryDatabase(url:url,readOnly:true)
+      let db = try database ?? PortraitLibraryDatabase(url:url,readOnly:true)
+      try db.assertSelectedFile()
       let state = try VerifiedFileState(url)
       let payload = try PortraitCandidateCoding.encoder().encode(db.index())
+      try db.assertSelectedFile()
       guard try VerifiedFileState(url) == state else { throw PortraitLibraryError.staleGeneration }
       return (.init(schemaVersion:4,sha256:PortraitCandidateCoding.digest(payload),payload:payload),state)
     }
@@ -1615,9 +1763,33 @@ extension PortraitCandidateStore {
 
   /// Browse immutable metadata independently from the canonical installer. Only
   /// selected drawing reads decode vectors, analyzed raster and source pixels.
+  /// The actual filtered query is operation-local and testable with an already-open connection.
+  package nonisolated func drawingPage(database db: PortraitLibraryDatabase, after previous: SavedDrawingPageCursor? = nil,
+    limit requestedLimit: Int = 100, photoID: UUID, style: PortraitStyle? = nil) throws -> SavedDrawingPage {
+    let url = databaseURL
+    try db.assertSelectedFile()
+    let state = try VerifiedFileState(url)
+    if let previous,previous.indexState != state { throw SavedDrawingBrowserError.archiveChanged }
+    try db.execute("BEGIN")
+    defer { try? db.execute("ROLLBACK") }
+    let limit = min(100,max(1,requestedLimit)),offset = previous?.offset ?? 0
+    var predicate = "photo_id=? AND deleted=0"
+    var values: [String?] = [photoID.uuidString.lowercased()]
+    if let style { predicate += " AND json_extract(summary,'$.recipe.style')=?";values.append(style.rawValue) }
+    values += [String(limit+1),String(offset)]
+    let rows = try db.rows("SELECT id FROM drawing WHERE "+predicate+" ORDER BY created_at DESC,id LIMIT ? OFFSET ?",values)
+    let selected = Array(rows.prefix(limit))
+    let summaries = try selected.map { try db.checkedDrawing($0[0]!).summary }
+    try db.assertSelectedFile()
+    guard try VerifiedFileState(url) == state else { throw SavedDrawingBrowserError.archiveChanged }
+    let next: SavedDrawingPageCursor? = rows.count > limit ? .init(indexState:state,offset:offset+selected.count) : nil
+    return .init(drawings:summaries,next:next,candidateRecordsRead:0)
+  }
+
   package nonisolated func loadDrawingPage(after previous: SavedDrawingPageCursor? = nil,
     limit requestedLimit: Int = 100, photoID: UUID? = nil, style: PortraitStyle? = nil) throws -> SavedDrawingPage {
-    let url = browseCommitURL
+    let selection = try browseSelection()
+    let url = selection.url
     guard FileManager.default.fileExists(atPath: url.path) else {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory), !isDirectory.boolValue {
@@ -1626,24 +1798,10 @@ extension PortraitCandidateStore {
       return .init(drawings: [], next: nil, candidateRecordsRead: 0)
     }
     if url == databaseURL,let photoID {
-      let state = try VerifiedFileState(url)
-      if let previous,previous.indexState != state { throw SavedDrawingBrowserError.archiveChanged }
-      let db = try PortraitLibraryDatabase(url:url,readOnly:true)
-      try db.execute("BEGIN")
-      defer { try? db.execute("ROLLBACK") }
-      let limit = min(100,max(1,requestedLimit)),offset = previous?.offset ?? 0
-      var predicate = "photo_id=? AND deleted=0"
-      var values: [String?] = [photoID.uuidString.lowercased()]
-      if let style { predicate += " AND json_extract(summary,'$.recipe.style')=?";values.append(style.rawValue) }
-      values += [String(limit+1),String(offset)]
-      let rows = try db.rows("SELECT id FROM drawing WHERE "+predicate+" ORDER BY created_at DESC,id LIMIT ? OFFSET ?",values)
-      let selected = Array(rows.prefix(limit))
-      let summaries = try selected.map { try db.checkedDrawing($0[0]!).summary }
-      guard try VerifiedFileState(url) == state else { throw SavedDrawingBrowserError.archiveChanged }
-      let next: SavedDrawingPageCursor? = rows.count > limit ? .init(indexState:state,offset:offset+selected.count) : nil
-      return .init(drawings:summaries,next:next,candidateRecordsRead:0)
+      let db = try selection.database ?? PortraitLibraryDatabase(url:url,readOnly:true)
+      return try drawingPage(database: db, after: previous, limit: requestedLimit, photoID: photoID, style: style)
     }
-    let (envelope, state) = try Self.browseIndex(url)
+    let (envelope, state) = try Self.browseIndex(url, database: selection.database)
     if let previous, previous.indexState != state { throw SavedDrawingBrowserError.archiveChanged }
     var cursor = previous ?? .init(indexState: state)
     let limit = min(100, max(1, requestedLimit))
@@ -1705,8 +1863,9 @@ extension PortraitCandidateStore {
   }
 
   package nonisolated func loadDrawing(_ id: String) throws -> SavedDrawing {
-    let url = browseCommitURL
-    let (envelope, state) = try Self.browseIndex(url)
+    let selection = try browseSelection()
+    let url = selection.url
+    let (envelope, state) = try Self.browseIndex(url, database: selection.database)
     let drawing: SavedDrawing
     let tombstones: [PortraitArchiveTombstone]
     if envelope.schemaVersion >= 3 {
