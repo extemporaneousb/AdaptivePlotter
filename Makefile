@@ -41,11 +41,15 @@ build:
 
 app:
 	swift build $(SWIFT_FLAGS) -c "$(APP_CONFIGURATION)"
-	@sh Scripts/build_local_app.sh "$(APP_CONFIGURATION)"
+	@binary_directory="$$(swift build $(SWIFT_FLAGS) -c "$(APP_CONFIGURATION)" --show-bin-path)" && \
+	case "$$binary_directory" in /*) ;; *) echo 'SwiftPM returned no absolute binary directory' >&2; exit 1 ;; esac && \
+	APP_BINARY_DIRECTORY="$$binary_directory" sh Scripts/build_local_app.sh "$(APP_CONFIGURATION)"
 
 portrait-studio-app:
 	swift build $(SWIFT_FLAGS) -c "$(APP_CONFIGURATION)" --product PortraitStudio
-	@sh Scripts/build_portrait_studio_app.sh "$(APP_CONFIGURATION)"
+	@binary_directory="$$(swift build $(SWIFT_FLAGS) -c "$(APP_CONFIGURATION)" --show-bin-path)" && \
+	case "$$binary_directory" in /*) ;; *) echo 'SwiftPM returned no absolute binary directory' >&2; exit 1 ;; esac && \
+	APP_BINARY_DIRECTORY="$$binary_directory" sh Scripts/build_portrait_studio_app.sh "$(APP_CONFIGURATION)"
 
 validate-portrait-studio-app: portrait-studio-app
 	@sh Scripts/validate_portrait_studio_app_bundle.sh .build/PortraitStudio.app

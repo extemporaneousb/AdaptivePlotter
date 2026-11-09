@@ -98,6 +98,7 @@ package final class DrawingLibraryDatabase {
   /// Cleanup uses the actual retained connection even when the selected pathname changed.
   private func executeOnConnection(_ sql: String, _ values: [String?] = []) throws {
     if values.isEmpty {
+      DrawingLibraryDiagnostics.shared.record("sqlStatements")
       guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw failure() }
       return
     }
@@ -106,6 +107,7 @@ package final class DrawingLibraryDatabase {
     guard sqlite3_step(stmt) == SQLITE_DONE else { throw failure() }
   }
   private func prepare(_ sql: String, _ values: [String?]) throws -> OpaquePointer {
+    DrawingLibraryDiagnostics.shared.record("sqlStatements")
     var stmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { throw failure() }
     let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -116,9 +118,15 @@ package final class DrawingLibraryDatabase {
     }
     return stmt
   }
-  package func rows(_ sql: String, _ values: [String?] = []) throws -> [[String?]] {
+  package func rows(_ sql: String, _ values: [String?] = [], work: ((Int, Int) -> Void)? = nil) throws -> [[String?]] {
     let stmt = try prepare(sql, values)
-    defer { sqlite3_finalize(stmt) }
+    defer {
+      if let work {
+        work(Int(sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_VM_STEP, 0)),
+          Int(sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_FULLSCAN_STEP, 0)))
+      }
+      sqlite3_finalize(stmt)
+    }
     var result: [[String?]] = []
     while true {
       let code = sqlite3_step(stmt)

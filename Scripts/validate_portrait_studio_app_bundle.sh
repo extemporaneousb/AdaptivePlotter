@@ -87,3 +87,28 @@ then
     echo "PortraitStudio signature does not report a bound Info.plist" >&2
     exit 1
 fi
+
+# Optional exact build proof. The bundler always supplies both arguments; plain
+# validation of an already-delivered bundle still verifies its bound signature.
+# Signing changes __LINKEDIT, so whole-file cmp against the unsigned source would
+# be invalid. Compare the linker's build UUID as well as the signed input digest.
+source_binary=${2:-}
+expected_configuration=${3:-}
+if [ -n "$source_binary" ]; then
+    if [ ! -f "$source_binary" ] || [ ! -x "$source_binary" ]; then
+        echo "compiled source executable is unavailable: $source_binary" >&2
+        exit 1
+    fi
+    if [ "$configuration" != "$expected_configuration" ]; then
+        echo "bundle does not match the requested build configuration" >&2
+        exit 1
+    fi
+    source_digest=$(/usr/bin/shasum -a 256 "$source_binary" | /usr/bin/awk '{print $1}')
+    expect_plist_value PortraitStudioBuildInputSHA256 "$source_digest"
+    source_uuid=$(/usr/bin/dwarfdump --uuid "$source_binary" | /usr/bin/awk '{print $2 ":" $3}')
+    bundled_uuid=$(/usr/bin/dwarfdump --uuid "$executable" | /usr/bin/awk '{print $2 ":" $3}')
+    if [ -z "$source_uuid" ] || [ "$source_uuid" != "$bundled_uuid" ]; then
+        echo "bundle executable does not match the compiled source build UUID" >&2
+        exit 1
+    fi
+fi

@@ -91,6 +91,25 @@ Specify typed errors at their owning seam: missing/deleted revision, key/digest 
 
 Before moving a hot path record a comparable baseline using the same build configuration, host, input and cold/warm cache conditions. Exercise a small fixture and at least 10,000 synthetic retained drawing summaries plus realistic deduplicated raw frames on disposable data. Hold page size fixed as archive size grows. Gate structural counters above and existing native responsiveness budgets. Record at least 30 warm trials per scenario, report distributions, archive size and configuration, and investigate regressions beyond baseline noise before landing. An optimization claim needs before/after numbers; a cold start observation must identify its cache state. Measure signed-app/native and physical behavior separately from Swift and Python fixture checks.
 
+### Current derived presentation and cursor implementation
+
+The current Dojo image body displays an asynchronously prepared image. Its derived
+cache keys immutable caller identity plus decode dimension, bounds resident entries/
+bytes and actual unsettled workers, and uses cancellation/generation guards. Encoded
+provider retention counts toward the decoded-cache budget. Current checkpoint and
+supervision keys distinguish relevant immutable fit/snapshot/feedback/curation changes
+from title/navigation changes. Original images, feature/feedback records and geometry
+remain authoritative; cache eviction removes derived values only. Existing camera-frame
+and per-view placement caches remain separate.
+
+Global chronological Drawing cursors use two disjoint indexed ranges inside one read
+snapshot: same-date `(namespace, identity)` successors, followed by older dates for the
+remaining page. This preserves mixed descending-date/ascending-identity order without
+scanning from the index head through a large tie group. Scope/generation/full-ref and
+tombstone rules remain unchanged. The dated [group receipt](CURRENT_EVIDENCE.md#current-native-drawing-workflow-group-2026-11-08)
+records the actual bound-plan finding, affected fixture/work counters and measurement
+limits; it does not establish the remaining full-scale/media/native gates.
+
 ## Persistence, exchange and atomic mounting
 
 The active local Library uses one selected SQLite catalog and a content-addressed

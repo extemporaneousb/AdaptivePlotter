@@ -24,6 +24,15 @@ Use `APP_CONFIGURATION=release` for an optimized build. The bundle identifier is
 Info.plist contains camera permission wording. Launch the signed bundle explicitly;
 the raw SwiftPM executable does not have that application identity.
 
+Custom scratch builds pass the same `SWIFT_FLAGS` to each build/validation target.
+The app builders resolve the actual SwiftPM binary directory with those flags and
+`APP_CONFIGURATION`; bundle validation checks configuration, stable identity/signature,
+source executable SHA-256 and matching Mach-O UUID. A direct builder's explicit
+`APP_BINARY_DIRECTORY` must be a nonempty absolute directory. These are local build-input
+provenance checks, not notarization or evidence that the signed app was launched.
+Prepared signed artifacts and software coverage are recorded in the
+[dated group receipt](CURRENT_EVIDENCE.md#current-native-drawing-workflow-group-2026-11-08).
+
 The standalone default Drawing Library is:
 
 ```text
@@ -363,6 +372,16 @@ is not physical evidence. Controller settlement does not prove deposited ink.
 Historical drawing packages and plot attachments remain untouched files, with
 historical import deferred. A drawing export is a handoff artifact, not a backup of
 all training records.
+
+## Derived presentation work
+
+Photo/candidate previews load through bounded derived caches with cancellation and
+stale-selection guards. Rename/navigation reuses an unchanged active checkpoint and
+training summary; feedback, grouping/exclusion and fit changes invalidate the relevant
+work. Cache eviction preserves the retained originals and canonical feedback. These
+changes add no setup, physical-width field or new learning action. The measured
+current-format fixture and its limits are in Current Evidence; remaining signed native
+interaction and large-media performance acceptance are separate.
 
 ## Historical research and baseline
 

@@ -166,7 +166,7 @@ package struct FlowDojoView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
           ForEach(model.roundCandidates) { candidate in
             VStack(alignment: .leading, spacing: 6) {
-              FlowDojoImage(data: model.previews[candidate.id]).frame(height: 220)
+              FlowDojoImage(data: model.previews[candidate.id], identity: model.previewIdentity(candidate: candidate)).frame(height: 220)
               HStack {
                 Text(model.drawingName(candidate)).font(.headline)
                 Spacer()
@@ -230,7 +230,7 @@ package struct FlowDojoView: View {
           }
         }
         GeometryReader { proxy in
-          if model.showsPhoto { FlowDojoImage(data: model.sourceData).frame(maxWidth: .infinity, maxHeight: .infinity) }
+          if model.showsPhoto { FlowDojoImage(data: model.sourceData, identity: model.selectedSource?.image.sha256 ?? "no-source").frame(maxWidth: .infinity, maxHeight: .infinity) }
           else {
             ScrollView([.horizontal, .vertical]) {
               FlowDojoCanvas(model: model, program: program)
@@ -281,7 +281,7 @@ package struct FlowDojoView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
           ForEach(model.presentation?.items ?? []) { item in
             VStack(spacing: 8) {
-              FlowDojoImage(data: model.rankingPreviews[item.id]).frame(height: 240)
+              FlowDojoImage(data: model.rankingPreviews[item.id], identity: model.rankingPreviewIdentity(item)).frame(height: 240)
               if model.presentation?.items.count == 2 {
                 Button("Prefer this drawing") { Task { await model.compare(preferred: item.id) } }
                   .buttonStyle(.borderedProminent).disabled(model.isBusy || model.needsRecovery)
@@ -364,9 +364,28 @@ package struct FlowDojoView: View {
 
 package struct FlowDojoImage: View {
   package let data: Data?
+  package let identity: String
+  package let maximumDimension: Int
+  private struct Request: Hashable { let identity: String; let dimension: Int; let hasData: Bool }
+  @State private var image: NSImage?
+  @State private var loadedRequest: Request?
+  package init(data: Data?, identity: String, maximumDimension: Int = 2048) {
+    self.data = data; self.identity = identity; self.maximumDimension = maximumDimension
+  }
+  private var request: Request { .init(identity: identity, dimension: maximumDimension, hasData: data != nil) }
   package var body: some View {
-    if let data, let image = NSImage(data: data) { Image(nsImage: image).resizable().scaledToFit() }
-    else { Rectangle().fill(.quaternary).overlay { Image(systemName: "photo").foregroundStyle(.secondary) } }
+    Group {
+      if loadedRequest == request, let image { Image(nsImage: image).resizable().scaledToFit() }
+      else { Rectangle().fill(.quaternary).overlay { Image(systemName: "photo").foregroundStyle(.secondary) } }
+    }.task(id: request) {
+      let captured = request
+      image = nil; loadedRequest = nil
+      guard let data else { return }
+      let decoded = await FlowPresentationImageCache.shared.load(data: data, identity: identity,
+        maximumDimension: maximumDimension)
+      guard !Task.isCancelled else { return }
+      image = decoded; loadedRequest = captured
+    }
   }
 }
 

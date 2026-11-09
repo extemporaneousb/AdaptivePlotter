@@ -147,11 +147,24 @@ extension DrawingLibrary {
         predicate += " AND (s.namespace,s.identity) IN (SELECT d.source_namespace,d.source_identity FROM dx_link d WHERE d.source_kind='drawing' AND d.relation='parent' AND d.target_kind='drawing' AND d.target_namespace=? AND d.target_identity=?)"
         values += [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]
       }
-      if let after {
-        predicate += " AND (s.created_at < CAST(? AS REAL) OR (s.created_at=CAST(? AS REAL) AND (s.namespace>? OR (s.namespace=? AND s.identity>?))))"
-        values += [after.date,after.date,after.issuer,after.issuer,after.revision]
+      func readPage(_ range: String, _ arguments: [String?], count: Int) throws -> [[String?]] {
+        try db.rows("SELECT s.namespace,s.identity,s.digest,s.program_digest,printf('%!.17g',s.created_at),s.stroke_count,s.point_count,m.payload FROM dx_drawing_summary s LEFT JOIN dx_metadata m ON m.kind='drawing' AND m.namespace=s.namespace AND m.identity=s.identity " + predicate + range + " ORDER BY s.created_at DESC,s.namespace ASC,s.identity ASC LIMIT ?", values + arguments + [String(count)], work: { steps, scans in
+          DrawingLibraryDiagnostics.shared.record("drawingPageVMSteps", count: UInt64(max(0, steps)))
+          DrawingLibraryDiagnostics.shared.record("drawingPageFullscanSteps", count: UInt64(max(0, scans)))
+        })
       }
-      let rows = try db.rows("SELECT s.namespace,s.identity,s.digest,s.program_digest,printf('%!.17g',s.created_at),s.stroke_count,s.point_count,m.payload FROM dx_drawing_summary s LEFT JOIN dx_metadata m ON m.kind='drawing' AND m.namespace=s.namespace AND m.identity=s.identity " + predicate + " ORDER BY s.created_at DESC,s.namespace ASC,s.identity ASC LIMIT ?",values+[String(limit+1)])
+      let rows: [[String?]]
+      if let after {
+        // Mixed DESC-date/ASC-identity order cannot use one tuple comparison.
+        // The former OR predicate scanned from the index head (or the start of
+        // a large date tie). Two disjoint ranges seek directly into that order.
+        let tied = try readPage(" AND s.created_at=CAST(? AS REAL) AND (s.namespace,s.identity)>(?,?)",
+          [after.date, after.issuer, after.revision], count: limit + 1)
+        let remaining = limit + 1 - tied.count
+        let older = remaining > 0
+          ? try readPage(" AND s.created_at<CAST(? AS REAL)", [after.date], count: remaining) : []
+        rows = tied + older
+      } else { rows = try readPage("", [], count: limit + 1) }
       let page = Array(rows.prefix(limit))
       let entries = try page.map { row -> DrawingLibraryEntry in
         guard let issuer=row[0].flatMap(UUID.init(uuidString:)), let revision=row[1].flatMap(UUID.init(uuidString:)), let digest=row[2],let program=row[3],let count=row[5].flatMap(Int.init),let points=row[6].flatMap(Int.init) else { throw DrawingLibraryError.invalidIdentity }

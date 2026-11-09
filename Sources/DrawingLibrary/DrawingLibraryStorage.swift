@@ -153,6 +153,7 @@ package final class LibraryExchangeStorage {
     try verifyFile(directory: fd, path: digest.description, digest: digest, size: byteLength)
   }
   package func readObject(digest: ExchangeDigest, byteLength: UInt64, maximumBytes: Int) throws -> Data {
+    DrawingLibraryDiagnostics.shared.record("storageObjectReads")
     guard maximumBytes > 0, byteLength <= UInt64(maximumBytes) else { throw LibraryExchangeStorageError.corruptObject("record exceeds materialization bound") }
     let parent = try directory("objects/sha256"); defer { Darwin.close(parent) }
     let input = try openFile(directory: parent, path: digest.description); defer { Darwin.close(input) }
@@ -317,6 +318,7 @@ package final class LibraryExchangeStorage {
     return fd
   }
   func verifyFile(directory: Int32, path: String, digest: ExchangeDigest, size: UInt64) throws {
+    DrawingLibraryDiagnostics.shared.record("storageFileVerifications")
     let input = try openFile(directory: directory, path: path); defer { Darwin.close(input) }
     try stream(input: input, output: nil, digest: digest, size: size)
   }
@@ -334,6 +336,7 @@ package final class LibraryExchangeStorage {
       try consume?(buffer, n)
       count += UInt64(n)
     }
+    DrawingLibraryDiagnostics.shared.record("storageStreamHashBytes", count: count)
     var after = stat()
     let actual = hash.finalize().map { String(format: "%02x", $0) }.joined()
     guard count == size, actual == digest.description, fstat(input, &after) == 0,

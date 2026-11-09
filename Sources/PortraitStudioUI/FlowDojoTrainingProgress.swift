@@ -22,7 +22,7 @@ package struct FlowDojoPhotoProgress: Equatable, Sendable {
 /// Counts describe effective current feedback, never approvals inferred from browsing.
 /// Comparison counts precede numeric feature-degeneracy filtering; fit reports remain authoritative.
 package struct FlowDojoTrainingProgress: Equatable, Sendable {
-  package let revision: Int
+  package private(set) var revision: Int
   package let photoCount: Int
   package let includedPhotoCount: Int
   package let feedbackPhotoCount: Int
@@ -161,5 +161,37 @@ package struct FlowDojoTrainingProgress: Equatable, Sendable {
     else { readinessMessage = "Choose between drawings, rank alternatives, or finish a pruning target. Browsing and generation alone do not teach preferences." }
   }
 
+  package func atRevision(_ revision: Int) -> Self {
+    var value = self; value.revision = revision; return value
+  }
   package func photo(_ sourceID: UUID) -> FlowDojoPhotoProgress { photos[sourceID] ?? .init() }
+}
+
+/// Immutable event IDs cover the store's append-only feedback. Only grouping,
+/// exclusion and fit selection are mutable semantic inputs. Titles, navigation
+/// and the display revision deliberately do not trigger supervision regrouping.
+package struct FlowDojoTrainingProgressKey: Equatable {
+  private struct Source: Equatable {
+    let id: UUID; let image: String; let subject: String?; let session: String?; let excluded: Bool
+  }
+  private struct Candidate: Equatable {
+    let id: UUID; let source: UUID; let program: String; let raster: String; let strokes: Int; let excluded: Bool
+  }
+  private let portfolio: UUID
+  private let sources: [Source]
+  private let candidates: [Candidate]
+  private let choices: [UUID], prunes: [UUID], presentations: [UUID], rankings: [UUID]
+  private let snapshots: [FlowPortfolioTrainingSnapshot]
+  private let fits: [FlowPortfolioFit]
+  private let active: UUID?
+  package init(_ document: FlowPortfolioSnapshot) {
+    portfolio = document.id
+    sources = document.sources.map { .init(id: $0.id, image: $0.image.sha256,
+      subject: $0.subjectID, session: $0.sessionID, excluded: $0.excluded) }
+    candidates = document.candidates.map { .init(id: $0.id, source: $0.sourceID,
+      program: $0.programHash, raster: $0.raster.sha256, strokes: $0.strokeCount, excluded: $0.excluded) }
+    choices = document.choices.map(\.id); prunes = document.pruneRevisions.map(\.id)
+    presentations = document.presentations.map(\.id); rankings = document.rankings.map(\.id)
+    snapshots = document.trainingSnapshots; fits = document.fits; active = document.activeFitID
+  }
 }

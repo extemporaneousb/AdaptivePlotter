@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 import PortraitArtists
 import PortraitLibrary
+import PortraitCore
 
 /// Stable names and ancestry are projections of durable identities. Browsing
 /// them never declares artistic preference or creates another drawing.
@@ -107,10 +108,23 @@ extension FlowDojoModel {
       try await store.sourceData(source.id)
     }
   }
+  package func previewIdentity(candidate: FlowPortfolioCandidate, revisionID: UUID? = nil) -> String {
+    let revision = revisionID ?? document?.latestPrune(candidateID: candidate.id)?.id
+    let source = document?.sources.first { $0.id == candidate.sourceID }?.image.sha256 ?? "no-source"
+    return (document?.id.uuidString ?? "") + ":" + source + ":" + candidate.id.uuidString
+      + ":" + candidate.programHash + ":" + candidate.preview.sha256 + ":" + (revision?.uuidString ?? "root")
+  }
+  package func rankingPreviewIdentity(_ item: FlowPortfolioPresentationItem) -> String {
+    guard let candidate = document?.candidates.first(where: { $0.id == item.candidateID }) else { return item.id.uuidString }
+    // A ranking freezes its own exact mask; the current editor's latest mask
+    // must never substitute for an offered root or older revision.
+    return (document?.id.uuidString ?? "") + ":rank:" + item.id.uuidString + ":" + candidate.programHash
+      + ":" + candidate.preview.sha256 + ":" + (item.revisionID?.uuidString ?? "root")
+  }
   package func thumbnail(candidate: FlowPortfolioCandidate) async -> Data? {
     guard let store else { return nil }
     let revision = document?.latestPrune(candidateID: candidate.id)
-    let key = candidate.id.uuidString + ":" + (revision?.id.uuidString ?? candidate.preview.sha256)
+    let key = previewIdentity(candidate: candidate)
     return try? await FlowDojoThumbnailCache.shared.load(key: key) {
       let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,
         revisionID: revision?.id, sourceID: candidate.sourceID, removedIndices: revision?.removedIndices ?? [])
@@ -119,28 +133,65 @@ extension FlowDojoModel {
   }
 }
 
-/// Bounded encoded thumbnails, loaded on demand by visible rows. Full source
-/// images and hundreds of drawing previews are never decoded in a view body.
-private actor FlowDojoThumbnailCache {
+/// Encoded row thumbnails have a separate, bounded cost from decoded viewport
+/// pixels. Both reads and thumbnail encodes coalesce under exact context keys.
+package actor FlowDojoThumbnailCache {
   static let shared = FlowDojoThumbnailCache()
+  private struct Flight { let id: UUID; let task: Task<Data, Error> }
   private var values: [String: Data] = [:]
   private var order: [String] = []
-  func load(key: String, read: @Sendable () async throws -> Data) async throws -> Data {
-    if let data = values[key] { return data }
-    let original = try await read()
-    try Task.checkCancellation()
-    let data = try await Task.detached {
-      guard let source = CGImageSourceCreateWithData(original as CFData, nil),
-        let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-          kCGImageSourceCreateThumbnailFromImageAlways: true,
-          kCGImageSourceThumbnailMaxPixelSize: 280,
-          kCGImageSourceCreateThumbnailWithTransform: true
-        ] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
-      return try PortraitImageAnalyzer.encodedImage(image)
-    }.value
-    try Task.checkCancellation()
-    values[key] = data; order.removeAll { $0 == key }; order.append(key)
-    while order.count > 80 { values.removeValue(forKey: order.removeFirst()) }
-    return data
+  private var flights: [String: Flight] = [:]
+  private var bytes = 0
+  private let maximumEntries: Int, maximumBytes: Int, maximumInflight: Int
+  package init(maximumEntries: Int = 80, maximumBytes: Int = 16 * 1024 * 1024, maximumInflight: Int = 2) {
+    self.maximumEntries = max(1, maximumEntries); self.maximumBytes = max(1, maximumBytes)
+    self.maximumInflight = max(1, maximumInflight)
+  }
+  package var statistics: [String: Int] { ["entries": values.count, "encodedBytes": bytes, "inflight": flights.count] }
+  package func load(key identity: String, read: @escaping @Sendable () async throws -> Data) async throws -> Data {
+    let key = identity + ":thumbnail/png/oriented/280/v1"
+    while true {
+      try Task.checkCancellation()
+      if let data = values[key] { touch(key); return data }
+      if let flight = flights[key] {
+        do {
+          let data = try await flight.task.value; finish(key, flight: flight, data: data)
+          try Task.checkCancellation(); return data
+        } catch { finish(key, flight: flight, data: nil); throw error }
+      }
+      if flights.count >= maximumInflight, let pending = flights.first {
+        let data = try? await pending.value.task.value
+        finish(pending.key, flight: pending.value, data: data)
+        continue
+      }
+      let worker = Task.detached(priority: .utility) {
+        let original = try await read(); try Task.checkCancellation()
+        guard UInt64(original.count) <= ExchangeCarrierLimits().maximumEncodedImageBytes,
+          let source = CGImageSourceCreateWithData(original as CFData, nil),
+          let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 280,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+          ] as CFDictionary) else { throw CocoaError(.fileReadCorruptFile) }
+        let data = try PortraitImageAnalyzer.encodedImage(image)
+        try Task.checkCancellation(); return data
+      }
+      let flight = Flight(id: UUID(), task: worker); flights[key] = flight
+      do {
+        let data = try await worker.value; finish(key, flight: flight, data: data)
+        try Task.checkCancellation(); return data
+      } catch { finish(key, flight: flight, data: nil); throw error }
+    }
+  }
+  private func touch(_ key: String) { order.removeAll { $0 == key }; order.append(key) }
+  private func finish(_ key: String, flight: Flight, data: Data?) {
+    guard flights[key]?.id == flight.id else { return }
+    flights.removeValue(forKey: key)
+    guard let data, data.count <= maximumBytes else { return }
+    values[key] = data; bytes += data.count; touch(key)
+    while order.count > maximumEntries || bytes > maximumBytes {
+      if let removed = values.removeValue(forKey: order.removeFirst()) { bytes -= removed.count }
+    }
   }
 }

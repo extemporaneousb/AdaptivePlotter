@@ -8,6 +8,99 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Current native Drawing workflow group, 2026-11-08
+
+Dated pre-gate software observation for `task-1eea571945e34554aebcc95ffa636824`,
+covering DX-11 and the current-app DX-18/19/native-authoring DX-20 slice. Final
+configured validation and normal adoption belong to that task and are not claimed here.
+
+`FlowDojoImage` receives prepared images through a cancellable identity/decode-profile
+cache; body evaluation performs no image decode or data digest. Decoded cache residency
+is bounded to 80 entries/64 MiB including conservative encoded-provider plus pixel cost;
+encoded thumbnails use 80 entries/16 MiB. Each admits at most two actual unsettled
+workers, including cancelled work. Selection/generation guards withhold stale images.
+Checkpoint and supervision keys reuse immutable work on rename/navigation and invalidate
+for fit, feedback and curation changes. Camera-frame/placement caches retain their owners.
+
+The comparable synthetic fixture contains four Photos, 12 generated/retained candidates
+of 16 strokes each, explicit prune/rank judgments and a real local active fit. Each
+condition measured 30 operations per warm path after five warmups and five fresh-process/
+model opens; OS filesystem caches are unspecified. The same sealed 3,983,101-byte corpus,
+program/feedback hashes and consumed-bitmap pixel digest remained unchanged.
+
+| Measured path | Before p50/p95 ms | After p50/p95 ms |
+| --- | --- | --- |
+| Rename Photo | 74.829 / 83.784 | 65.905 / 72.858 |
+| Navigate Drawing | 73.473 / 85.579 | 66.222 / 73.356 |
+| Draw and consume exact preview pixels | 6.818 / 8.173 | 4.374 / 5.972 |
+| Fresh-process/model open | 3283.179 / 3367.043 | 3322.589 / 3429.993 |
+
+All nine affected-fixture gates passed. Warm helper lifetime peak RSS was
+119,418,880 → 72,404,992 bytes; cold-helper p95 was 62,869,504 → 63,057,920 bytes.
+These are process lifetime high-water marks including setup, not operation-local RSS
+or cache residency. Cold open did not improve. Driver totals are not comparable:
+the before run additionally seeded the fixture. Warm rename/navigation checkpoint
+and summary rebuild counters fell from one each to zero; repeated preview materialization
+fell from one to zero. Remaining commit hashing covers small publication metadata,
+with no unrelated artwork in those source-inspected closures; it is not zero hashing.
+
+The initial bound-query probe exposed deep global-page scans: 9,990 fullscan steps
+at 10,000 rows, including equal-date ties. Its separately retained literal-valued probe
+understated the production binding plan. Two disjoint bound seeks now select same-date
+identity successors, then older dates in the same snapshot. Production tests record
+1,088 VM steps/zero fullscan steps at both 100/10,000-row tie scales; system-SQLite
+probes likewise show bounded work. Mixed-date/tombstone traversal preserves order.
+The corrected synthetic metadata benchmark kept artwork unavailable: 30 first/deep
+trials at both scales recorded identical 50,910 VM steps/900 first-page fullscan steps,
+zero artwork stream-hash bytes; deep-page p95 was 3.824/3.881 ms. This is current
+projection-row evidence, not 10,000 admitted programs or universal scale acceptance.
+
+Scoped normal checks passed 34 cases/one native-repaint skip, then six affected cases,
+five final cache-helper cases, and 22 paging/browser cases/one explicit AX skip.
+The metadata driver passed two cases. These overlapping scopes are not summed.
+Reader/carrier tests passed 122/124 with two case-insensitive-volume skips; SwiftSketch
+protocol tests passed five/seven, with the two documented Pillow-unavailable skips
+(post-input preparation and encoded-sRGB/alpha preprocessing). No weights/inference ran.
+The declared `jsonschema[format-nongpl]==4.26.0` test dependency was installed only in
+this task's environment. An external executor configuration-preparation mistake ran no
+tests and is retained separately. Both current debug bundles were prepared, locally
+signed and validated against actual same-flags/config SwiftPM inputs; empty/swapped/
+wrong-config, unsigned and tampered negatives passed. Durable copies were revalidated
+without installation, registration or launch.
+
+The five excluded old-ABI benchmark sources, their six dead baseline/DX-04 runners,
+exclusive DX04 identity helper and four unused authored-path properties were removed.
+Pinned historical data/manifests, current v1/source-free fixtures, active machine/tip
+checkpoints and supported DrawingExchange/SwiftSketch tools remain. Current Library
+metadata-write/drain obligations remain after removal of the obsolete Dojo test queue.
+
+[Compact raw-observation index](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx11-native-verification/observations-index.json)
+and [retained signed-bundle manifest](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx11-native-app-handoff/manifest.json)
+retain actual commands, logs, XML, pins and scope. No full instrumentation-only source
+snapshot/diff was captured before optimization: source hashes, transcript/freeze
+boundaries, build receipts and exact fixture survive, but do not alone reproduce all
+before sources. Independent review is caller-declared. Actual signed UI interaction,
+AX/private-state/button/sheet acceptance, remaining engine/return/full-scale/10-GiB,
+historical import and physical/issuance gates remain unproved. No new required UI,
+width/setup input, production-data or Runtime authority was introduced.
+
+## DX-10 canonical adoption, 2026-11-08
+
+Task `task-c316fcdff30a4b7fbe3ca22922889e18` landed normally on main at
+`ac0e53e500a0c673343aae7280668f6d14573439`, exact validated tree
+`e52c17b76503de6e28d868dffb153e68b0582e33`. Configured event
+`b488dc55d6f0451806fc6a36802d7bc5b71d57440503348076618913ef25b3f5`
+passed docs/full serial quick/diff; XML 1,934 cases: 1,907 passes, 27 skips,
+zero failures/errors, with all 947 discovered inputs unchanged. Post-adoption
+delivery correction
+`11e7c2ec2a1eb94bf77bda40196acf78953de17980965e8ad874decb41223726`
+made all ten bounded artifact criteria current/met, caller-declared. Terminal
+environment applicability remains separately unknown. The dated pre-acceptance
+receipt and failed observations below remain unchanged; actual lifecycle receipts
+are retained in [`dx10-library-lifecycle/`](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx10-library-lifecycle/).
+This establishes bounded software delivery, not AX/button/sheet acceptance, signed
+app launch, performance improvement, historical import, physical ink or DX13 issuance.
+
 ## DX-10 Library and Drawing Studio cutover, 2026-11-08
 
 Dated pre-acceptance software observation for `task-c316fcdff30a4b7fbe3ca22922889e18`.

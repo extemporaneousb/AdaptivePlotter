@@ -30,6 +30,12 @@ struct FlowDojoIntegrationTests {
     #expect(fit.hasCheckpoint)
     await model.activate(fit.id)
     let checkpointID = try #require(model.activeCheckpoint?.id)
+    let checkpointReads = model.checkpointDecodeCount, summaryBuilds = model.trainingSummaryBuildCount
+    let current = try #require(model.candidate)
+    await model.renameCandidate(current.id, title: "Named after fit")
+    await model.browseCandidate(current.id)
+    #expect(model.checkpointDecodeCount == checkpointReads && model.trainingSummaryBuildCount == summaryBuilds)
+    #expect(model.activeCheckpoint?.id == checkpointID)
     await model.generate(refining: false)
     #expect(model.error == nil)
     #expect(model.round?.modelID == checkpointID)

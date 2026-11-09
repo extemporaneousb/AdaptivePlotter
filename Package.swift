@@ -111,9 +111,7 @@ let package = Package(
     ),
     .testTarget(
       name: "PortraitStudioTests",
-      dependencies: ["PortraitStudio", "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime"],
-      // Frozen DX01 measurements target the retired authoring ABI; retained inert.
-      exclude: ["DrawingExchangeFlowBaselineTests.swift"]
+      dependencies: ["PortraitStudio", "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI", "PlotterModel", "PlotterRuntime"]
     ),
     .testTarget(
       name: "PlotterAppTests",
@@ -121,9 +119,7 @@ let package = Package(
         "EpisodeCore", "PlotterApp", "PlotterEpisodeModel", "PlotterEpisodeRuntime",
         "PlotterRuntime", "PlotterTestSupport",
         "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
-      ],
-      // Frozen DX01 driver source remains byte-identical outside active membership.
-      exclude: ["DrawingExchangeBaselineTests.swift", "DrawingExchangeDX04ProbeTests.swift", "DrawingExchangeDX04ReaderProbeTests.swift", "DrawingExchangeCounterControlsTests.swift"]
+      ]
     ),
     .testTarget(
       name: "PlotterEpisodeUIActionabilityTests",

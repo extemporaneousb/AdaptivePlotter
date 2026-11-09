@@ -20,7 +20,7 @@ package struct FlowDojoSidebar: View {
   private func sidebar(compact: Bool) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       if let source = model.selectedSource {
-        FlowDojoImage(data: model.sourceData).frame(maxWidth: .infinity).frame(height: compact ? 84 : 132)
+        FlowDojoImage(data: model.sourceData, identity: source.image.sha256, maximumDimension: 280).frame(maxWidth: .infinity).frame(height: compact ? 84 : 132)
           .accessibilityLabel("Selected photo: " + model.photoName(source))
         Text(model.photoName(source)).font(.headline).lineLimit(2).padding(.horizontal, 10)
         Text("Drawings and branches belong to this photo").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10)
@@ -121,9 +121,14 @@ private struct CandidateThumbnail: View {
   let model: FlowDojoModel
   let candidate: FlowPortfolioCandidate
   @State private var data: Data?
+  @State private var loadedKey: String?
   var body: some View {
-    FlowDojoImage(data: data).task(id: model.document?.latestPrune(candidateID: candidate.id)?.id ?? candidate.id) {
-      data = await model.thumbnail(candidate: candidate)
+    let key = model.previewIdentity(candidate: candidate)
+    FlowDojoImage(data: loadedKey == key ? data : nil, identity: key, maximumDimension: 280).task(id: key) {
+      data = nil; loadedKey = nil
+      let pixels = await model.thumbnail(candidate: candidate)
+      guard !Task.isCancelled, model.previewIdentity(candidate: candidate) == key else { return }
+      data = pixels; loadedKey = key
     }
   }
 }

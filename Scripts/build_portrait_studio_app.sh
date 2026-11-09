@@ -7,7 +7,12 @@ case "$configuration" in
     release|debug) ;;
     *) echo "unsupported app build configuration: $configuration" >&2; exit 1 ;;
 esac
-binary="$project_root/.build/$configuration/PortraitStudio"
+binary_directory=${APP_BINARY_DIRECTORY-"$project_root/.build/$configuration"}
+case "$binary_directory" in
+    /*) ;;
+    *) echo "APP_BINARY_DIRECTORY must be an absolute SwiftPM binary directory" >&2; exit 1 ;;
+esac
+binary="$binary_directory/PortraitStudio"
 output=${2:-"$project_root/.build/PortraitStudio.app"}
 case "$output" in
     /*/PortraitStudio.app) ;;
@@ -37,6 +42,7 @@ if [ ! -f "$template" ]; then
     exit 1
 fi
 
+mkdir -p "$project_root/.build"
 staging_root=$(mktemp -d "$project_root/.build/.PortraitStudio-app.XXXXXX")
 staging_bundle="$staging_root/PortraitStudio.app"
 trap 'rm -rf "$staging_root"' EXIT HUP INT TERM
@@ -45,6 +51,9 @@ mkdir -p "$staging_bundle/Contents/MacOS"
 install -m 755 "$binary" "$staging_bundle/Contents/MacOS/PortraitStudio"
 install -m 644 "$template" "$staging_bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :PortraitStudioBuildConfiguration string $configuration" \
+    "$staging_bundle/Contents/Info.plist"
+build_input_sha256=$(/usr/bin/shasum -a 256 "$binary" | /usr/bin/awk '{print $1}')
+/usr/libexec/PlistBuddy -c "Add :PortraitStudioBuildInputSHA256 string $build_input_sha256" \
     "$staging_bundle/Contents/Info.plist"
 
 signing_identity=-
@@ -87,13 +96,14 @@ else
         "$staging_bundle"
 fi
 
-sh "$project_root/Scripts/validate_portrait_studio_app_bundle.sh" "$staging_bundle"
+sh "$project_root/Scripts/validate_portrait_studio_app_bundle.sh" "$staging_bundle" "$binary" "$configuration"
 
 mkdir -p "$(dirname "$output")"
 rm -rf "$output"
 mv "$staging_bundle" "$output"
 
-sh "$project_root/Scripts/validate_portrait_studio_app_bundle.sh" "$output"
+sh "$project_root/Scripts/validate_portrait_studio_app_bundle.sh" "$output" "$binary" "$configuration"
+echo "PortraitStudio source executable: $binary ($build_input_sha256)" >&2
 echo "PortraitStudio build: $configuration" >&2
 echo "PortraitStudio signing: $signing_mode ($signing_identity)" >&2
 echo "$output"

@@ -1,6 +1,7 @@
 @testable import PortraitArtists
 @testable import PortraitStudioUI
 import CoreGraphics
+import DrawingLibrary
 import Foundation
 import PlotterEpisodeModel
 import PlotterModel
@@ -921,6 +922,7 @@ func presentationImagePixelFormatsAndPaddedStride() throws {
 @MainActor
 @Test("Frame identity cache converts once across repeated projection updates and remains bounded")
 func presentationImageCacheIsIdentityKeyedAndBounded() throws {
+  let libraryCounters = DrawingLibraryDiagnostics.shared.snapshot()
   let cache = FramePresentationImageCache()
   let frameID = FrameID()
   let configurationID = CameraConfigurationID()
@@ -966,6 +968,7 @@ func presentationImageCacheIsIdentityKeyedAndBounded() throws {
   _ = try #require(cache.image(from: reconfigured))
   #expect(cache.conversionCount == 122)
   #expect(cache.cachedEntryCount == 1)
+  #expect(DrawingLibraryDiagnostics.shared.snapshot() == libraryCounters)
 }
 
 private func testDisplayedFrame(

@@ -31,8 +31,8 @@ records the former owners. Use current call sites for implementation.
 
 ### Delivery rules and ownership
 
-Keep the admitted DX-10 task moving under its recorded definition. After it lands,
-group the eligible slices in each row below into one Blackdog task, one workspace,
+DX-10 is adopted under its recorded definition. Group the eligible slices in each
+row below into one Blackdog task, one workspace,
 one integration owner and one configured validation on the integrated tree.
 Retain the individual DX IDs and their acceptance criteria. Within a group, reuse
 the preceding slice's work directly. Split a group when a genuine dependency,
@@ -100,8 +100,12 @@ all nine bounded caller-declared artifact criteria current/met. Its
 actual full-gate, grouping/provenance and environment limits; no whole-campaign or
 physical/model-promotion claim follows.
 
-**DX-10 — Photos/Drawings browser and Curate cutover.** The admitted task
-`task-c316fcdff30a4b7fbe3ca22922889e18` implements the dated pre-gate boundary in
+**DX-10 — Photos/Drawings browser and Curate cutover.** Adopted normally on main at
+`ac0e53e500a0c673343aae7280668f6d14573439`, exact validated tree
+`e52c17b76503de6e28d868dffb153e68b0582e33`, all ten bounded caller-declared artifact
+criteria current/met. The [canonical receipt](CURRENT_EVIDENCE.md#dx-10-canonical-adoption-2026-11-08)
+records the actual gate, verified adoption and separate unknown terminal environment.
+The implementation boundary is in
 `DrawingLibrary{Reads,Sources,Records,Results,Attempts}`, `PortraitSketchCollection`,
 `FlowPortfolioStore/Graph`, `PortraitDrawingAttemptBinding`, `FlowDojoModel`, shared
 `DrawingLibrary{Browser,Navigation,SourceView}` and actual embedded/standalone route owners.
@@ -112,14 +116,18 @@ fallback, and result snapshots/staged bindings/raw evidence remain distinct. Exi
 Stop and raw possible-ink authority remain accessible and current; no issuance bridge
 is claimed. See [scoped software observations](CURRENT_EVIDENCE.md#dx-10-library-and-drawing-studio-cutover-2026-11-08).
 
-Final configured validation, acceptance and verified normal landing remain authoritative
-in that task; this dated observation claims none prematurely. Native focus/button/sheet/
-AX and signed-app interaction remain bounded by actual host evidence. Continue the
-remaining current-app DX-11/18/19/native-20 group above after normal DX-10 adoption;
-historical schemas/files/layout continuity remain outside this release.
+Native focus/button/sheet/AX and signed-app interaction remain bounded by actual host
+evidence. The current DX-11/current-app DX-18/caller-proven DX-19/native-authoring DX-20
+software slice is `task-1eea571945e34554aebcc95ffa636824`; its
+[dated pre-gate receipt](CURRENT_EVIDENCE.md#current-native-drawing-workflow-group-2026-11-08)
+records affected measurements, the bound-cursor correction, current-tool checks and
+prepared signed bundles. Final configured acceptance/adoption belongs to that task.
+Actual signed UI interaction and the remaining engine/return/full-scale/10-GiB/native/
+physical gates remain unfinished; historical schemas/files/layout continuity stay out
+of this release.
 
 **DX-11 — Interactive performance and cache discipline.** Allowed:
-DX-08/10 UI/model files, `Sources/PortraitStudioUI/{FlowDojoRenderer,FramePresentationImageCache,PortraitPlanePreview}.swift`,
+DX-08/10 UI/model files, `Sources/PortraitStudioUI/{FlowDojoRenderer,FlowPresentationImageCache,FlowDojoPresentation,FramePresentationImageCache,PortraitPlanePreview}.swift`,
 `Sources/PortraitLibrary/` query/cache implementations and targeted performance tests.
 Remove decode/allocation from SwiftUI body (including `NSImage(data:)` in
 `FlowDojoView`), avoid checkpoint revalidation/training-summary rebuild on every

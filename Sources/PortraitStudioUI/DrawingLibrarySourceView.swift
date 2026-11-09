@@ -38,7 +38,7 @@ package struct DrawingLibrarySourceView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
           if let ref = route.photo {
-            FlowDojoImage(data: pixels).frame(height: 160)
+            FlowDojoImage(data: loadedPhoto == route.photo ? pixels : nil, identity: "library-photo:" + (route.photo?.digest.description ?? "none"), maximumDimension: 640).frame(height: 160)
             Button("Export Photo") { Task { await exportPhoto(ref) } }
               .help("Export the original verified Photo publication without changing its pixels or metadata.")
             if loadedPhoto == ref {

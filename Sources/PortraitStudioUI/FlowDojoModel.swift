@@ -48,6 +48,9 @@ package final class FlowDojoModel {
   package private(set) var activeModelIssue: String?
   package private(set) var activeCheckpoint: FlowArtistCheckpoint?
   package private(set) var trainingProgress: FlowDojoTrainingProgress?
+  /// Actual expensive refresh work; derived diagnostics, never persisted.
+  package private(set) var checkpointDecodeCount = 0
+  package private(set) var trainingSummaryBuildCount = 0
   @ObservationIgnored private let library: DrawingLibrary?
   @ObservationIgnored package private(set) var store: FlowPortfolioStore?
   @ObservationIgnored private let renderer = FlowDojoRenderer()
@@ -68,11 +71,17 @@ package final class FlowDojoModel {
   /// One-shot deterministic join seam for persistence tests; absent in the product.
   @ObservationIgnored private var metadataJoinHook: (@MainActor () async -> Void)?
   @ObservationIgnored private var pendingNames: [(id: UUID, photo: Bool, title: String, store: FlowPortfolioStore)] = []
-  @ObservationIgnored private var pendingCurations: [(id: UUID, subject: String, session: String, excluded: Bool, store: FlowPortfolioStore)] = []
   @ObservationIgnored private var fittedDocument: FlowPortfolioSnapshot?
   @ObservationIgnored private var activeTrainingDocument: FlowPortfolioSnapshot?
-  @ObservationIgnored private var fittedSnapshotID: UUID?
-  @ObservationIgnored private var activeSnapshotID: UUID?
+  @ObservationIgnored private var fittedSnapshot: FlowPortfolioTrainingSnapshot?
+  @ObservationIgnored private var activeSnapshot: FlowPortfolioTrainingSnapshot?
+  @ObservationIgnored private var trainingProgressKey: FlowDojoTrainingProgressKey?
+  private struct CheckpointKey: Equatable {
+    let portfolio: UUID
+    let fit: FlowPortfolioFit
+    let snapshot: FlowPortfolioTrainingSnapshot?
+  }
+  @ObservationIgnored private var checkpointKey: CheckpointKey?
   @ObservationIgnored private var loadedProgramID: UUID?
   @ObservationIgnored private var previewKeys: [UUID: String] = [:]
   @ObservationIgnored private let purpose: FlowPortfolioPurpose?
@@ -109,7 +118,7 @@ package final class FlowDojoModel {
   package var autosaveStatus: String {
     if let error { return (needsRecovery ? "Not saved: " : "Action unavailable: ") + error }
     if isBusy { return progress }
-    if pendingMetadataCount > 0 { return "Saving name and source edits…" }
+    if pendingMetadataCount > 0 { return "Saving names…" }
     return "All changes saved · revision \(document?.revision ?? 0)"
   }
 
@@ -222,18 +231,7 @@ package final class FlowDojoModel {
     guard !name.isEmpty, name.utf8.count <= 1024 else { return }
     pendingNames.removeAll { $0.id == id && $0.photo == photo }
     pendingNames.append((id, photo, name, store))
-    pendingMetadataCount = pendingNames.count + pendingCurations.count
-    nameDebounce?.cancel()
-    nameDebounce = Task {
-      do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
-      await flushMetadataEdits()
-    }
-  }
-  package func queueSourceCuration(_ id: UUID, subject: String, session: String, excluded: Bool) {
-    guard acceptsChanges, let store, subject.utf8.count <= 256, session.utf8.count <= 256 else { return }
-    pendingCurations.removeAll { $0.id == id }
-    pendingCurations.append((id, subject, session, excluded, store))
-    pendingMetadataCount = pendingNames.count + pendingCurations.count
+    pendingMetadataCount = pendingNames.count
     nameDebounce?.cancel()
     nameDebounce = Task {
       do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
@@ -249,7 +247,7 @@ package final class FlowDojoModel {
         // Joining is not proof that a later admitted edit was included.
         continue
       }
-      guard !pendingNames.isEmpty || !pendingCurations.isEmpty else { return }
+      guard !pendingNames.isEmpty else { return }
       let id = UUID()
       let task = Task { @MainActor in
         defer {
@@ -257,24 +255,13 @@ package final class FlowDojoModel {
           // never clear a newer worker or mistake this completed one for it.
           if self.nameFlushID == id { self.nameFlush = nil; self.nameFlushID = nil }
         }
-        while !self.pendingNames.isEmpty || !self.pendingCurations.isEmpty {
-          if !self.pendingNames.isEmpty {
-            let edit = self.pendingNames.removeFirst()
-            self.pendingMetadataCount = self.pendingNames.count + self.pendingCurations.count
-            await self.perform("Saving name…", alreadyAdmitted: true) {
-              if edit.photo { try await edit.store.renameSource(sourceID: edit.id, title: edit.title) }
-              else { try await edit.store.renameCandidate(candidateID: edit.id, title: edit.title) }
-              try await self.refresh()
-            }
-          } else {
-            let edit = self.pendingCurations.removeFirst()
-            self.pendingMetadataCount = self.pendingNames.count + self.pendingCurations.count
-            await self.perform("Saving source curation…", alreadyAdmitted: true) {
-              try await edit.store.setSourceGroups(sourceID: edit.id,
-                subjectID: edit.subject.isEmpty ? nil : edit.subject,
-                sessionID: edit.session.isEmpty ? nil : edit.session, excluded: edit.excluded)
-              try await self.refresh()
-            }
+        while !self.pendingNames.isEmpty {
+          let edit = self.pendingNames.removeFirst()
+          self.pendingMetadataCount = self.pendingNames.count
+          await self.perform("Saving name…", alreadyAdmitted: true) {
+            if edit.photo { try await edit.store.renameSource(sourceID: edit.id, title: edit.title) }
+            else { try await edit.store.renameCandidate(candidateID: edit.id, title: edit.title) }
+            try await self.refresh()
           }
         }
       }
@@ -658,59 +645,94 @@ package final class FlowDojoModel {
         guard !closing, photoRevision == photoSelectionRevision else { throw CancellationError() }
       }
     }
-    try await store.refreshPhotoMetadata()
-    let snapshot = await store.snapshot()
-    try assertCurrent()
-    // Never pair a newly published source identity with the prior source's
-    // pixels/program when a subsequent exact asset read is unavailable.
-    let nextSource = snapshot.selectedSourceID.flatMap { id in snapshot.sources.first { $0.id == id } }
-    if nextSource?.image.sha256 != loadedSourceHash {
-      sourceData = nil; loadedSourceHash = nil; program = nil; loadedProgramID = nil
+    try await store.refreshPhotoMetadata(); try assertCurrent()
+    let snapshot = await store.snapshot(); try assertCurrent()
+    let source = snapshot.sources.first { $0.id == snapshot.selectedSourceID }
+    let candidate = snapshot.candidates.first { $0.id == snapshot.currentCandidateID }
+    if source?.image.sha256 != loadedSourceHash {
+      // Preserve the DX10 failed-open contract: the admitted new identity may
+      // remain unavailable, but it must never keep the preceding Photo's pixels
+      // or program if its subsequent exact asset read fails.
+      document = snapshot; sourceData = nil; loadedSourceHash = nil
+      program = nil; loadedProgramID = nil
     }
-    document = snapshot
-    if let document {
-      let last = document.fits.last(where: { $0.hasCheckpoint })
-      if fittedSnapshotID != last?.snapshotID {
-        if let last { fittedDocument = try await store.trainingDocument(snapshotID: last.snapshotID) }
-        else { fittedDocument = nil }
-        fittedSnapshotID = last?.snapshotID
-      }
-      let active = document.fits.first(where: { $0.id == document.activeFitID })
-      if activeSnapshotID != active?.snapshotID {
-        if let active { activeTrainingDocument = try await store.trainingDocument(snapshotID: active.snapshotID) }
-        else { activeTrainingDocument = nil }
-        activeSnapshotID = active?.snapshotID
-      }
-      trainingProgress = FlowDojoTrainingProgress(document: document, fittedDocument: fittedDocument, activeDocument: activeTrainingDocument)
+    let lastFit = snapshot.fits.last(where: \.hasCheckpoint)
+    let activeFit = snapshot.fits.first { $0.id == snapshot.activeFitID }
+    let nextFittedSnapshot = snapshot.trainingSnapshots.first { $0.id == lastFit?.snapshotID }
+    let nextActiveSnapshot = snapshot.trainingSnapshots.first { $0.id == activeFit?.snapshotID }
+    guard lastFit == nil || nextFittedSnapshot != nil,
+      activeFit == nil || nextActiveSnapshot != nil else {
+      throw FlowPortfolioError.unavailable("The exact frozen training snapshot is unavailable.")
     }
-    if let source = selectedSource {
-      if loadedSourceHash != source.image.sha256 {
-        let data = try await store.sourceData(source.id); try assertCurrent()
-        sourceData = data; loadedSourceHash = source.image.sha256
+    var fitted = fittedDocument, active = activeTrainingDocument
+    if fittedSnapshot != nextFittedSnapshot {
+      if let lastFit { fitted = try await store.trainingDocument(snapshotID: lastFit.snapshotID); try assertCurrent() }
+      else { fitted = nil }
+    }
+    if activeSnapshot != nextActiveSnapshot {
+      if nextActiveSnapshot == nextFittedSnapshot { active = fitted }
+      else if let activeFit { active = try await store.trainingDocument(snapshotID: activeFit.snapshotID); try assertCurrent() }
+      else { active = nil }
+    }
+    let summaryKey = FlowDojoTrainingProgressKey(snapshot)
+    let summary: FlowDojoTrainingProgress
+    if trainingProgressKey == summaryKey, let progress = trainingProgress { summary = progress.atRevision(snapshot.revision) }
+    else {
+      trainingSummaryBuildCount += 1
+      summary = FlowDojoTrainingProgress(document: snapshot, fittedDocument: fitted, activeDocument: active)
+    }
+    var pixels = sourceData, sourceHash = loadedSourceHash
+    if let source {
+      if sourceHash != source.image.sha256 {
+        pixels = try await store.sourceData(source.id); try assertCurrent(); sourceHash = source.image.sha256
       }
-    } else { sourceData = nil; loadedSourceHash = nil }
+    } else { pixels = nil; sourceHash = nil }
+    var selectedProgram = program, programID = loadedProgramID
     if let candidate {
-      if loadedProgramID != candidate.id { program = try? await store.candidateProgram(candidate.id); loadedProgramID = candidate.id }
-    } else { program = nil; loadedProgramID = nil }
-    if let fitID = document?.activeFitID {
-      activeCheckpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: await store.checkpointData(fitID: fitID))
-      try activeCheckpoint?.validateArchive()
-      do { try activeCheckpoint?.validateForInference(); activeModelIssue = nil }
-      catch { activeModelIssue = error.localizedDescription }
-    } else { activeCheckpoint = nil; activeModelIssue = nil }
-    let visibleIDs = Set(roundCandidates.map(\.id))
-    previews = previews.filter { visibleIDs.contains($0.key) }
-    previewKeys = previewKeys.filter { visibleIDs.contains($0.key) }
-    for candidate in roundCandidates {
-      let revision = document?.latestPrune(candidateID: candidate.id)
-      let key = revision?.id.uuidString ?? "original"
-      guard previewKeys[candidate.id] != key else { continue }
+      if programID != candidate.id {
+        selectedProgram = try? await store.candidateProgram(candidate.id); try assertCurrent(); programID = candidate.id
+      }
+    } else { selectedProgram = nil; programID = nil }
+    var checkpoint = activeCheckpoint, issue = activeModelIssue
+    let nextCheckpointKey = activeFit.map { CheckpointKey(portfolio: snapshot.id, fit: $0, snapshot: nextActiveSnapshot) }
+    if let fitID = snapshot.activeFitID {
+      guard nextCheckpointKey != nil else { throw FlowPortfolioError.unavailable("Model checkpoint is unavailable.") }
+      if checkpointKey != nextCheckpointKey {
+        let bytes = try await store.checkpointData(fitID: fitID); try assertCurrent()
+        checkpointDecodeCount += 1
+        checkpoint = try JSONDecoder().decode(FlowArtistCheckpoint.self, from: bytes)
+        try checkpoint?.validateArchive()
+        do { try checkpoint?.validateForInference(); issue = nil }
+        catch { issue = error.localizedDescription }
+      }
+    } else { checkpoint = nil; issue = nil }
+    let round = snapshot.rounds.first { $0.id == snapshot.currentRoundID }
+    let ids = round.map { $0.displayedCandidateIDs.isEmpty ? $0.candidateIDs : $0.displayedCandidateIDs } ?? []
+    let visibleIDs = Set(ids)
+    var nextPreviews = previews.filter { visibleIDs.contains($0.key) }
+    var nextKeys = previewKeys.filter { visibleIDs.contains($0.key) }
+    for candidate in snapshot.candidates where visibleIDs.contains(candidate.id) {
+      let revision = snapshot.latestPrune(candidateID: candidate.id)
+      let key = candidate.programHash + ":" + (revision?.id.uuidString ?? candidate.preview.sha256)
+      guard nextKeys[candidate.id] != key else { continue }
       let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,
         revisionID: revision?.id, sourceID: candidate.sourceID, removedIndices: revision?.removedIndices ?? [])
-      previews[candidate.id] = try? await store.presentationPreview(item)
-      previewKeys[candidate.id] = key
+      nextPreviews[candidate.id] = try? await store.presentationPreview(item); try assertCurrent()
+      nextKeys[candidate.id] = key
     }
+    // Publish prepared state only after every exact read has settled. A late
+    // photo/close completion cannot pair old pixels, checkpoint or geometry with
+    // a newer visible identity.
+    try assertCurrent()
+    document = snapshot; sourceData = pixels; loadedSourceHash = sourceHash
+    program = selectedProgram; loadedProgramID = programID
+    fittedDocument = fitted; activeTrainingDocument = active
+    fittedSnapshot = nextFittedSnapshot; activeSnapshot = nextActiveSnapshot
+    trainingProgress = summary; trainingProgressKey = summaryKey
+    activeCheckpoint = checkpoint; activeModelIssue = issue; checkpointKey = nextCheckpointKey
+    previews = nextPreviews; previewKeys = nextKeys
   }
+
   private func restoreRanking() async throws {
     guard let document, let latest = document.presentations.first(where: { $0.id == document.currentPresentationID }) ?? document.presentations.last else { return }
     presentation = latest
@@ -722,6 +744,14 @@ package final class FlowDojoModel {
   }
   private func loadRankingPreviews() async throws {
     guard let store, let presentation else { return }
-    for item in presentation.items { rankingPreviews[item.id] = try? await store.presentationPreview(item) }
+    let visible = Set(presentation.items.map(\.id))
+    var previews = rankingPreviews.filter { visible.contains($0.key) }
+    for item in presentation.items where previews[item.id] == nil {
+      let data = try? await store.presentationPreview(item)
+      guard !closed, self.presentation?.id == presentation.id else { return }
+      previews[item.id] = data
+    }
+    guard !closed, self.presentation?.id == presentation.id else { return }
+    rankingPreviews = previews
   }
 }

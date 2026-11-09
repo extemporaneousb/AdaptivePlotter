@@ -1,4 +1,5 @@
 import Foundation
+import DrawingLibrary
 import PortraitLibrary
 import PortraitStudioUI
 import Testing
@@ -40,6 +41,40 @@ struct FlowDojoNavigationTests {
     } catch { await model.shutdown(); throw error }
   }
 
+  @Test("Title/navigation reuse supervision, while neutral grouping/exclusion and feedback invalidate it")
+  func semanticRefreshCache() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "Before")
+    model.count = 3; await model.generate(refining: false)
+    let candidate = try #require(model.roundCandidates.first), source = try #require(model.selectedSource)
+    let library = try #require(model.drawingLibrary), photo = try #require(source.photo)
+    let baseline = model.trainingSummaryBuildCount
+    await model.renameSource(source.id, title: "After")
+    await model.renameCandidate(candidate.id, title: "Drawing title")
+    await model.browseCandidate(candidate.id)
+    #expect(model.trainingSummaryBuildCount == baseline && model.checkpointDecodeCount == 0)
+    #expect(model.trainingProgress?.revision == model.document?.revision)
+    try await library.updatePhotoMetadata(photo, patch: .init(title: .set("Neutral title")))
+    await model.selectSource(source.id)
+    #expect(model.selectedSource?.title == "Neutral title" && model.trainingSummaryBuildCount == baseline)
+    try await library.updatePhotoMetadata(photo, patch: .init(subjectID: .set("subject"), sessionID: .set("session")))
+    await model.selectSource(source.id)
+    #expect(model.trainingSummaryBuildCount == baseline + 1)
+    try await library.updatePhotoMetadata(photo, patch: .init(excluded: true))
+    await model.selectSource(source.id)
+    #expect(model.trainingSummaryBuildCount == baseline + 2 && model.trainingProgress?.includedPhotoCount == 0)
+    try await library.updatePhotoMetadata(photo, patch: .init(subjectID: .set(nil), sessionID: .set(nil), excluded: false))
+    await model.selectSource(source.id)
+    await model.selectCandidate(candidate.id, prune: true)
+    let beforeEdit = model.trainingSummaryBuildCount
+    await model.edit(.remove, ids: [try #require(model.program?.strokes.first?.id)])
+    #expect(model.trainingSummaryBuildCount == beforeEdit + 1)
+    #expect(model.trainingProgress == FlowDojoTrainingProgress(document: try #require(model.document)))
+    #expect(await model.shutdown())
+  }
+
   @Test("Pair preference, tie and skipped outcome autosave; full panel ranking remains available")
   func explicitComparisons() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -50,6 +85,7 @@ struct FlowDojoNavigationTests {
       model.count = 3; await model.generate(refining: false)
       let round = try #require(model.round)
       await model.presentRanking(scope: .round(round.id), count: 2)
+      let earlier = try #require(model.presentation?.id)
       let first = try #require(model.presentation?.items.first?.id)
       await model.compare(preferred: first)
       #expect(model.trainingProgress?.rankingComparisonCount == 1)
@@ -67,6 +103,8 @@ struct FlowDojoNavigationTests {
       await model.presentRanking(scope: .round(round.id), count: 2)
       #expect(model.error != nil && !model.needsRecovery)
       #expect(model.autosaveStatus.hasPrefix("Action unavailable:"))
+      await model.selectPresentation(earlier)
+      #expect(Set(model.rankingPreviews.keys) == Set(try #require(model.presentation).items.map(\.id)))
       #expect(await model.shutdown())
     } catch { await model.shutdown(); throw error }
   }
@@ -123,10 +161,8 @@ struct FlowDojoNavigationTests {
     model.queueName(id, photo: true, title: "An")
     model.queueName(id, photo: true, title: "Angular face")
     model.queueName(id, photo: true, title: "") // Empty while selecting/retyping is not a destructive edit.
-    model.queueSourceCuration(id, subject: "Person A", session: "Morning", excluded: false)
-    model.queueSourceCuration(id, subject: "Person A", session: "", excluded: false)
-    #expect(model.pendingMetadataCount == 2)
-    #expect(model.autosaveStatus == "Saving name and source edits…")
+    #expect(model.pendingMetadataCount == 1)
+    #expect(model.autosaveStatus == "Saving names…")
     #expect(model.document?.revision == baseline)
     #expect(await model.shutdown())
     #expect(model.pendingMetadataCount == 0)
@@ -134,8 +170,7 @@ struct FlowDojoNavigationTests {
     let reopened = FlowDojoModel(directory: directory)
     await reopened.open()
     #expect(reopened.selectedSource?.title == "Angular face")
-    #expect(reopened.document?.revision == baseline + 2)
-    #expect(reopened.selectedSource?.subjectID == "Person A" && reopened.selectedSource?.sessionID == nil)
+    #expect(reopened.document?.revision == baseline + 1)
     #expect(reopened.document?.choices.isEmpty == true)
     #expect(reopened.trainingProgress?.supervisedCandidateCount == 0)
     #expect(await reopened.shutdown())
