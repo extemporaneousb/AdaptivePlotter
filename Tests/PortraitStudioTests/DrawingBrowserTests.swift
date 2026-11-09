@@ -252,7 +252,7 @@ struct DrawingBrowserTests {
     let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library, delegate: delegate,
       route: Binding(get: { navigation }, set: { navigation = $0 }))
     let shared = standalone.drawingBrowser
-    #expect(shared.sketches === acquisition.sketches && shared.handoff == nil)
+    #expect(shared.sketches === acquisition.sketches && shared.handoff != nil)
     #expect(acquisition.sketches.selected == nil)
     let host = NSHostingController(rootView: shared.frame(width: 960, height: 700))
     host.sizingOptions = []
@@ -328,7 +328,7 @@ struct DrawingBrowserTests {
     let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library,
       delegate: PortraitStudioApplicationDelegate(), route: Binding(get: { navigation }, set: { navigation = $0 }))
     let shared = standalone.drawingBrowser
-    #expect(shared.sketches === acquisition.sketches && shared.handoff == nil)
+    #expect(shared.sketches === acquisition.sketches && shared.handoff != nil)
     #expect(shared.sketches.selected == nil)
     let browserHost = NSHostingController(rootView: shared.frame(width: 960, height: 700))
     browserHost.sizingOptions = []

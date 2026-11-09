@@ -8,6 +8,94 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-12 local destination and Prepare software receipt, 2026-11-08
+
+Dated pre-gate software observation for `task-ff8ab127b52045cab85d3bc692f2edc3`,
+base `2f37f877b4c5636e9ffc4012b196f52141600b8b`. Final configured validation and
+normal adoption are not claimed here; later authoritative status belongs to that task.
+
+The shared typed service/file contract now uses existing projection-bound Prepare,
+compact Library domain records/CAS and exact engine-owned closure/plan/options. Mapping
+and decision commit together, with namespace-qualified request keys and recovery/lookup
+for lost acknowledgements. Real Library before/after-SQL-commit faults, concurrent retry,
+changed-field conflicts, timeout lookup, deletion of client paths and failed-return repair
+have scoped coverage. Production Describe/Submit expose unavailable issuance; Submit
+records a genuine refused receipt without Start. Non-device accepted/reconciling tests
+are not production issuance. Result export preserves authored payload bytes and emits
+one refused job, zero attempts and no issuance, with actual local plan/options assets.
+
+Actual app callers wait for runtime and saved view/Photo restoration, carry the exact
+ticket to the view-owned route/layout action and recheck live facts before reveal.
+Prepare-only startup polling recovers lost open events without foreground/reprocessing;
+explicit user handoff may foreground. Standalone ordinary open/import reveals exact refs
+through the existing Library route, including early arrivals. Scope, parent, stale-source,
+failed-open, closing and plan-change cases use disposable/offscreen owners; no signed
+app was launched. The narrow `.drawingrequest` UTI belongs to AdaptivePlotter; generic
+ZIP association claims were removed. Existing Draw/Start/Stop/run authority is unchanged.
+
+| Actual retained observation | Result/scope |
+| --- | --- |
+| First script | Compilation passed; XML 13 cases: 8 passed/5 failed, seven raw issues (carrier sealing, Photo operation fixture, shutdown assertion); remains failed |
+| Serial retry | XML 14 cases: 13 passed/1 failed, four overstrict old-vs-result carrier-control comparisons; remains failed |
+| Corrected service/helper scope | 16 passed, no skips/failures/errors; three refused ZIPs retained |
+| Recovery and document callers | Two separate two-case passes; actual offscreen replacement-delegate/standalone constructor paths |
+| Restoration/handoff intermediate | Four cases: 3 passed/1 failed, three unawaited view-settlement assertions; remains failed |
+| Final typed-ticket/reveal scope | 10 passed, no skips/failures/errors; includes real prepared-ticket commit hold/live-plan race and exact final route assertions |
+| Independent carrier CLI | All three new ZIPs exited 0, each reporting `drawings 1 unsupported []`; byte/envelope/link checks only |
+
+The first configured gate on committed `8f8dc10768309acaaf237f3be02445a7da31f567`
+(event `463aaf5c1b270367337becbb9618b35d2efaca600366314f3813011bda7a4352`)
+passed docs-check but failed quick-test: XML 1,962 cases, 1,932 passes, 29 skips,
+one failure and zero errors; diff-check did not run. The existing standalone native
+constructor test still expected no handoff, although this task intentionally provides
+Prepare. Only its two stale nil expectations (default and optional AX constructors)
+were changed to nonnil, preserving collection/native assertions. The affected default
+native canvas/model case plus standalone handoff then passed: two cases, no skips,
+failures or errors. AX stayed disabled. The first full gate remains failed; a fresh
+configured validation of the corrected committed tree is pending. Its ordinary-gate
+separate-process skip does not replace the explicit helper-backed scoped pass above.
+Actual gate and correction receipts are linked from the observation index.
+
+Overlapping scopes are not summed. Every run kept its 950 discovered inputs unchanged.
+The first script lacked explicit serial scheduling; later affected runs used
+`--no-parallel`. The current Python tool does not implement native physical-plan,
+intent/frontier or answer codecs: `unsupported []` is not physical readiness/issuance/
+ink or Library-install proof. Swift local owner validators decode actual
+`ExecutionPlanRevision`/`DrawingDestinationOptions` with existing bounds/invariants;
+receipt plan pins are not authored-program hashes under border/placement composition.
+
+Commands, actual failures/passes, raw logs/XML/pins and retained refusal ZIPs are indexed
+in [`dx12-destination-verification/observations-index.json`](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx12-destination-verification/observations-index.json).
+Both signed debug bundles were built from the same private SwiftPM scratch/configuration,
+validated against their actual source SHA and Mach-O UUID, copied with signatures intact
+and revalidated in [the retained handoff manifest](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx12-destination-app-handoff/manifest.json).
+Prepared declarations contain only AdaptivePlotter’s narrow request UTI and no generic
+ZIP claim. Neither app was launched, registered or installed. Review is caller-declared. No new performance,
+AX/Finder/LaunchServices/signed-interaction, engine/full-scale/10-GiB or physical claim
+follows. Future DX-13-ISSUANCE is operator-authorized but not yet canonically defined or
+executed; no episode ledger/vocabulary/runtime-authority change occurred here. Historical
+import remains deferred; unknown width and ordinary optional-input behavior remain.
+
+## DX-11 current native group canonical adoption, 2026-11-08
+
+Task `task-1eea571945e34554aebcc95ffa636824` landed normally on main at
+`2f37f877b4c5636e9ffc4012b196f52141600b8b`, exact validated tree
+`242446a1f4bd9a45c551555c2cab46a686ef87fd`. Configured event
+`081ee19b9122403a4935633d23bc85f78739566597be571a06f133aadb1f6be2`
+passed docs/full serial quick/diff; XML 1,942 cases: 1,914 passes, 28 skips,
+zero failures/errors, with all 941 discovered inputs unchanged. Post-adoption
+delivery correction
+`b7a10dfc7752672d27e969def42639ebd610564ae3763f36f75aaf0e1d466237`
+made all six bounded artifact criteria current/met, caller-declared. Terminal
+validation-environment applicability is separately unknown. Actual lifecycle
+receipts remain in [`dx11-native-lifecycle/`](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx11-native-lifecycle/).
+Both signed debug apps were prepared, validated and retained without launch;
+separate [source and adoption bindings](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx11-native-app-handoff/adoption-binding.json)
+leave their original manifest and bundles unchanged. The dated pre-gate observation
+below remains intact, including baseline source-snapshot and cold/RSS limitations.
+Actual signed UI/AX interaction, engine/issuance/return, remaining full-scale/10-GiB
+and physical acceptance remain unfinished; this does not close the whole campaign.
+
 ## Current native Drawing workflow group, 2026-11-08
 
 Dated pre-gate software observation for `task-1eea571945e34554aebcc95ffa636824`,

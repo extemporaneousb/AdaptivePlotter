@@ -80,7 +80,7 @@ an image-conditioned drawing-preference head and contextual whole-stroke deletio
 head. Fitting depends on model-owned observation DTOs, not on library or UI types,
 so there is no reverse dependency from Artists into Library.
 
-`DrawingLibrary` owns the common concrete actor, strict schema-10 SQLite catalog,
+`DrawingLibrary` owns the common concrete actor, strict schema-12 SQLite catalog,
 writer lease, transactional metadata and immutable `objects/sha256` assets. It
 retains and loads exact Drawing references, pages compact summaries and owns
 current Drawing Exchange import/export. `PortraitLibrary` supplies the typed
@@ -89,6 +89,18 @@ it is not a parallel database or head/delta publisher. Generated geometry stays 
 bounded temporary caches. Choosing, committed pruning and explicit Plot handoff
 retain exact revisions and their closure. Rank retains features and previews
 without making unselected geometry permanent.
+
+`PortraitCore.DrawingDestination` supplies neutral typed control values. The
+`PortraitLibrary` destination service serializes admission across awaits and stores
+compact identities/tickets/decisions/pending mappings through the same DrawingLibrary
+writer/CAS. Its local file adapters share the contract. PlotterApp supplies actual
+projection-bound Prepare/live-fact adapters; production Submit refuses the unavailable
+issuance seam and cannot call legacy Start. View-owned restoration/reveal callbacks
+keep selection/layout out of the service. Root shutdown closes metadata admission,
+settles existing physical effects, then joins metadata workers/recovery before Library
+teardown. `DrawingDestinationHarness` depends on DrawingLibrary, PortraitCore,
+PortraitLibrary and PlotterModel; it is a disposable non-device protocol executable,
+not another app or production executor. No Runtime/Episode authority transfer occurs.
 
 `PortraitStudioUI` owns `FlowDojoModel`, the shared Explore/Prune/Rank/Fit & deploy
 views, the serial `FlowDojoRenderer` actor, preview generation and

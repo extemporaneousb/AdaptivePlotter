@@ -35,5 +35,21 @@
   <string>AdaptivePlotter transcribes spoken exercise responses using Apple Speech, on device when available.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Drawing preparation request</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key><array><string>com.bullard.adaptiveplotter.drawing-request</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array><dict>
+    <key>UTTypeIdentifier</key><string>com.bullard.adaptiveplotter.drawing-request</string>
+    <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+    <key>UTTypeDescription</key><string>Drawing preparation request</string>
+    <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>drawingrequest</string></array></dict>
+  </dict></array>
 </dict>
 </plist>

@@ -117,11 +117,12 @@ Stop and raw possible-ink authority remain accessible and current; no issuance b
 is claimed. See [scoped software observations](CURRENT_EVIDENCE.md#dx-10-library-and-drawing-studio-cutover-2026-11-08).
 
 Native focus/button/sheet/AX and signed-app interaction remain bounded by actual host
-evidence. The current DX-11/current-app DX-18/caller-proven DX-19/native-authoring DX-20
-software slice is `task-1eea571945e34554aebcc95ffa636824`; its
-[dated pre-gate receipt](CURRENT_EVIDENCE.md#current-native-drawing-workflow-group-2026-11-08)
-records affected measurements, the bound-cursor correction, current-tool checks and
-prepared signed bundles. Final configured acceptance/adoption belongs to that task.
+evidence. The bounded DX-11/current-app DX-18/caller-proven DX-19/native-authoring DX-20
+software slice landed normally at `2f37f877b4c5636e9ffc4012b196f52141600b8b`,
+validated tree `242446a1f4bd9a45c551555c2cab46a686ef87fd`, with six artifact criteria
+current/met, caller-declared. Its [canonical receipt](CURRENT_EVIDENCE.md#dx-11-current-native-group-canonical-adoption-2026-11-08)
+records the configured gate and unchanged retained signed apps; the dated pre-gate
+measurement/probe evidence and its reproducibility limits remain separate.
 Actual signed UI interaction and the remaining engine/return/full-scale/10-GiB/native/
 physical gates remain unfinished; historical schemas/files/layout continuity stay out
 of this release.
@@ -151,6 +152,19 @@ disconnect/relaunch at each boundary, no-device refusal, changed prepared-plan
 return to preview and cancellation acknowledgement distinguished from settlement.
 Recovery: reconciling jobs never issue another Start; failed return is publication
 retry. This ticket cannot implement a replacement executor.
+
+The current bounded DX-12 plus directly corresponding app/tool/cleanup tranche is
+`task-ff8ab127b52045cab85d3bc692f2edc3`. Its scoped implementation has typed two-app
+Prepare, durable namespace/request decisions, owner-written local transport and genuine
+zero-attempt refusal export. Production execution remains unavailable; this is not the
+DX-13 old-run cutover. The [dated receipt](CURRENT_EVIDENCE.md#dx-12-local-destination-and-prepare-software-receipt-2026-11-08)
+keeps actual failures, affected passes, independent-envelope limits and later configured
+validation/normal-adoption authority separate. Signed UI, accepted return snapshots,
+full engine, scale/10-GiB and physical rollout remain unfinished.
+
+Operator authorization exists for a future named **DX-13-ISSUANCE** software package
+after DX-12 lands. It has not yet been canonically defined or executed. That authorization
+does not change this task's definition or edit the episode ledger/vocabulary/runtime here.
 
 **DX-13 — Existing draft/run issuance seam, via named eligible episode package.**
 Allowed only after the episode eligibility gate: the exact package-approved changes

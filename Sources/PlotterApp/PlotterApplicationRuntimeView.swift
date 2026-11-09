@@ -12,6 +12,7 @@ import AppKit
 
 struct PlotterApplicationRuntimeView: View {
   @Bindable var application: PlotterApplicationRuntime
+  var drawingDestinationRestorationCompleted: @MainActor (@escaping DrawingDestinationReveal) -> Void = { _ in }
   @AppStorage("AdaptivePlotter.workbenchLayout.v1") private var savedLayout = Data()
   @AppStorage("AdaptivePlotter.libraryRoute.v1") private var savedRoute = Data()
   @State private var gateLayout: WorkbenchLayoutState?
@@ -35,6 +36,10 @@ struct PlotterApplicationRuntimeView: View {
   }
   private var libraryRoute: Binding<DrawingLibraryRoute> {
     Binding(get: { .restored(savedRoute) }, set: { savedRoute = $0.encoded })
+  }
+
+  private var drawingDestinationWindowPresentation: DrawingDestinationWindowPresentation {
+    .init(route: libraryRoute, layout: layout, reviewer: $reviewerIsPresented)
   }
 
   private func currentProjection(program: DrawingProgram? = nil) -> PlotterAppUIProjection {
@@ -79,10 +84,8 @@ struct PlotterApplicationRuntimeView: View {
         } ?? false).equatable()
       if reviewerIsPresented {
         DrawingTransferView(application: application, close: { selectToolbarDestination(.plotter) },
-          route: libraryRoute, openStudio: openLibraryPhoto, projected: {
-            reviewerIsPresented = false; libraryRoute.wrappedValue.workspace = .plotter
-            layout.wrappedValue.setPresented(.portraitStudio, false)
-            layout.wrappedValue.setPresented(.drawing, true)
+          route: libraryRoute, openStudio: openLibraryPhoto, projected: { ticket in
+            drawingDestinationWindowPresentation.showDestination(reference: ticket.facts.drawing)
           })
       } else if layout.wrappedValue.isPresented(.portraitStudio) {
         VStack(spacing: 0) {
@@ -142,13 +145,11 @@ struct PlotterApplicationRuntimeView: View {
       if savedRoute.isEmpty, !savedLayout.isEmpty {
         libraryRoute.wrappedValue.workspace = layout.wrappedValue.isPresented(.portraitStudio) ? .drawingStudio : .plotter
       }
-      let restored = libraryRoute.wrappedValue
-      reviewerIsPresented = restored.workspace == .library
-      if restored.workspace == .drawingStudio { layout.wrappedValue.setPresented(.portraitStudio, true) }
-      if restored.workspace == .drawingStudio, let ref = restored.photo {
-        panelError = await openLibraryPhoto(ref)
-        if panelError != nil { selectToolbarDestination(.drawings) }
-      }
+      await drawingDestinationWindowPresentation.restoreSavedWorkspace(openPhoto: openLibraryPhoto, photoResult: { failure in
+        panelError = failure
+        if failure != nil { selectToolbarDestination(.drawings) }
+      })
+      drawingDestinationRestorationCompleted(drawingDestinationWindowPresentation.revealAction(application: application))
       if RunningAppPreviewPerformanceGate.isRequested {
         gateLayout = WorkbenchLayoutState(presented: [.guidedLearning, .motion, .activeLearning, .portraitStudio])
       }
@@ -457,14 +458,10 @@ struct PlotterApplicationRuntimeView: View {
   }
 
   private func useDrawingProgram(_ drawing: Drawing) async -> String? {
-    let error = await application.projectDrawing(drawing)
-    if error == nil {
-      reviewerIsPresented = false
-      libraryRoute.wrappedValue.workspace = .plotter
-      layout.wrappedValue.setPresented(.portraitStudio, false)
-      layout.wrappedValue.setPresented(.drawing, true)
-    }
-    return error
+    await DrawingDestinationHandoff.perform(drawing, application: application, lifetime: {
+      .init(route: libraryRoute.wrappedValue,
+        studioIsPresented: layout.wrappedValue.isPresented(.portraitStudio), reviewerIsPresented: reviewerIsPresented)
+    }, showDestination: { ticket in drawingDestinationWindowPresentation.showDestination(reference: ticket.facts.drawing) })
   }
 
   private func applyPortraitMaterial(_ profile: DrawingMaterialProfileRevision) async -> String? {

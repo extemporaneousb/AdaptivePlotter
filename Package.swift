@@ -14,8 +14,10 @@ let package = Package(
     .library(name: "PlotterRuntime", targets: ["PlotterRuntime"]),
     .executable(name: "AdaptivePlotter", targets: ["PlotterApp"]),
     .executable(name: "PortraitStudio", targets: ["PortraitStudio"]),
+    .executable(name: "DrawingDestinationHarness", targets: ["DrawingDestinationHarness"]),
   ],
   targets: [
+    .executableTarget(name: "DrawingDestinationHarness", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitLibrary", "PlotterModel"]),
     .target(name: "EpisodeCore"),
     .target(
       name: "EpisodeRuntime",

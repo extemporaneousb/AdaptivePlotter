@@ -1793,6 +1793,10 @@ final class PlotterApplicationRuntime:
     }
     return receipt.summary
   }
+  var drawingDestinationStatus: String?
+  var drawingDestinationStartupHasSettled: Bool { startupState == .started }
+  var drawingDestinationRecoveryAdmissionIsOpen: Bool { applicationAdmissionIsOpen && startupState != .cancelled }
+  @ObservationIgnored lazy var drawingDestination = DrawingDestinationComposition.make(self)
   let portraitStudio: PortraitStudioModel
   private var workbenchCameraSnapshot = PlotterWorkbenchCameraSnapshot()
   var workbenchCameraRole: WorkbenchCameraRole { workbenchCameraSnapshot.role }
@@ -12869,6 +12873,7 @@ final class PlotterApplicationRuntime:
     // model episode before the first suspension. Feature owners close before
     // the task is joined, so a suspended request cannot outlive its owner.
     admissionState = .closing
+    drawingDestination.closeAdmission()
     retainedWorkbenchVoiceController?.setEnabled(false)
     startupState = .cancelled
     markSemanticPresentationChanged()
@@ -12940,6 +12945,7 @@ final class PlotterApplicationRuntime:
     await manualMotionRuntime.shutdown()
     await stopAndSettleActiveMotionForShutdown()
     await awaitApplicationEffectsSettlement()
+    await drawingDestination.close()
     if let observationRuntime {
       await observationRuntime.shutdown()
     } else {

@@ -87,6 +87,47 @@ These operator paths have scoped software coverage. Full hosted button/sheet AX
 acceptance is a separate strict host-dependent check; no signed-app restart or
 physical plotting validation is implied. See the [dated receipt](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08).
 
+## Prepare in AdaptivePlotter
+
+The Library's existing **Send to Drawing** action now uses the shared typed Prepare
+path. In standalone Drawing Studio, **Prepare in AdaptivePlotter** retains the exact
+Drawing and sends a `.drawingrequest`; no new destination setup, width declaration or
+learning action is required. Both Library and Dojo use the same existing selection,
+projection, fit and readiness owners. AdaptivePlotter reveals the exact current ticket
+in Plotter's Drawing panel after saved workspace/Photo restoration. An obsolete source
+request cannot foreground or reveal another selection. Ordinary standalone Drawing
+import/open reveals its exact imported ref in the existing global Library route,
+including when the document arrives before owners or the view callback are ready.
+
+Prepare and document opening issue no Start/controller commands. Current exchange
+submission is unavailable; preparation is available for preview/readiness. Existing
+explicit **Draw** uses its existing run owner and has not become a durable exchange job.
+The future issuance cutover is separately authorized, not implemented here. A cached
+preparation response is a recorded snapshot; current submission facts must still match.
+
+A pending request is durable before handoff. If the open event/reply is lost, relaunch
+republishes it; the running destination's Prepare-only recovery can consume it without
+another open event or foreground action. Closing a source view with already-admitted
+work can leave that durable Prepare queued. Valid replies retire only client pending
+files/records, not the engine's facts. Imports remain explicit: no generic ZIP association
+is installed by these declarations. Exact Drawing bytes/connections and unknown nominal
+width remain intact. Signed native interaction and physical execution remain separate
+acceptance steps; agent checks use disposable owners/offscreen callbacks/helper processes.
+
+For the developer's disposable protocol check, the current script builds the real
+non-device helper and runs the two affected suites serially:
+
+```sh
+bash Scripts/test_drawing_destination.sh \
+  --scratch-path /absolute/disposable/swift-scratch \
+  --xunit-output /absolute/disposable/destination-tests.xml \
+  --jobs 4 --evidence-directory /absolute/disposable/refusals
+```
+
+This does not launch either app. It is not a production execution command. Current
+process/log/XML/refusal artifacts and scope are in
+[Current Evidence](CURRENT_EVIDENCE.md#dx-12-local-destination-and-prepare-software-receipt-2026-11-08).
+
 ## Build a portfolio
 
 1. **Import Photo** retains the supplied PNG or JPEG bytes inside the portfolio.

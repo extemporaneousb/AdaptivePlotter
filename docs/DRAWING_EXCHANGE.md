@@ -110,6 +110,58 @@ tombstone rules remain unchanged. The dated [group receipt](CURRENT_EVIDENCE.md#
 records the actual bound-plan finding, affected fixture/work counters and measurement
 limits; it does not establish the remaining full-scale/media/native gates.
 
+## Current local destination boundary
+
+`PortraitCore.DrawingDestinationRequest` defines Describe, Prepare, Submit, Status,
+Cancel and ExportResult; `DrawingDestinationReply` carries typed descriptions,
+tickets, decisions, refusals, cancellation acknowledgement/settlement and result URLs.
+`PortraitLibrary.DrawingDestinationService` and its file adapters use the same contract.
+
+| Operation | Current behavior |
+| --- | --- |
+| Describe | Stable local engine identity, current exchange/Drawing/stroke profiles, authored-style preservation and captured destination applicability. Placement/border/material/readiness options are captured; arbitrary overrides and a nominal-width requirement are absent. Production execution is unavailable. |
+| Prepare | Through the existing projection-bound app/draft owners, load/retain the exact Drawing/input/parent closure, select/fit and capture a genuine current plan/options. No executable plan means typed refusal and no ticket. A ticket pins full DrawingRef, destination, draft revision, actual plan ID/hash and plan/options asset digests. |
+| Submit | Recheck a new request against the stored ticket and live facts; changed facts require a new preview. A decided same-key retry returns the original decision. Production durably refuses with `issuance-seam-unavailable`; it never falls back to legacy Start. |
+| Status | Look up by JobRef or client namespace/request after a lost reply; compact domain rows contain no geometry/plan bytes. Metadata counter evidence excludes explicit owner opening/recovery. |
+| Cancel | Acknowledgement and settlement are separate fields. A refused job is already settled and retains its immutable receipt. Only the disposable non-device harness exercises accepted/held/reconciling cancellation. |
+| ExportResult | A genuine prepared refusal exports engine-owned authored closure, actual frozen plan/options and refused receipt, zero attempts/issuance. Missing return publication may be repaired without submitting/dispatching again. Accepted zero-attempt results remain invalid. |
+
+The existing Library actor/journal/CAS owns the engine/client identities, prepared
+records, namespace-qualified request digest mappings, job decisions and pending deliveries.
+A namespace is part of the request record kind, so equal request UUIDs from different
+clients do not collide. Admission queues the complete operation across awaits. Decision
+and request mapping commit atomically; uncertainty recovers through the existing writer
+and exact lookup. Preparation owns plan/options assets before acknowledging its ticket;
+status rows retain only their pins. There is no new database or Library writer.
+
+Control JSON is bounded to 1 MiB. Client-owned requests/artwork and engine-owned replies
+are published atomically under
+`~/Library/Application Support/AdaptivePlotter/DrawingDestination/`. The narrow
+`.drawingrequest` declaration belongs to AdaptivePlotter; neither app claims generic ZIP
+ownership. Existing explicit Drawing import and direct delegate paths remain. Startup
+republishes client pending Prepare; the engine receives only after runtime startup and
+saved view/Photo restoration. Recovery polls Prepare only, ignores Submit, skips valid
+responses without rewriting, and reveals a matching current ticket once without foreground.
+Explicit user handoff may foreground the destination. View-owned route/layout callbacks
+and dynamic request/ticket guards prevent stale completion from retargeting selection.
+
+Result publication streams its seal, builds a same-directory private ZIP, synchronizes
+it and installs with exclusive atomic rename. A verified same-job result is reused;
+a divergent target is preserved. `includedAsOf` is the immutable refusal wall time.
+The local `adaptiveplotter.local-prepared-plan/1` and
+`adaptiveplotter.local-medium-options/1` validators decode the actual owner plan/options,
+with their existing validation/bounds; the exact plan asset pin is not the authored
+program hash when placement/border composition differs, and grants no physical authority.
+The independent Python carrier checks known envelope/hash/reference closure; its
+`unsupported []` for these refusal envelopes does not implement native physical-plan,
+intent/frontier/assessment codecs or prove readiness/issuance/ink.
+
+Existing legacy Draw/Start/Stop/run ownership is unchanged. Future DX-13-ISSUANCE has
+operator authorization but is not yet canonically defined or executed; this task makes
+no episode ledger/vocabulary/runtime-authority change. See the
+[dated software receipt](CURRENT_EVIDENCE.md#dx-12-local-destination-and-prepare-software-receipt-2026-11-08)
+for actual tests and remaining signed-interaction/engine/scale/physical gates.
+
 ## Persistence, exchange and atomic mounting
 
 The active local Library uses one selected SQLite catalog and a content-addressed

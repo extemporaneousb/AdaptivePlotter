@@ -9,18 +9,22 @@ struct DrawingTransferView: View {
   let close: () -> Void
   @Binding var route: DrawingLibraryRoute
   var openStudio: (PhotoRef) async -> String? = { _ in nil }
-  var projected: () -> Void = {}
+  var projected: (DrawingPreparedTicket) -> Void = { _ in }
   init(application: PlotterApplicationRuntime, close: @escaping () -> Void,
     route: Binding<DrawingLibraryRoute> = .constant(.init()),
-    openStudio: @escaping (PhotoRef) async -> String? = { _ in nil }, projected: @escaping () -> Void = {}) {
+    openStudio: @escaping (PhotoRef) async -> String? = { _ in nil }, projected: @escaping (DrawingPreparedTicket) -> Void = { _ in }) {
     self.application = application; self.close = close; _route = route
     self.openStudio = openStudio; self.projected = projected
   }
   var browser: DrawingLibraryBrowser {
     DrawingLibraryBrowser(sketches: application.portraitStudio.sketches, close: close, handoff: { drawing, request in
-      let error = await application.projectDrawing(drawing, isStillCurrent: { request.isCurrent })
-      if error == nil, request.isCurrent { projected() }
-      return error
+      switch await application.prepareDestinationDrawingOutcome(drawing, isStillCurrent: { request.isCurrent }) {
+      case .prepared(let ticket):
+        guard request.isCurrent, application.preparedDrawingIsCurrent(ticket) else { return "Drawing preparation has changed. Review the current preview." }
+        projected(ticket)
+        return nil
+      case .refused(_, let detail): return detail
+      }
     }, route: $route, openStudio: openStudio, review: { drawing in
       AnyView(DrawingReviewerView(application: application, drawing: drawing).id(drawing.reference))
     })

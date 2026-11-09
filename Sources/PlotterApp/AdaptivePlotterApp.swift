@@ -1,4 +1,5 @@
 import DrawingLibrary
+import PortraitCore
 import PortraitLibrary
 import PortraitStudioUI
 import AppKit
@@ -67,18 +68,113 @@ struct PlotterEpisodeComposition {
 final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate {
   let composition: PlotterEpisodeComposition
   var applicationRuntime: PlotterApplicationRuntime { composition.application }
+  private let destinationRoot: URL
+  private lazy var destinationFileServer = DrawingDestinationFileServer(service: applicationRuntime.drawingDestination,
+    library: applicationRuntime.portraitStudio.sketches.library, root: destinationRoot)
+  private struct PreparationReplyKey: Hashable { let client: UUID; let delivery: UUID }
+  private var observedPreparationReplies: Set<PreparationReplyKey> = []
+  private var revealPreparedDrawing: DrawingDestinationReveal?
+  private var destinationViewRestorationCompleted = false
+  private(set) var drawingDestinationRecoveryScanCount = 0
+  private var destinationRecoveryTask: Task<Void, Never>?
+  private var documentTasks: [Task<Void, Never>] = []
   private var terminationTask: Task<Void, Never>?
   private var didReplyToTermination = false
   var restoreOperatorWindow: (() -> Void)?
 
   override init() {
+    destinationRoot = DrawingDestinationFiles.defaultRoot
     composition = .production()
     super.init()
   }
 
-  init(composition: PlotterEpisodeComposition) {
+  init(composition: PlotterEpisodeComposition, destinationRoot: URL = DrawingDestinationFiles.defaultRoot) {
+    self.destinationRoot = destinationRoot
     self.composition = composition
     super.init()
+  }
+
+  func application(_ sender: NSApplication, open urls: [URL]) {
+    guard terminationTask == nil else { return }
+    documentTasks.append(Task {
+      guard await waitForDrawingDestinationStartup() else { return }
+      for url in urls {
+        do {
+          if url.pathExtension.lowercased() == "drawingrequest" {
+            let delivery = try DrawingDestinationFiles.read(DrawingDestinationDelivery.self, from: url)
+            guard case .prepare = delivery.request else { throw DrawingDestinationRefusal.invalidDelivery }
+            let responseURL = try await destinationFileServer.receive(url)
+            let response = try DrawingDestinationFiles.read(DrawingDestinationResponse.self, from: responseURL)
+            observedPreparationReplies.insert(.init(client: response.client, delivery: response.delivery))
+            showDrawingPreparation(response.reply, foreground: true)
+          } else {
+            let refs = try await applicationRuntime.portraitStudio.sketches.importDrawings(from: url)
+            guard let ref = refs.first else { throw DrawingDestinationRefusal.preparationUnavailable }
+            showDrawingPreparation(try await applicationRuntime.drawingDestination.handle(.prepare(ref)), foreground: true)
+          }
+        } catch {
+          applicationRuntime.drawingDestinationStatus = "Drawing could not be opened: " + error.localizedDescription
+        }
+      }
+    })
+  }
+
+  func completeDrawingDestinationRestoration(_ reveal: @escaping DrawingDestinationReveal) {
+    revealPreparedDrawing = reveal
+    destinationViewRestorationCompleted = true
+  }
+  private func showDrawingPreparation(_ reply: DrawingDestinationReply, foreground: Bool) {
+    switch reply {
+    case .prepared(let ticket):
+      if revealPreparedDrawing?(ticket) == true {
+        applicationRuntime.drawingDestinationStatus = "Drawing prepared in the preview. Submission is unavailable."
+      } else {
+        applicationRuntime.drawingDestinationStatus = "Drawing preparation has changed. Prepare it again to review the current preview."
+      }
+    case .refused:
+      applicationRuntime.drawingDestinationStatus = "The drawing could not be prepared. Review the destination preview and readiness."
+    default:
+      applicationRuntime.drawingDestinationStatus = "The drawing preparation response is unavailable."
+    }
+    if foreground { restoreOperatorWindow?() }
+  }
+
+  private func waitForDrawingDestinationStartup() async -> Bool {
+    while !applicationRuntime.drawingDestinationStartupHasSettled || !destinationViewRestorationCompleted {
+      guard applicationRuntime.drawingDestinationRecoveryAdmissionIsOpen, !Task.isCancelled else { return false }
+      do { try await Task.sleep(for: .milliseconds(25)) } catch { return false }
+    }
+    return applicationRuntime.drawingDestinationRecoveryAdmissionIsOpen && !Task.isCancelled
+  }
+  func startDrawingDestinationRecovery() {
+    guard terminationTask == nil, destinationRecoveryTask == nil else { return }
+    destinationRecoveryTask = Task { [weak self] in
+      guard let self, await self.waitForDrawingDestinationStartup() else { return }
+      while !Task.isCancelled {
+        guard self.applicationRuntime.drawingDestinationRecoveryAdmissionIsOpen else { return }
+        let recovery = await self.destinationFileServer.drainPreparations()
+        self.drawingDestinationRecoveryScanCount += 1
+        for response in recovery.responses {
+          guard self.observedPreparationReplies.insert(.init(client: response.client, delivery: response.delivery)).inserted else { continue }
+          self.showDrawingPreparation(response.reply, foreground: false)
+        }
+        if let failure = recovery.failures.first {
+          self.applicationRuntime.drawingDestinationStatus = "Drawing preparation recovery failed: " + failure
+        }
+        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+      }
+    }
+  }
+  func cancelDrawingDestinationRecovery() { destinationRecoveryTask?.cancel() }
+  func settleDrawingDestinationRecovery() async {
+    destinationRecoveryTask?.cancel()
+    await destinationRecoveryTask?.value
+    destinationRecoveryTask = nil
+  }
+
+  func settleDrawingDocuments() async {
+    let admitted = documentTasks
+    for task in admitted { await task.value }
   }
 
   func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
@@ -110,7 +206,13 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
         sender.reply(toApplicationShouldTerminate: false)
         return
       }
+      self.cancelDrawingDestinationRecovery()
+      self.destinationFileServer.closeAdmission()
       await self.applicationRuntime.shutdown()
+      await self.settleDrawingDestinationRecovery()
+      await self.destinationFileServer.close()
+      for task in self.documentTasks { await task.value }
+      self.documentTasks = []
       await self.composition.ownedDrawingLibrary?.closeLibrary()
       self.completeTermination(of: sender)
     }
@@ -197,10 +299,17 @@ private struct AdaptivePlotterOperatorWindow: View {
   @Environment(\.openWindow) private var openWindow
   let delegate: AdaptivePlotterApplicationDelegate
   var body: some View {
-    PlotterApplicationRuntimeView(application: delegate.applicationRuntime)
+    PlotterApplicationRuntimeView(application: delegate.applicationRuntime,
+      drawingDestinationRestorationCompleted: delegate.completeDrawingDestinationRestoration)
+      .safeAreaInset(edge: .bottom) {
+        if let status = delegate.applicationRuntime.drawingDestinationStatus {
+          Text(status).font(.caption).foregroundStyle(.secondary).padding(6)
+        }
+      }
       .frame(minWidth: LearningWorkbenchLayoutPolicy.minimumWindowWidth,
         minHeight: AdaptivePlotterScenePolicy.minimumWindowHeight)
       .onAppear {
+        delegate.startDrawingDestinationRecovery()
         delegate.restoreOperatorWindow = {
           openWindow(id: AdaptivePlotterScenePolicy.singletonWindowID)
           NSApp.activate(ignoringOtherApps: true)
