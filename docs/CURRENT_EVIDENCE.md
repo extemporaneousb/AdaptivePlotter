@@ -8,11 +8,86 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DOC-06 Drawing issuance definition candidate
+
+Definition-only task `task-7666d0443b0748318f5aa9e4b468726e` starts from adopted
+`5cbf791de3756fffb74412d2abfd78a549c22020`, tree
+`5f9850834a165a29663cb49e664b22d4edd2aade`. Immutable definition
+`c8939d4fb37772a196344a97da1d8c8bf9eab3bca972752431534b6866dc79dc`
+was recorded before edits. `DOC-06` is complete as this repository-only candidate,
+subject to final DOC/DIFF and normal adoption; `DX-13-ISSUANCE` remains pending.
+No DX-13 Swift execution or physical acceptance is claimed. The package freezes a
+coupled existing-owner issuance correction; execution requires the later named
+software admission. Attempt `attempt-5667b0e490134ecdbf06aa8a0ac46d68` retained
+one coherent author and sole executor, with caller-declared root review.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DOC` | passed — `make docs-check` | Preliminary frozen definition candidate: fixture/documentation/architecture contracts plus Python groups 13/13, 9/9, 51/51 and 6/6; 60.427 seconds, exit 0 |
+| `DIFF` | passed — `git diff --check` | Same candidate, empty stdout/stderr; 0.038 seconds, exit 0 |
+
+Actual preliminary receipts and full stdout/stderr are retained at
+[`dx13-doc06-admission/preliminary/`](/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx13-doc06-admission/preliminary/).
+All 950 discovered inputs and the 84,797-byte frozen diff remained unchanged
+(SHA-256 `f225ed7302e39c900d397f4eb89b704e2c3432c3aef93f422b6374b420261717`).
+The subsequent completion-only delta records these actual passes, adds DOC-06 to
+expected completion/checksum constants and admits the actual current Blackdog task
+ID spelling beside historical IDs. Its positive/malformed-ID mutation uses only
+the existing disposable Python contract fixture. Final DOC/DIFF must validate that
+delta before landing; no final pass is invented here. No Swift/build/QUICK/JOURNEY,
+real pending issuance-source scan, hardware, app launch or production data check
+ran. Delivery remains not_assessed until root independently verifies adoption;
+package DOC-06 complete does not mean DX-13-ISSUANCE or the migration is complete.
+
+Routed-document dispositions from the author's handoff, accepted by root:
+reviewed/no change for `SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md`,
+`PRODUCT_CONTRACT.md`, `PORTRAIT_STUDIO.md`, `ATTENDED_HARDWARE_RUNBOOK.md`
+and the episode/wave protocols. This definition-only package changes no as-built
+product/effect, operator or physical authority; its actual canonical edits are
+Current Evidence, Drawing Exchange, execution plan, vocabulary and Roadmap.
+
+DX-12 normal adoption/cleanup was independently verified at the above commit/tree.
+Accepted source was `f05d6b523f1528f600b8c153ff3064a00790df3f`. The actual final
+configured event `e60e7261dc374508ff54e7c5d0c364fa1fa738e818e60a110dcb64aa799bd80c`
+passed 1,933 cases with 29 optional skips, zero failures/errors (1,962 XML cases;
+XML SHA-256 `62fc421e13498c549b9a466489719a78f82ac9f826e2a1024483463b6c8db5a7`,
+261,560 bytes; 950 inputs unchanged). The first failed configured gate remains
+failed history below. Delivery correction
+`6da352e05f089ce0781e1c3d5c33ff191fb70dcfa2adfb8a7aa28c188ee4a119`
+records seven artifact criteria met as caller-declared evidence. Lifecycle records:
+`/Users/bullard/.codex/visualizations/2026/11/07/01a1b3cd-d6b0-74c0-870a-92a0f18a0419/dx12-destination-lifecycle/final-summary.json`
+and `final2/{cli.json,process.json,tests.xml,summary.json}` in that directory.
+The signed but unlaunched bundle binding is the adjacent
+`dx12-destination-app-handoff/adoption-binding.json`. Ambient/external terminal
+environment is unknown. These are bounded software/carrier/current-app receipts,
+not production issuance, native physical-codec, scale or physical completion.
+
+Known bounded DX-18 followup: admitted delegate import/Prepare work can finish
+status/reveal/foreground after termination begins. Existing joins protect store
+lifetime; no physical or data-loss defect was observed. Later presentation guards
+in AdaptivePlotter `showDrawingPreparation`/recovery and Studio
+`drainDrawingDocuments` must suppress late UI adoption after awaits while preserving
+durable settlement, joins and quit-cancel restoration. DX-12 source is frozen.
+
+The capsule boundary also needs current `blackdog.snapshot/v2` task-summary
+normalization: terminal done/success and administratively canceled abandoned/blocked/failed claims
+with explicit null active attempt are closed history, even when canceled worktrees
+are intentionally retained. Installed `blackdog_core/state.py` defines those terminal
+attempts, and `blackdog/wtam.py.cancel_task` cancels inactive blocked/failed tasks
+without rewriting their attempt status. The actual retained snapshot is
+`old-claims-abandonment-20261109/repository-summary-after.stdout` under the same
+artifact root: 263 done/success, 10 canceled/abandoned, two canceled/blocked, all
+with null active attempt. Missing/inconsistent schema, active/planned/in-progress
+and recoverable blocked/failed claims remain blockers. This is an interface
+correction, not permission to ignore live dirty workspaces or change Blackdog state.
+Canceled records remain visible in separately hash-bound `closed_history`; legacy
+`terminal_history` keeps its strict cleanup/replay diagnostic rule unchanged.
+
 ## DX-12 local destination and Prepare software receipt, 2026-11-08
 
-Dated pre-gate software observation for `task-ff8ab127b52045cab85d3bc692f2edc3`,
-base `2f37f877b4c5636e9ffc4012b196f52141600b8b`. Final configured validation and
-normal adoption are not claimed here; later authoritative status belongs to that task.
+Historical pre-gate software observation for `task-ff8ab127b52045cab85d3bc692f2edc3`,
+base `2f37f877b4c5636e9ffc4012b196f52141600b8b`. This historical section did not claim final configured validation or
+normal adoption; the adopted closure is recorded in the DOC-06 entry above.
 
 The shared typed service/file contract now uses existing projection-bound Prepare,
 compact Library domain records/CAS and exact engine-owned closure/plan/options. Mapping
@@ -52,7 +127,8 @@ Prepare. Only its two stale nil expectations (default and optional AX constructo
 were changed to nonnil, preserving collection/native assertions. The affected default
 native canvas/model case plus standalone handoff then passed: two cases, no skips,
 failures or errors. AX stayed disabled. The first full gate remains failed; a fresh
-configured validation of the corrected committed tree is pending. Its ordinary-gate
+configured validation of the corrected committed tree was then pending; its actual
+passed closure is recorded above. Its ordinary-gate
 separate-process skip does not replace the explicit helper-backed scoped pass above.
 Actual gate and correction receipts are linked from the observation index.
 
@@ -72,8 +148,9 @@ and revalidated in [the retained handoff manifest](/Users/bullard/.codex/visuali
 Prepared declarations contain only AdaptivePlotter’s narrow request UTI and no generic
 ZIP claim. Neither app was launched, registered or installed. Review is caller-declared. No new performance,
 AX/Finder/LaunchServices/signed-interaction, engine/full-scale/10-GiB or physical claim
-follows. Future DX-13-ISSUANCE is operator-authorized but not yet canonically defined or
-executed; no episode ledger/vocabulary/runtime-authority change occurred here. Historical
+follows. At this historical observation DX-13-ISSUANCE was operator-authorized but
+not canonically defined or executed; no episode ledger/vocabulary/runtime-authority
+change occurred in DX-12. Historical
 import remains deferred; unknown width and ordinary optional-input behavior remain.
 
 ## DX-11 current native group canonical adoption, 2026-11-08
@@ -11250,6 +11327,7 @@ Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
+| DOC-06 | `task-7666d0443b0748318f5aa9e4b468726e` | `DOC=passed`, `DIFF=passed` | DOC-06 Drawing issuance definition candidate |
 | DOC-00 | `TASK-C86132F1` | `ARCHIVED=passed` | Historical: initial canonical episode migration documentation |
 | DOC-01 | `TASK-F2387A9A` | `DOC=passed`, `DIFF=passed`, `CRITIC=passed` | Episode migration execution readiness |
 | EA-01 | `TASK-513DC8A7` | `DOC=passed`, `DIFF=passed`, `INVENTORY=passed` | Episode current-source inventory |
@@ -11308,16 +11386,12 @@ or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims.
 
-FIX-10 operator diagnostics and interaction correction complete is the current
-software outcome. `FIX-10` is complete as software/repository evidence through
-`TASK-128DF0C7`, attempt `TASK-128DF0C7-93f0fac9a2b1`. No ordinary software or
-gate package is eligible before `VAL-01` within this migration ledger. Ordinary
-user-directed product improvements are not blocked by the physical-validation
-frontier. The frontier is an attended-physical authorization boundary, not a
-launchable wave. `VAL-01` remains pending and requires separate attended-physical
-authorization. The full canonical archive is no longer a prerequisite; the
-revised runbook verifies the delivered diagnostic snapshot without treating it
-as physical evidence. Current Evidence adds no separate ordinary-wave blocker.
+DOC-06 Drawing issuance definition candidate is complete as repository evidence.
+`DOC-06` is complete; `DX-13-ISSUANCE` remains pending and is the next software
+frontier only after DOC-06 normal adoption. No DX-13 Swift execution or physical acceptance is claimed. After that
+software package completes, `VAL-01` remains pending and requires separate
+attended-physical authorization; the historical signed FIX-10 validation candidate
+and `GATE-02` predicates are unchanged. Current Evidence adds no separate blocker.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

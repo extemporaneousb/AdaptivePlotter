@@ -178,7 +178,122 @@ CONSUMER_SCAN_CLASSES = {
 }
 
 
+ISSUANCE_REQUIRED_FILES = (
+    "Sources/PortraitCore/DrawingDestination.swift",
+    "Sources/PortraitLibrary/DrawingDestinationService.swift",
+    "Sources/PlotterRuntime/DrawingRunIntent.swift",
+    "Sources/PlotterRuntime/DrawingRunEvidenceStore.swift",
+    "Sources/PlotterEpisodeModel/PlotterDrawingRun.swift",
+    "Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift",
+    "Sources/PlotterApp/OperatorWorkspace.swift",
+    "Sources/PlotterApp/DrawingRunEvidenceComposition.swift",
+    "Sources/PortraitLibrary/PortraitEvidenceSource.swift",
+)
+ISSUANCE_FOCUSED_SUITES = (
+    "PlotterDrawingIssuanceTests", "DrawingIssuanceServiceTests", "DrawingIssuanceCompositionTests",
+)
+
+
+def validate_drawing_issuance(sources: dict[str, str], *, consumer_only: bool = False) -> None:
+    """Named current supplement, independent of EA-01's immutable old manifest.
+
+    These structural scans deliberately do NOT certify ordering, cancellation,
+    one-shot permission or crash recovery. Fixed executable suites own that proof.
+    Comments/literals cannot satisfy a required production symbol or evade a scan.
+    """
+    from check_episode_pilot_metrics import mask_comments_and_literals
+
+    missing = [path for path in ISSUANCE_REQUIRED_FILES if not sources.get(path)]
+    if missing:
+        raise ContractError(f"DX-13-ISSUANCE missing owner source: {missing}")
+    code = {path: mask_comments_and_literals(text) for path, text in sources.items()}
+    for path, text in code.items():
+        if re.search(r"\b(?:DrawingDestinationNonDeviceOwner|nonDeviceOwner)\b", text):
+            raise ContractError(f"DX-13-ISSUANCE fake acceptance owner remains: {path}")
+        if path.startswith(("Sources/PortraitCore/", "Sources/PortraitLibrary/")) and re.search(r"^\s*import\s+PlotterUI\b", text, re.MULTILINE):
+            raise ContractError(f"DX-13-ISSUANCE forbidden PlotterUI import: {path}")
+    operator = code["Sources/PlotterApp/OperatorWorkspace.swift"]
+    functions = {name: body for name, _header, body in braced_functions(operator)}
+    sink = functions.get("submitUnrecordedPlotterUIRequest")
+    if sink is None:
+        raise ContractError("DX-13-ISSUANCE native Unrecorded public-sink Run consumer missing")
+    # Only the actual public native Run sink must derive model request identity
+    # from its original UI request. Other Stop/review/new-paper contexts are not
+    # subjected to a global constructor/UUID prohibition.
+    for call in re.finditer(r"\bPlotterDrawingRunSubmission\s*\(", sink):
+        depth, end = 1, call.end()
+        while end < len(sink) and depth:
+            if sink[end] == "(":
+                depth += 1
+            elif sink[end] == ")":
+                depth -= 1
+            end += 1
+        arguments = sink[call.end():end - 1]
+        if depth or not re.search(r"\brequestID\s*:", arguments) or re.search(r"\b(?:UUID|PlotterDrawingRunRequestID)\s*\(\s*\)", arguments):
+            raise ContractError("DX-13-ISSUANCE fresh per-delivery native request identity")
+    authored = functions.get("submitDrawingRun", "")
+    if re.search(r"\.start\b", authored) and re.search(r"drawingRunRuntime\.submit\s*\(", authored):
+        if not re.search(r"\b(?:DrawingJobIssuance|drawingDestination)\b", authored):
+            raise ContractError("DX-13-ISSUANCE unbound authored Start forwarding remains")
+    run = code["Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift"]
+    for name, _header, body in braced_functions(run):
+        if name == "start" and re.search(r"\bRunID\s*\(\s*\)", body):
+            raise ContractError("DX-13-ISSUANCE pre-stage authored Start RunID allocator remains")
+        if name in {"start", "run"} and re.search(r"\bDrawingRunIntent\s*\(", body):
+            raise ContractError("DX-13-ISSUANCE authored intent construction outside canonical raw stage")
+    core = "\n".join(text for path, text in code.items() if path.startswith("Sources/PortraitCore/"))
+    if not re.search(r"\bstruct\s+DrawingJobIssuance\b", core):
+        raise ContractError("DX-13-ISSUANCE neutral DrawingJobIssuance binding missing")
+    # The pre-receipt binding must not refer back to its eventual receipt digest.
+    if re.search(r"\b(?:finalReceiptDigest|receiptDigest)\b", core):
+        # Limit this check to the actual binding declaration, not unrelated values.
+        match = re.search(r"\bstruct\s+DrawingJobIssuance\b[^\{]*\{([^}]+)\}", core, re.DOTALL)
+        if match and re.search(r"\b(?:finalReceiptDigest|receiptDigest)\b", match[1]):
+            raise ContractError("DX-13-ISSUANCE circular final receipt binding")
+    if consumer_only:
+        return
+    raw = "\n".join(code[path] for path in ISSUANCE_REQUIRED_FILES if path.startswith("Sources/PlotterRuntime/"))
+    for symbol in ("DrawingRunIntentBody", "DrawingRunIssuanceProposal"):
+        if not re.search(r"\bstruct\s+" + symbol + r"\b", raw):
+            raise ContractError(f"DX-13-ISSUANCE canonical raw stage type missing: {symbol}")
+    store = code["Sources/PlotterRuntime/DrawingRunEvidenceStore.swift"]
+    if not all(re.search(pattern, store) for pattern in (
+        r"\bactor\s+DrawingRunEvidenceStore\b", r"\bDrawingRunIssuanceProposal\b",
+        r"\bRunID\s*\(\s*\)", r"\bstageIntent\s*\(",
+    )):
+        raise ContractError("DX-13-ISSUANCE canonical RunID choice/proposal missing from existing raw store/stage owner")
+    binding = code["Sources/PlotterApp/DrawingRunEvidenceComposition.swift"]
+    for symbol in ("stagedPortraitBinding", "loadForPortraitBinding", "finishPortraitBinding"):
+        if not re.search(r"\b" + symbol + r"\b", binding):
+            raise ContractError(f"DX-13-ISSUANCE exact staged portrait proof consumer missing: {symbol}")
+    if "proveStagedAttempt" not in code["Sources/PortraitLibrary/PortraitEvidenceSource.swift"]:
+        raise ContractError("DX-13-ISSUANCE exact manifest-leaf proof missing")
+    for suite in ISSUANCE_FOCUSED_SUITES:
+        if not any(path.startswith("Tests/") and re.search(r"\b(?:struct|class)\s+" + suite + r"\b", text) for path, text in code.items()):
+            raise ContractError(f"DX-13-ISSUANCE focused suite missing: {suite}")
+
+
+def drawing_issuance_main(argv: list[str]) -> int:
+    if argv not in (["DX-13-ISSUANCE"], ["DX-13-ISSUANCE", "--consumer-only"]):
+        print("usage: check_episode_cutover.py DX-13-ISSUANCE [--consumer-only]", file=sys.stderr)
+        return 2
+    try:
+        sources = {
+            str(path.relative_to(ROOT)): path.read_text(encoding="utf-8")
+            for directory in (ROOT / "Sources", ROOT / "Tests")
+            for path in sorted(directory.rglob("*.swift"))
+        }
+        validate_drawing_issuance(sources, consumer_only=len(argv) == 2)
+    except (OSError, ContractError) as error:
+        print(f"episode cutover DX-13-ISSUANCE: {error}", file=sys.stderr)
+        return 1
+    print("episode cutover DX-13-ISSUANCE passed: named current owner/consumer supplement (structural only)")
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "DX-13-ISSUANCE":
+        return drawing_issuance_main(argv)
     try:
         _rows, scans = validate_manifest()
     except (OSError, ContractError) as error:

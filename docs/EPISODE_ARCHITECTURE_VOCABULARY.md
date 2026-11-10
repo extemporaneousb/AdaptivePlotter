@@ -230,3 +230,19 @@ closes MainActor admission before its first await, then closes/cancels/joins the
 residual registry and named feature owners; an unresolved owner, failed append,
 deadline, or cancelled waiter cannot be called terminated or quiescent.
 `GATE-02` later verifies that landed fact and moves no authority.
+
+## Drawing issuance terms (DOC-06)
+
+These terms define the pending DX-13-ISSUANCE contract, not implemented authority.
+**Pending issuance** is Library-owned typed metadata retaining exact authored closure,
+plan/options, original request and internal issuance before a final receipt exists.
+**Raw stage** is the irreversible attempted-Run boundary: the existing raw owner
+returns one canonical intent/RunID and exact archive proof, newly staged or existing.
+**Live dispatch permission** is one-shot permission held only by the original same-
+runtime continuation acknowledged newly staged, consumed before first effect; it is
+never reconstructed by retry/restart. **Accepted link** is the durable Library
+accepted receipt plus canonical Run link committed before effects. **Cancel
+acknowledgement** records cancellation intent and is distinct from owner settlement.
+`DrawingJobIssuance` is a neutral full-ref/job/request/digest/plan/options binding;
+it contains no circular final receipt digest. Own pending/active publication is an
+expected own-state transition, not permission to accept externally stale plan facts.

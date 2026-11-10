@@ -156,11 +156,10 @@ The independent Python carrier checks known envelope/hash/reference closure; its
 `unsupported []` for these refusal envelopes does not implement native physical-plan,
 intent/frontier/assessment codecs or prove readiness/issuance/ink.
 
-Existing legacy Draw/Start/Stop/run ownership is unchanged. Future DX-13-ISSUANCE has
-operator authorization but is not yet canonically defined or executed; this task makes
-no episode ledger/vocabulary/runtime-authority change. See the
-[dated software receipt](CURRENT_EVIDENCE.md#dx-12-local-destination-and-prepare-software-receipt-2026-11-08)
-for actual tests and remaining signed-interaction/engine/scale/physical gates.
+Existing Draw/Start/Stop/run ownership is unchanged in adopted DX-12. Definition-only
+DOC-06 canonically defines the later DX-13-ISSUANCE correction, without executing
+it. See [Current Evidence](CURRENT_EVIDENCE.md#doc-06-drawing-issuance-definition-candidate)
+for actual DX-12 closure and remaining issuance/native-codec/scale/physical limits.
 
 ## Persistence, exchange and atomic mounting
 
@@ -526,3 +525,15 @@ need the separate checks specified above.
 ## Cost and reversal criterion
 
 The cost of the proposed package is the validator and the file/SQLite publish protocol. An index cannot certify that an original frame still exists. Measure allocations, seek/decode behavior, atomic recovery and missing-asset detection before fixing physical disk layout as a forever contract. If independent-reader and crash fixtures are materially simpler with SQLite-per-document, retain the same drawing/job/attempt contracts and reconsider the carrier. A more expressive medium must provide a real second producer/device fixture before the common representation changes.
+
+## Named issuance definition boundary
+
+[DOC-06](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#doc-06-drawing-issuance-definition)
+is definition-only. DX-13-ISSUANCE remains pending: its fixed lifecycle
+binds original request/full Drawing refs and reviewed plan/options to one atomic raw
+stage and durable accepted Run link before effects. Only the original live newly-
+staged continuation can dispatch. Status/Cancel share short monotonic metadata
+transitions; restart never reissues. Current production remains refusal-only.
+Accepted zero-attempt export remains invalid; real accepted result snapshots belong
+to DX-15. DX-14 parking/outline policy is outside issuance currentness. No additional
+UI field, learning/setup step, width declaration or historical loading is required.

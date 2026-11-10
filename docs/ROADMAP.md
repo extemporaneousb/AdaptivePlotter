@@ -153,7 +153,7 @@ return to preview and cancellation acknowledgement distinguished from settlement
 Recovery: reconciling jobs never issue another Start; failed return is publication
 retry. This ticket cannot implement a replacement executor.
 
-The current bounded DX-12 plus directly corresponding app/tool/cleanup tranche is
+The adopted bounded DX-12 plus directly corresponding app/tool/cleanup tranche is
 `task-ff8ab127b52045cab85d3bc692f2edc3`. Its scoped implementation has typed two-app
 Prepare, durable namespace/request decisions, owner-written local transport and genuine
 zero-attempt refusal export. Production execution remains unavailable; this is not the
@@ -162,9 +162,15 @@ keeps actual failures, affected passes, independent-envelope limits and later co
 validation/normal-adoption authority separate. Signed UI, accepted return snapshots,
 full engine, scale/10-GiB and physical rollout remain unfinished.
 
-Operator authorization exists for a future named **DX-13-ISSUANCE** software package
-after DX-12 lands. It has not yet been canonically defined or executed. That authorization
-does not change this task's definition or edit the episode ledger/vocabulary/runtime here.
+DX-12 is adopted at `5cbf791de3756fffb74412d2abfd78a549c22020`; its bounded
+configured software closure is recorded in Current Evidence. Production execution
+remains unavailable. `DOC-06` is the definition-only repository package;
+its [canonical contract](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#doc-06-drawing-issuance-definition)
+records pending **DX-13-ISSUANCE**, a later coupled Correction in the existing Run/raw/
+Library owners. This does not execute that package or authorize hardware. DX-14
+parking/outline presentation and DX-15 accepted snapshots remain later work.
+The known DX-18 post-await quit-presentation guard followup is recorded separately
+in Current Evidence and does not reopen DX-12 here.
 
 **DX-13 — Existing draft/run issuance seam, via named eligible episode package.**
 Allowed only after the episode eligibility gate: the exact package-approved changes

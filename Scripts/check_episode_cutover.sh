@@ -8,6 +8,11 @@ fi
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+# The new issuance supplement must not reinterpret EA-01's historical manifest.
+if [ "$1" = "DX-13-ISSUANCE" ]; then
+    PYTHONDONTWRITEBYTECODE=1 exec "$project_root/.VE/bin/python" "$project_root/Scripts/check_episode_cutover.py" "$@"
+fi
+
 if [ "$1" = "EA-12A" ]; then
     consumer_only=false
     if [ "$#" -eq 2 ]; then

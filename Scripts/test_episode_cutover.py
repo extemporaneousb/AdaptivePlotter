@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from check_episode_cutover import ContractError, validate_ea09_learning_authority
+from check_episode_cutover import ContractError, validate_ea09_learning_authority, validate_drawing_issuance, ISSUANCE_REQUIRED_FILES, ISSUANCE_FOCUSED_SUITES
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -339,6 +339,88 @@ class EpisodeCutoverEA12CManifestTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("deleted-symbol remains", result.stderr)
+
+
+class DrawingIssuanceCutoverTests(unittest.TestCase):
+    """Scanner fixtures, never an alternate execution or staging implementation."""
+    def fixture(self) -> dict[str, str]:
+        sources = {path: "struct RetainedOwner {}" for path in ISSUANCE_REQUIRED_FILES}
+        sources["Sources/PortraitCore/DrawingDestination.swift"] = "struct DrawingJobIssuance { let job: JobRef }"
+        sources["Sources/PlotterRuntime/DrawingRunIntent.swift"] = "struct DrawingRunIntentBody {} struct DrawingRunIssuanceProposal {}"
+        sources["Sources/PlotterRuntime/DrawingRunEvidenceStore.swift"] = "actor DrawingRunEvidenceStore { func stageIntent(_ proposal: DrawingRunIssuanceProposal) { let run = RunID(); let intent = DrawingRunIntent() } }"
+        sources["Sources/PlotterApp/OperatorWorkspace.swift"] = "func submitUnrecordedPlotterUIRequest(_ request: PlotterUIRequest) { let original = PlotterDrawingRunSubmission(requestID: ID(rawValue: request.id.rawValue), projection: reviewed, intent: .start) }"
+        sources["Sources/PlotterApp/DrawingRunEvidenceComposition.swift"] = "var stagedPortraitBinding: Intent?; func loadForPortraitBinding() {} func finishPortraitBinding() {}"
+        sources["Sources/PortraitLibrary/PortraitEvidenceSource.swift"] = "func proveStagedAttempt() {}"
+        for suite in ISSUANCE_FOCUSED_SUITES:
+            sources[f"Tests/PlotterAppTests/{suite}.swift"] = f"struct {suite} {{}}"
+        return sources
+
+    def test_canonical_owner_fixture_and_consumers(self) -> None:
+        for consumer_only in (False, True):
+            validate_drawing_issuance(self.fixture(), consumer_only=consumer_only)
+
+    def test_retained_border_and_terminal_controls_are_not_global_deletions(self) -> None:
+        sources = self.fixture()
+        sources["Sources/PlotterApp/DrawingBorderEvidence.swift"] = "let id = RunID(attemptID.rawValue); let action = Action.start; let next = Action.beginNewRun(id)"
+        sources["Sources/PlotterApp/OperatorWorkspace.swift"] += "\nfunc terminalControl() { let id = RunID(); let request = PlotterDrawingRunSubmission(projection: reviewed, intent: .beginNewRun(id)) }"
+        sources["Sources/OtherCalibration/Fixture.swift"] = "func calibrate() { let nonjob = RunID() }"
+        validate_drawing_issuance(sources)
+
+    def test_forbidden_consumer_mutations_fail_both_scopes(self) -> None:
+        mutations = (
+            ("Sources/PortraitLibrary/DrawingDestinationService.swift", "protocol DrawingDestinationNonDeviceOwner {}"),
+            ("Sources/PortraitLibrary/DrawingDestinationService.swift", "let nonDeviceOwner: Owner?"),
+            ("Sources/PortraitCore/DrawingDestination.swift", "import PlotterUI"),
+            ("Sources/PortraitLibrary/DrawingDestinationService.swift", "import PlotterUI"),
+            ("Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift", "func start() { let id = RunID() }"),
+            ("Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift", "func run() { let intent = DrawingRunIntent() }"),
+            ("Sources/PlotterApp/OperatorWorkspace.swift", "let request = PlotterDrawingRunSubmission(projection: reviewed, intent: .start)"),
+            ("Sources/PlotterApp/OperatorWorkspace.swift", "let request = PlotterDrawingRunSubmission(requestID: PlotterDrawingRunRequestID(), projection: reviewed, intent: .start)"),
+            ("Sources/PlotterApp/OperatorWorkspace.swift", "let request = PlotterDrawingRunSubmission(requestID: ID(rawValue: UUID()), projection: reviewed, intent: .start)"),
+        )
+        for path, mutation in mutations:
+            for consumer_only in (False, True):
+                with self.subTest(path=path, mutation=mutation, consumer_only=consumer_only):
+                    sources = self.fixture()
+                    if "PlotterDrawingRunSubmission" in mutation:
+                        sources[path] = "func submitUnrecordedPlotterUIRequest(_ request: PlotterUIRequest) { " + mutation + " }"
+                    else:
+                        sources[path] += "\n" + mutation
+                    with self.assertRaises(ContractError):
+                        validate_drawing_issuance(sources, consumer_only=consumer_only)
+
+    def test_unbound_authored_start_forwarding_fails_but_nonstart_route_remains(self) -> None:
+        sources = self.fixture()
+        sources["Sources/PlotterApp/OperatorWorkspace.swift"] += "\nfunc submitDrawingRun(_ submission: Submission) { if submission.intent == .start { return await drawingRunRuntime.submit(submission) } }"
+        with self.assertRaisesRegex(ContractError, "unbound authored Start"):
+            validate_drawing_issuance(sources)
+        sources["Sources/PlotterApp/OperatorWorkspace.swift"] = sources["Sources/PlotterApp/OperatorWorkspace.swift"].replace("if submission.intent == .start { return await drawingRunRuntime.submit(submission) }", "if submission.intent == .start { return await drawingDestination.handle(.submit(key, ticket)) }; return await drawingRunRuntime.submit(submission)")
+        validate_drawing_issuance(sources)
+
+    def test_other_raw_file_cannot_substitute_for_store_stage_owner(self) -> None:
+        sources = self.fixture()
+        sources["Sources/PlotterRuntime/Other.swift"] = sources["Sources/PlotterRuntime/DrawingRunEvidenceStore.swift"]
+        sources["Sources/PlotterRuntime/DrawingRunEvidenceStore.swift"] = "actor DrawingRunEvidenceStore {}"
+        with self.assertRaisesRegex(ContractError, "existing raw store/stage owner"):
+            validate_drawing_issuance(sources)
+
+    def test_missing_owner_proof_type_or_suite_fails(self) -> None:
+        for path in ISSUANCE_REQUIRED_FILES:
+            sources = self.fixture()
+            del sources[path]
+            with self.subTest(path=path), self.assertRaises(ContractError):
+                validate_drawing_issuance(sources)
+        for path in ("Sources/PlotterRuntime/DrawingRunIntent.swift", "Sources/PlotterApp/DrawingRunEvidenceComposition.swift", "Sources/PortraitLibrary/PortraitEvidenceSource.swift", "Tests/PlotterAppTests/DrawingIssuanceServiceTests.swift"):
+            sources = self.fixture()
+            sources[path] = "// Required symbols only in comments must not pass."
+            with self.subTest(path=path), self.assertRaises(ContractError):
+                validate_drawing_issuance(sources)
+
+    def test_pre_receipt_binding_is_not_circular(self) -> None:
+        sources = self.fixture()
+        sources["Sources/PortraitCore/DrawingDestination.swift"] = "struct DrawingJobIssuance { let finalReceiptDigest: Digest }"
+        with self.assertRaisesRegex(ContractError, "circular"):
+            validate_drawing_issuance(sources)
 
 
 if __name__ == "__main__":

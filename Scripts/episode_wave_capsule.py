@@ -54,6 +54,9 @@ AUTHORITY_PATHS = (
     ".codex/skills/run-multi-agent-wave/SKILL.md",
     ".codex/skills/run-multi-agent-wave/references/wave-coordination.md",
     "Scripts/check_episode_contract.py",
+    "Scripts/check_episode_cutover.py",
+    "Scripts/check_episode_cutover.sh",
+    "Scripts/test_episode_cutover.py",
     "Scripts/check_episode_pilot_gate.py",
     "Scripts/check_episode_pilot_metrics.py",
     "Scripts/episode_wave_capsule.py",
@@ -282,17 +285,51 @@ def terminal_history_diagnostic(
     return {"task_id": task_id, "package_id": package_id, "disposition": disposition}
 
 
+def current_summary_disposition(summary: dict[str, object], task: dict[str, object]) -> str | None:
+    """Normalize the installed snapshot/v2 status schema, never workspace cleanliness.
+
+    runtime state.py: terminal attempts success/blocked/failed/abandoned;
+    wtam.cancel_task: inactive blocked/failed attempts may be administratively
+    canceled without deleting their workspace. Actor is historical attribution,
+    unlike claim_actor. Legacy readiness rows retain their stricter diagnostics.
+    """
+    if "status" not in task:
+        return "block" if "format" in summary else None
+    if not isinstance(task.get("task_id"), str) or not task["task_id"].strip():
+        return "block"
+    if summary.get("format") != "blackdog.snapshot/v2" or "readiness" in task or "runtime_status" in task:
+        return "block"
+    if "active_attempt_id" not in task or task["active_attempt_id"] is not None:
+        return "block"
+    if task.get("claim_actor") is not None or task.get("task_claim") is not None or task.get("workset_claim") is not None:
+        return "block"
+    if any(field in task and task[field] is not False for field in (*FINALIZATION_FIELDS, "active_attempt", "active_workspace_adoption")):
+        return "block"
+    status = task.get("status")
+    attempt = task.get("latest_attempt_status")
+    if status == "done" and attempt == "success":
+        return "done"
+    if status == "canceled" and attempt in {"abandoned", "blocked", "failed"}:
+        return "closed"
+    # Blocked/failed remain recoverable; only the existing strict diagnostic
+    # path may prove old history nonblocking. Unknown combinations never pass.
+    if status == "blocked" and attempt in {"blocked", "failed"}:
+        return "diagnose"
+    return "block"
+
+
 def classify_blackdog_claims(
     root: Path,
     summary: dict[str, object],
     rows: dict[str, dict[str, object]],
     task_show_loader: Callable[[Path, dict[str, object]], dict[str, object]] = read_blackdog_task_show,
-) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
+) -> tuple[list[dict[str, object]], list[dict[str, str]], list[dict[str, str]]]:
     tasks = summary.get("tasks")
     if not isinstance(tasks, list):
         raise CapsuleError("Blackdog summary lacks a tasks array")
     live_blockers: list[dict[str, object]] = []
     terminal_history: list[dict[str, str]] = []
+    closed_history: list[dict[str, str]] = []
     for task in tasks:
         if not isinstance(task, dict):
             raise CapsuleError("Blackdog summary contains a non-object task")
@@ -300,6 +337,7 @@ def classify_blackdog_claims(
         claim = {
             "task_id": task.get("task_id"),
             "task_ref": task.get("task_ref"),
+            "status": task.get("status"),
             "readiness": task.get("readiness"),
             "runtime_status": task.get("runtime_status"),
             "latest_attempt_status": task.get("latest_attempt_status"),
@@ -310,7 +348,22 @@ def classify_blackdog_claims(
         if task.get("active_attempt_id") is not None or task.get("claim_actor") is not None:
             live_blockers.append(claim)
             continue
-        if readiness == "done":
+        current = current_summary_disposition(summary, task)
+        if current == "done":
+            continue
+        if current == "closed":
+            task_id = bounded_claim_field(task.get("task_id"))
+            if task_id is None:
+                live_blockers.append(claim)
+            else:
+                closed_history.append({"task_id": task_id, "status": "canceled", "latest_attempt_status": str(task["latest_attempt_status"]), "disposition": "administratively-closed"})
+            continue
+        if current == "block":
+            live_blockers.append(claim)
+            continue
+        if current == "diagnose":
+            readiness = str(task["latest_attempt_status"])
+        if current is None and readiness == "done":
             continue
         if readiness not in TERMINAL_HISTORY_STATUSES:
             live_blockers.append(claim)
@@ -329,6 +382,7 @@ def classify_blackdog_claims(
     return (
         sorted(live_blockers, key=lambda item: str(item.get("task_id"))),
         sorted(terminal_history, key=lambda item: item["task_id"]),
+        sorted(closed_history, key=lambda item: item["task_id"]),
     )
 
 
@@ -536,6 +590,12 @@ def package_pointers(
         for gate in rows[package_id]["gates"]:
             result.extend(exact_table_cell_pointers(contract, plan_path, plan, 0, gate, "required gate catalog row"))
 
+        if package_id in {"DOC-06", "DX-13-ISSUANCE"}:
+            start, end = line_range(plan, "## DOC-06 Drawing issuance definition")
+            result.append(pointer(plan_path, plan, start, end, "coupled Drawing issuance definition and owner/deletion inventory"))
+            start, end = line_range(vocabulary, "## Drawing issuance terms (DOC-06)")
+            result.append(pointer(vocabulary_path, vocabulary, start, end, "Drawing issuance vocabulary authority"))
+
         for slice_id in TRANCHE_SLICES.get(package_id, []):
             result.extend(exact_table_cell_pointers(contract, plan_path, plan, 0, slice_id, "ordered authority slice row"))
             slice_bindings = slice_contract_bindings(contract, plan_path, plan, slice_id)
@@ -681,7 +741,7 @@ def build_capsule(
                 "same_slice_deletion_scans": slice_bindings["same_slice_deletion_scans"],
             })
     live_summary = summary if summary is not None else read_blackdog_summary(root)
-    live_blockers, terminal_history = classify_blackdog_claims(
+    live_blockers, terminal_history, closed_history = classify_blackdog_claims(
         root,
         live_summary,
         rows,
@@ -698,6 +758,8 @@ def build_capsule(
             "live_blockers": live_blockers,
             "terminal_history_sha256": sha256_bytes(canonical_bytes(terminal_history)),
             "terminal_history": terminal_history,
+            "closed_history_sha256": sha256_bytes(canonical_bytes(closed_history)),
+            "closed_history": closed_history,
         },
         "launch": {"state": launch_state},
         "contract": {
@@ -803,6 +865,7 @@ def consumption_view(capsule: dict[str, object]) -> dict[str, object]:
         "launch": capsule["launch"],
         "live_blockers": capsule["blackdog"]["live_blockers"],
         "terminal_history": capsule["blackdog"]["terminal_history"],
+        "closed_history": capsule["blackdog"]["closed_history"],
         "contract": contract,
         "pointers": capsule["pointers"],
     }

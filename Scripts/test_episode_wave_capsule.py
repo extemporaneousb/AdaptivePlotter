@@ -14,6 +14,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# Named cutover mutations are part of the existing DOC capsule-test gate.
+from test_episode_cutover import DrawingIssuanceCutoverTests
+
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 MODULE_PATH = SOURCE_ROOT / "Scripts/episode_wave_capsule.py"
@@ -130,6 +133,17 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "active_attempt_id": None,
             "dependency_ready": dependency_ready,
         }
+
+    def current_ordinary_package(self) -> str:
+        plan = (self.root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md").read_text(encoding="utf-8")
+        if "| DOC-06 | pending |" in plan:
+            return "DOC-06"
+        if "| DX-13-ISSUANCE | pending |" in plan:
+            return "DX-13-ISSUANCE"
+        return "VAL-01"
+
+    def current_frontier_state(self) -> str:
+        return "authorization_boundary" if self.current_ordinary_package() == "VAL-01" else "selected"
 
     def rewrite(self, value: dict[str, object]) -> None:
         self.path.write_bytes(capsule.canonical_bytes(value) + b"\n")
@@ -340,20 +354,59 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     capsule.validated_contract(self.root, validate_live_gates=False)
 
-    def test_completed_fix10_frontier_requires_exact_evidence(self) -> None:
+    def test_drawing_issuance_frontier_requires_exact_evidence(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
         evidence = evidence_path.read_text(encoding="utf-8")
-        phrase = "FIX-10 operator diagnostics and interaction correction complete"
-        self.assertIn(phrase, evidence.replace("\n", " "))
-        evidence_path.write_text(
-            evidence.replace(
-                phrase,
-                "`VAL-01` is the sole next ordinary package",
-            ),
-            encoding="utf-8",
-        )
-        with self.assertRaisesRegex(ValueError, "attended-physical frontier lacks GATE-01 evidence"):
+        heading = "## Wave admission blockers"
+        prefix, frontier = evidence.split(heading, 1)
+        phrase = "DOC-06 Drawing issuance definition candidate"
+        self.assertIn(phrase, frontier)
+        evidence_path.write_text(prefix + heading + frontier.replace(phrase, "physical boundary", 1), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Drawing issuance frontier lacks evidence"):
             capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_coupled_definition_cannot_silently_change(self) -> None:
+        path = self.root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("Raw stage is", text)
+        path.write_text(text.replace("Raw stage is", "Final settlement is", 1), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "coupled issuance definition drifted"):
+            capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_current_blackdog_completion_identity_is_exact(self) -> None:
+        # Current task IDs are accepted without fabricating a legacy alias.
+        capsule.validated_contract(self.root, validate_live_gates=False)
+        path = self.root / "docs/CURRENT_EVIDENCE.md"
+        text = path.read_text(encoding="utf-8")
+        exact = "| DOC-06 | `task-7666d0443b0748318f5aa9e4b468726e` |"
+        self.assertIn(exact, text)
+        path.write_text(text.replace(exact, "| DOC-06 | `task-malformed` |", 1), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "invalid Blackdog task evidence"):
+            capsule.validated_contract(self.root, validate_live_gates=False)
+
+    def test_definition_then_issuance_then_physical_frontier(self) -> None:
+        contract, rows, gates, _blockers = capsule.validated_contract(self.root, validate_live_gates=False)
+        rows["DOC-06"]["status"] = "pending"
+        rows["DX-13-ISSUANCE"]["status"] = "pending"
+        evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
+        start = evidence.index("## Wave admission blockers")
+        end = evidence.index("\n## ", start + 4)
+        def with_frontier(doc_status: str) -> str:
+            return evidence[:start] + f"## Wave admission blockers\n\nDOC-06 Drawing issuance definition candidate. `DOC-06` is {doc_status}; `DX-13-ISSUANCE` remains pending. No DX-13 Swift execution or physical acceptance is claimed.\n\n| Package | Blocker | Required input or canonical correction |\n| --- | --- | --- |\n" + evidence[end:]
+        self.assertEqual("DOC-06", contract.ordinary_wave_frontier(rows))
+        contract.validate_wave_frontier(rows, with_frontier("pending"))
+        rows["DOC-06"]["status"] = "complete"
+        self.assertEqual("DX-13-ISSUANCE", contract.ordinary_wave_frontier(rows))
+        contract.validate_wave_frontier(rows, with_frontier("complete"))
+        rows["DX-13-ISSUANCE"]["status"] = "complete"
+        self.assertIsNone(contract.ordinary_wave_frontier(rows))
+        self.assertEqual("VAL-01", capsule.contract_frontier(rows, None)["package_id"])
+        # Existing physical predicate remains separately authorized after software.
+        final_evidence = with_frontier("complete").replace("`DX-13-ISSUANCE` remains pending", "DX-13-ISSUANCE software complete")
+        final_evidence += "\nNo ordinary software or gate package is eligible before `VAL-01`.\n"
+        contract.validate_wave_frontier(rows, final_evidence)
+        self.assertEqual("`make strict-check`", gates["STRICT"][0])
+        self.assertEqual("`swift test --no-parallel --filter DrawingIssuance -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` selects the same three nonzero fixed issuance suites", gates["ISSUANCE-STRICT"][0])
 
     def test_completed_incident_evidence_missing_is_rejected(self) -> None:
         evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
@@ -538,9 +591,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         created = self.build_and_write()
         consumed = self.consume()
         self.assertEqual(created, consumed)
-        self.assertEqual("authorization_boundary", consumed["launch"]["state"])
-        self.assertEqual("authorization_boundary", consumed["contract"]["frontier"]["state"])
-        self.assertEqual("VAL-01", consumed["contract"]["package"]["id"])
+        self.assertEqual(self.current_frontier_state(), consumed["launch"]["state"])
+        self.assertEqual(self.current_frontier_state(), consumed["contract"]["frontier"]["state"])
+        self.assertEqual(self.current_ordinary_package(), consumed["contract"]["package"]["id"])
         self.assertEqual(0o600, stat.S_IMODE(self.path.stat().st_mode))
         purposes = {item["purpose"] for item in consumed["pointers"]}
         self.assertIn("required gate catalog row", purposes)
@@ -562,24 +615,22 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                 .splitlines()[boundary["start_line"] - 1]
             )
             row = [cell.strip() for cell in boundary_text.strip().strip("|").split("|")]
-            if len(row) == 6 and row[:4] == [
-                "VAL-01", "pending", "FIX-10", "attended-physical"
-            ] and "`PHYSICAL-FINAL`" in row[5]:
+            if len(row) == 6 and row[0] == self.current_ordinary_package() and row[1] == "pending":
                 ledger_rows.append((boundary, row))
         self.assertEqual(1, len(ledger_rows))
         _boundary, boundary_row = ledger_rows[0]
-        self.assertEqual("VAL-01", boundary_row[0])
+        self.assertEqual(self.current_ordinary_package(), boundary_row[0])
         self.assertEqual([], consumed["contract"]["ordered_authority_slices"])
         view = capsule.canonical_bytes(capsule.consumption_view(consumed))
         self.assertLess(len(view), capsule.MAX_CONSUMPTION_BYTES)
 
-    def test_completed_fix10_stops_at_attended_validation(self) -> None:
+    def test_current_definition_frontier_is_selected(self) -> None:
         created = self.build_and_write()
 
-        self.assertEqual("authorization_boundary", created["launch"]["state"])
-        self.assertEqual("authorization_boundary", created["contract"]["frontier"]["state"])
+        self.assertEqual(self.current_frontier_state(), created["launch"]["state"])
+        self.assertEqual(self.current_frontier_state(), created["contract"]["frontier"]["state"])
         self.assertEqual(
-            "VAL-01",
+            self.current_ordinary_package(),
             created["contract"]["frontier"]["package_id"],
         )
         self.assertEqual([], created["contract"]["ordered_authority_slices"])
@@ -649,9 +700,9 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         ineligible = self.terminal_task("TASK-INELIGIBLE", "GATE-02")
         created = self.build_and_write({"tasks": [removed, completed, ineligible]})
 
-        self.assertEqual("authorization_boundary", created["launch"]["state"])
+        self.assertEqual(self.current_frontier_state(), created["launch"]["state"])
         self.assertEqual(
-            "VAL-01",
+            self.current_ordinary_package(),
             created["contract"]["frontier"]["package_id"],
         )
         self.assertEqual([], created["blackdog"]["live_blockers"])
@@ -671,7 +722,7 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
             "FIX-05": {"status": "complete", "class": "repository", "dependencies": []},
             "GATE-01": {"status": "pending", "class": "gate", "dependencies": ["FIX-05"]},
         }
-        live_blockers, terminal_history = capsule.classify_blackdog_claims(
+        live_blockers, terminal_history, closed_history = capsule.classify_blackdog_claims(
             self.root,
             {"tasks": [recoverable]},
             rows,
@@ -809,6 +860,80 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(capsule.CapsuleError, "unbounded field"):
             capsule.build_capsule(self.root, summary, validate_live_gates=False)
+
+    def test_current_snapshot_terminal_status_normalization(self) -> None:
+        # Actual snapshot/v2 projection shape: status/latest_attempt_status and
+        # explicit active_attempt_id, no readiness/runtime_status/claim_actor.
+        # Source receipt: old-claims-abandonment-20261109/repository-summary-after.stdout.
+        rows = {}
+        for status, attempt in (("done", "success"), ("canceled", "abandoned"), ("canceled", "blocked"), ("canceled", "failed")):
+            with self.subTest(status=status, attempt=attempt):
+                task = {"task_id": "task-closed", "status": status, "latest_attempt_status": attempt, "active_attempt_id": None, "actor": "codex"}
+                summary = {"format": "blackdog.snapshot/v2", "tasks": [task]}
+                blockers, history, closed = capsule.classify_blackdog_claims(self.root, summary, rows, self.task_show)
+                self.assertEqual([], blockers)
+                self.assertEqual([], history)
+                self.assertEqual([] if status == "done" else [{"task_id": "task-closed", "status": "canceled", "latest_attempt_status": attempt, "disposition": "administratively-closed"}], closed)
+                # A retained canceled workspace is not an active adoption claim.
+                task["worktree_exists"] = True
+                task["branch_exists"] = True
+                self.assertEqual([], capsule.classify_blackdog_claims(self.root, summary, rows, self.task_show)[0])
+                for identity in (None, "", "  "):
+                    task["task_id"] = identity
+                    blockers, old_history, closed_history = capsule.classify_blackdog_claims(self.root, summary, rows, self.task_show)
+                    self.assertEqual(1, len(blockers))
+                    self.assertEqual([], old_history)
+                    self.assertEqual([], closed_history)
+
+    def test_current_closed_history_round_trip_and_tampering(self) -> None:
+        task = {"task_id": "task-closed", "status": "canceled", "latest_attempt_status": "blocked", "active_attempt_id": None}
+        summary = {"format": "blackdog.snapshot/v2", "tasks": [task]}
+        created = self.build_and_write(summary)
+        self.assertEqual([], created["blackdog"]["live_blockers"])
+        self.assertEqual([], created["blackdog"]["terminal_history"])
+        closed = created["blackdog"]["closed_history"]
+        self.assertEqual("administratively-closed", closed[0]["disposition"])
+        self.assertEqual(capsule.sha256_bytes(capsule.canonical_bytes(closed)), created["blackdog"]["closed_history_sha256"])
+        self.assertEqual(closed, capsule.consumption_view(created)["closed_history"])
+        self.assertEqual(created, self.consume(summary))
+        created["blackdog"]["closed_history"][0]["latest_attempt_status"] = "abandoned"
+        created["blackdog"]["closed_history_sha256"] = capsule.sha256_bytes(capsule.canonical_bytes(created["blackdog"]["closed_history"]))
+        unsigned = dict(created)
+        unsigned.pop("payload_sha256")
+        created["payload_sha256"] = capsule.sha256_bytes(capsule.canonical_bytes(unsigned))
+        self.rewrite(created)
+        with self.assertRaisesRegex(capsule.CapsuleError, "capsule is stale"):
+            self.consume(summary)
+
+    def test_current_snapshot_unknown_active_and_recoverable_forms_block(self) -> None:
+        baseline = {"task_id": "task-closed", "status": "canceled", "latest_attempt_status": "blocked", "active_attempt_id": None}
+        mutations = (
+            {"status": "blocked"}, {"status": "planned"}, {"status": "in_progress"},
+            {"status": "failed"}, {"status": "unknown"}, {"status": "done"},
+            {"latest_attempt_status": "unknown"}, {"latest_attempt_status": "in_progress"},
+            {"latest_attempt_status": "success"}, {"latest_attempt_status": None},
+            {"active_attempt_id": "attempt-live"}, {"claim_actor": "codex"},
+            {"task_claim": "live"}, {"workset_claim": "live"},
+            {"runtime_transition_pending": True}, {"close_transaction_pending": None},
+            {"readiness": "done"}, {"runtime_status": "canceled"},
+            {"task_id": None}, {"task_id": ""}, {"task_id": "  "},
+            {"active_attempt": True}, {"active_workspace_adoption": True},
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                task = baseline | mutation
+                summary = {"format": "blackdog.snapshot/v2", "tasks": [task]}
+                blockers, history, closed = capsule.classify_blackdog_claims(self.root, summary, {}, self.task_show)
+                self.assertEqual(1, len(blockers))
+                self.assertEqual([], history)
+                self.assertEqual([], closed)
+        for omitted in ("active_attempt_id", "status", "latest_attempt_status"):
+            task = dict(baseline)
+            del task[omitted]
+            summary = {"format": "blackdog.snapshot/v2", "tasks": [task]}
+            self.assertEqual(1, len(capsule.classify_blackdog_claims(self.root, summary, {}, self.task_show)[0]))
+        for format_value in (None, "unknown"):
+            self.assertEqual(1, len(capsule.classify_blackdog_claims(self.root, {"format": format_value, "tasks": [baseline]}, {}, self.task_show)[0]))
 
     def test_authorization_boundary_is_not_selected(self) -> None:
         rows = {

@@ -28,10 +28,23 @@ EVIDENCE_PATH = ROOT / "docs" / "CURRENT_EVIDENCE.md"
 ARCHITECTURE_PATH = ROOT / "docs" / "SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md"
 PRODUCT_PATH = ROOT / "docs" / "PRODUCT_CONTRACT.md"
 # Updated in the same package whenever a canonical ledger row changes.
-EXPECTED_LEDGER_SHA256 = "c4bdbbfb82b22e1e11772d4303f931c40e7f5d126403c95192744017288121c0"
+EXPECTED_LEDGER_SHA256 = "ac4ef371ef1093d1cf9d6282a77928254c7ce18cab515d6d61611be364f309bf"
 
+EXPECTED_ISSUANCE_DEFINITION_SHA256 = "913ba38fc5216b6a39b1ec30c0960adb33f44549024747166a777bbf251934eb"
 
 EXPECTED_GATES = {
+    "DX12-PREREQUISITE": (
+        "Verify adopted ancestor `5cbf791de3756fffb74412d2abfd78a549c22020` and its bounded DX-12 lifecycle/closure receipts in Current Evidence; not a ledger dependency",
+        "DX-13-ISSUANCE",
+    ),
+    "DRAW-ISSUANCE": (
+        "`swift test --no-parallel --filter DrawingIssuance` selects nonzero cases in `PlotterDrawingIssuanceTests`, `DrawingIssuanceServiceTests`, and `DrawingIssuanceCompositionTests`",
+        "DX-13-ISSUANCE",
+    ),
+    "ISSUANCE-STRICT": (
+        "`swift test --no-parallel --filter DrawingIssuance -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` selects the same three nonzero fixed issuance suites",
+        "DX-13-ISSUANCE",
+    ),
     "ARCHIVED": (
         "`git merge-base --is-ancestor d33d4ff HEAD` and the `TASK-C86132F1` Current Evidence entry identifies `d33d4ff`",
         "DOC-00",
@@ -188,6 +201,8 @@ EXPECTED_PACKAGE_SHAPES = {
     "EA-12B": (["EA-12A"], "authority-slice", ["BUILD", "UI-AUTHORITY", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "EA-12C": (["EA-12B"], "authority-slice", ["BUILD", "UI-AUTHORITY", "BORDER-VALIDATION", "PLOTTER-MODEL", "COMPOSITION", "UI", "AFFECTED-CONSUMERS", "DIFF", "DELETE"]),
     "FIX-10": (["TRANCHE-MODEL-UI-CONSOLIDATION"], "software", ["BUILD", "INCIDENT-APP", "UI", "DOC", "DIFF", "QUICK", "JOURNEY", "STRICT"]),
+    "DOC-06": (["FIX-10"], "repository", ["DOC", "DIFF"]),
+    "DX-13-ISSUANCE": (["DOC-06", "EA-08A", "EA-08B"], "software", ["DX12-PREREQUISITE", "BUILD", "DRAW-ISSUANCE", "DRAW-RUN", "DRAW-DRAFT", "COMPOSITION", "AFFECTED-CONSUMERS", "DELETE", "DOC", "DIFF", "QUICK", "JOURNEY", "ISSUANCE-STRICT"]),
     "VAL-01": (["FIX-10"], "attended-physical", ["DOC", "DIFF", "STRICT", "PHYSICAL-FINAL"]),
     "GATE-02": (["VAL-01"], "gate", ["DOC", "DIFF", "FINAL-GATE"]),
 }
@@ -216,6 +231,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
     "FIX-08": "Correction",
     "FIX-09": "Correction",
     "FIX-10": "Correction",
+    "DX-13-ISSUANCE": "Correction",
     "EA-10A": "Cutover",
     "EA-10B": "Cutover",
     "TRANCHE-LEARNING": "Tranche",
@@ -226,6 +242,7 @@ EXPECTED_SOFTWARE_OUTCOME_KIND = {
 
 
 EXPECTED_COMPLETE_PACKAGES = {
+    "DOC-06",
     "DOC-00",
     "DOC-01",
     "DOC-02",
@@ -1019,6 +1036,12 @@ def validate_architecture(text: str) -> None:
 def validate_plan(text: str) -> dict[str, dict[str, object]]:
     validate_architecture(ARCHITECTURE_PATH.read_text(encoding="utf-8"))
     validate_consolidation_manifest(text)
+    try:
+        issuance_definition = text.split("## DOC-06 Drawing issuance definition\n", 1)[1].split("## Work ledger\n", 1)[0]
+    except IndexError:
+        fail("DOC-06 issuance definition is absent")
+    if hashlib.sha256(issuance_definition.encode("utf-8")).hexdigest() != EXPECTED_ISSUANCE_DEFINITION_SHA256:
+        fail("DOC-06 coupled issuance definition drifted; review definition and checksum together")
     normalized = re.sub(r"\s+", " ", text)
     inventory_rows = markdown_table(
         text,
@@ -1316,7 +1339,7 @@ def validate_plan(text: str) -> dict[str, dict[str, object]]:
     for package_id, status, dependency_cell, execution_class, outcome, gate_cell in ledger_rows:
         if package_id in rows:
             fail(f"duplicate ledger package ID: {package_id}")
-        if not re.fullmatch(r"(?:(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?|TRANCHE-(?:LEARNING|DEVICE-ENVIRONMENT|FINAL-COMPOSITION|MODEL-UI-CONSOLIDATION))", package_id):
+        if not re.fullmatch(r"(?:(?:DOC|FIX|BASE|EA|VAL|GATE)-[0-9]{2}[A-Z]?|DX-13-ISSUANCE|TRANCHE-(?:LEARNING|DEVICE-ENVIRONMENT|FINAL-COMPOSITION|MODEL-UI-CONSOLIDATION))", package_id):
             fail(f"invalid ledger package ID: {package_id}")
         if status not in allowed_status:
             fail(f"{package_id} has invalid status {status}")
@@ -1980,7 +2003,7 @@ def _validate_legacy_evidence_archive(text: str, rows: dict[str, dict[str, objec
             fail(f"gate evidence references unknown package {package_id}")
         if rows[package_id]["status"] != "complete":
             fail(f"non-complete package {package_id} has a completion evidence row")
-        if not re.fullmatch(r"`TASK-[A-F0-9]+`", task):
+        if not re.fullmatch(r"`(?:TASK-[A-F0-9]+|task-[a-f0-9]{32})`", task):
             fail(f"{package_id} has invalid Blackdog task evidence {task}")
         if not re.fullmatch(
             r"`[A-Z][A-Z0-9-]*=passed`(?:, `[A-Z][A-Z0-9-]*=passed`)*",
@@ -3410,7 +3433,7 @@ def validate_evidence(text: str, rows: dict[str, dict[str, object]]) -> None:
             fail(f"duplicate Work package gate evidence row: {package_id}")
         if package_id not in rows or rows[package_id]["status"] != "complete":
             fail(f"completion evidence does not name a complete package: {package_id}")
-        if not re.fullmatch(r"`TASK-[A-F0-9]+`", task):
+        if not re.fullmatch(r"`(?:TASK-[A-F0-9]+|task-[a-f0-9]{32})`", task):
             fail(f"{package_id} has invalid Blackdog task evidence {task}")
         if not re.fullmatch(
             r"`[A-Z][A-Z0-9-]*=passed`(?:, `[A-Z][A-Z0-9-]*=passed`)*",
@@ -3732,6 +3755,19 @@ def validate_wave_frontier(
                 fail(f"named FIX-10 frontier lacks current evidence: {phrase}")
         if blockers:
             fail("FIX-10 frontier must not retain an ordinary-wave blocker")
+        return
+
+    if selected in {"DOC-06", "DX-13-ISSUANCE"}:
+        if blockers:
+            fail("Drawing issuance definition frontier has an unexpected blocker")
+        for phrase in (
+            "DOC-06 Drawing issuance definition candidate",
+            "`DOC-06` is pending" if selected == "DOC-06" else "`DOC-06` is complete",
+            "`DX-13-ISSUANCE` remains pending",
+            "No DX-13 Swift execution or physical acceptance is claimed",
+        ):
+            if phrase not in frontier_normalized:
+                fail(f"Drawing issuance frontier lacks evidence: {phrase}")
         return
 
     if selected is not None:

@@ -1788,6 +1788,182 @@ is available only for the runtime's exact stable recoverable review state.
 present in the current projection. An enabled control that can reach nil or
 unavailable request dispatch fails `UI-AUTHORITY`, `UI`, and `DELETE`.
 
+## DOC-06 Drawing issuance definition
+
+`DOC-06` is the repository-only contract correction after `FIX-10`. It defines
+`DX-13-ISSUANCE`; it executes no Swift migration. The DOC-06 repository candidate
+has actual preliminary DOC/DIFF passes; its completion/evidence-only delta requires
+final DOC/DIFF and normal adoption. `DX-13-ISSUANCE` remains pending and becomes
+the next software frontier only after DOC-06 normal adoption. The existing `VAL-01` attended-physical
+and `GATE-02` final predicates, signed FIX-10 candidate, and historical completed
+rows are unchanged. The EA-01 inventory remains the historical inventory; the
+supplement below is the current issuance inventory, not a rewrite of EA-01.
+
+### DX-13-ISSUANCE coupled lifecycle
+
+The software package is one coupled **Correction** in the existing Run, raw
+intent and Library owners. No partial accepted job may ship without its bound
+attempt and no parallel executor, database or execution authority is authorized.
+Its dependencies are `DOC-06`, `EA-08A`, and `EA-08B`. DX-12 is an adopted-source
+prerequisite, not an undefined episode-ledger dependency.
+
+1. The existing Library journal/CAS durably owns the exact authored Drawing,
+   input/parent closure, real frozen plan/options and namespace/request/digest →
+   job/internal issuance mapping atomically. Typed pending payload is distinct
+   from stale-preview and final immutable decision receipt. Exact same-key replay
+   returns the original disposition; changed Drawing, destination, plan, options
+   or digest conflicts. All states retain the root CAS closure.
+2. Capture the original exact `PlotterUIRequest` and
+   `PlotterDrawingRunSubmission` before retention, Prepare or reservation awaits.
+   Preserve automatic built-in/source-free retention. A nominal immutable per-call
+   adapter carries that original submission to the existing Run owner: no app-ID
+   registry, effect closure, refreshed `request(matching:)`, second selection owner
+   or reproject/refit replacement. Core/Library must not import PlotterUI. Original
+   UI UUID plus persisted client namespace derives the stable key; the ordinary
+   native model Run request ID is that same original UI UUID. Other typed contexts
+   persist the original runtime request once. Never default a fresh submission UUID
+   on each public-sink delivery. Validate the original ticket/request before transfer.
+   Own pending/active publication can change runRevision, readiness and runInProgress;
+   that is an expected own-state transition, not external invalidation. Preserve the
+   reviewed plan/options while refusing external plan, paper, calibration, material
+   or selection changes. A deliberate new Draw after proper new-run/paper transition
+   has a new projected request/job without setup.
+3. The SAME `PlotterDrawingRunRuntime` installs logical pending/job ownership, wait
+   phase and genuine capability Stop before its first fallible await, without a
+   physical RunID yet. Include pending/staged ownership in busy/edit/reset/readiness
+   and shutdown guards, including formerly activeRunID-only checks. Stop survives
+   staging. One retained identity task joins shutdown/quiescence. Root shutdown
+   synchronously closes this SAME Run owner's admission/cancellation before its
+   first await, using an existing os/OSAllocatedUnfairLock owner-held Sendable latch;
+   no new unchecked Sendable, App flag or operation registry. Admission closure and
+   waiter cancellation are not physical settlement: retain lower accepted handles,
+   ongoing-effect truth, physical Stop, terminal join and no-redraw authority.
+   Recheck closure after preparation/stage/link awaits and before effect. Existing
+   `currentDrawingRunFacts` and its nominal fact adapter refuse a closed root after
+   their own awaits. Held root-join and held-link tests prove zero later dispatch.
+4. Existing raw PlotterRuntime atomically chooses/finds ONE RunID and stages the
+   fully bound intent. `DrawingRunIntentBody` normalizes the existing fields except
+   RunID without duplicating stored values. `DrawingRunIssuanceProposal(body,binding)`
+   returns a canonical intent, `newlyStaged` or `existing`, and exact archive proof.
+   Preserve raw encoded meaning, exact-leaf verification and non-job evidence. Neutral
+   shared `DrawingJobIssuance` binds full DrawingRef, JobRef (engine/job), namespace,
+   request/digest, issuance, exact prepared-plan asset, physical plan ID/hash and
+   options-asset digest. No circular final receipt digest in the pre-receipt intent.
+   Look up exact binding before timestamps; conflicting body/binding fails. Enforce
+   job/issuance uniqueness across raw attempts. A post-rename fsync error is uncertain:
+   reread exact binding; unavailable/corrupt storage is not verified absence.
+5. A fresh pre-stage refusal has zero attempts and no wire issuance. Raw stage is
+   the irreversible attempt boundary. Later Stop, stale facts, link or shutdown
+   failures retain the RunID and reconcile, never become a zero-attempt refusal.
+   A nominal job-publication port commits immutable accepted receipt plus Run link
+   in the existing Library BEFORE any Pen/controller effect. Preserve
+   `stagedPortraitBinding`, `loadForPortraitBinding`, `finishPortraitBinding` and
+   `PortraitEvidenceSource.proveStagedAttempt` outside the held Submit FIFO, using
+   the returned canonical intent and exact manifest attempt leaf. Do not rebuild
+   the intent, weaken the proof, or bypass it.
+6. Only the original live continuation in the SAME runtime receiving `newlyStaged`
+   acknowledgement owns one-shot dispatch permission, consumed before first effect.
+   Recheck cancellation, closure and currentness after stage/link. Existing, recovered
+   or uncertain staging never recreates permission and never automatically moves.
+   Pen-Up preparation is not inkDispatchPossible. Existing RunInterpreter, controller,
+   camera/Vision, raw possible-ink/frontier and no-redraw authority remains unchanged.
+7. Accepted Submit acknowledgement follows raw stage plus durable accepted link,
+   not full run settlement. Release the global FIFO before waiting on run or export.
+   Every job read-modify-commit transition (pending, cancel, accepted link, terminal)
+   uses the SAME short serialized or CAS boundary. A nominal publication adapter may
+   enter the released short service transition; no direct read/commit racing Cancel
+   and no reentrant `handle` while Submit holds its FIFO. Phase/receipt transitions
+   are monotonic; stale pending/cancel cannot overwrite accepted or settled truth.
+   Status/Cancel remain responsive during held run/export. Durable cancellation is
+   checked before stage/link/dispatch; acknowledgement is not settlement. Restart may
+   refuse interrupted pre-stage work only on verified raw absence; existing stage
+   reconciles the same RunID, unknown storage remains uncertain. No automatic Start.
+8. App/file ingress stays Prepare-only absent explicit destination Plot authority.
+   Native explicit Plot carries the original request through the nominal shared Submit
+   adapter. Files/Prepare never manufacture native Plot capability. Acceptance tests
+   exercise the actual Run runtime with existing lower fakes, not an alternate executor.
+9. The later SOFTWARE package removes `DrawingDestinationNonDeviceOwner` and its
+   `nonDeviceOwner` fake-acceptance configuration after the real path replaces it.
+   Remove unbound authored Drawing Studio Start forwarding and that branch's fresh
+   RunID fallback; do not globally delete `.start`, `RunID()`, optional candidates or
+   terminal `beginNewRun`. Learning Border effects/raw records stay non-job. There
+   is ONE production Start/issuance-intent owner; canonical RunID choice and intent
+   creation move to existing raw staging, not a location-count workaround.
+10. Immutable canonical source/plan/placement/material projection bindings are only
+    issuance-currentness facts. Preserve exact authored full refs and the original
+    reviewed plan. No parking-policy, geometry or carriage algorithm change, no
+    App-owned Draft. DX-14 owns later sheet outline/parking/clamp presentation work;
+    any changed episode-owned parked semantics need a separately authorized seam.
+11. Accepted zero-attempt portable results stay invalid/unavailable until DX-15 has
+    genuine owner snapshots. Never fabricate refusal/success results. Publication
+    failure/re-export never dispatches. Unknown nominal pen width remains valid;
+    no mandatory UI fields, setup, measurement, learning or deferred input. Historical
+    artwork stays untouched/unloaded; no new database/executor/configuration, deploy,
+    remote Git or hardware work.
+12. Fixed focused suites cover crash cuts at pending/raw stage/link/first effect/
+    possible ink/terminal link; exact and conflicting concurrency/namespaces; duplicate
+    or lost-ack original public-sink requests; restart with zero second dispatch;
+    Stop/shutdown during preparation/link; responsive Status/Cancel under held run/
+    export; original stale projection/plan; actual source-free and Photo app Start
+    bindings; exact pre-motion staged-leaf proof; zero-effect publication retry; and
+    unknown width. Report software/lower-fake limits honestly, never signed-launch
+    or physical acceptance.
+
+### DX-13-ISSUANCE current owner and deletion supplement
+
+| Current path/symbol | Current consumer/authority | Software disposition and bounded allowed path |
+| --- | --- | --- |
+| `Sources/PortraitCore/DrawingDestination.swift` | Shared typed service/file values | Adapt typed pending/admission values; add neutral `DrawingJobIssuance` here or a new file in PortraitCore; no UI import |
+| `Sources/PortraitLibrary/DrawingDestinationService.swift`: `handle`, `nonDeviceOwner`, `DrawingDestinationNonDeviceOwner` | Shared in-process/file control service; existing Library domain commit/CAS | Replace fake acceptance with nominal real-Run admission/publication; short monotonic metadata transitions; delete fake owner/configuration and corresponding old fake-owner test callers |
+| `Sources/PortraitLibrary/DrawingDestinationTransport.swift`, `DrawingDestinationResult.swift` | Same file receiver, metadata lookup and explicit artifact worker | Adapt typed decisions/status/cancel; preserve Prepare-only automatic recovery, result bounds and publication-only retry; no whole-run/export FIFO |
+| `Sources/PlotterApp/OperatorWorkspace.swift`: drawingRun public-sink branch, `submitPlotterUIRequest` → `submitRecordedPlotterUIRequest` (Learning wrapper) → `submitUnrecordedPlotterUIRequest` (Run case), `submitDrawingRun`, `currentDrawingRunFacts`, `shutdown` | Original UI request, current facts, root admission/joins | Capture original UUID/submission before awaits, route explicit native Plot through shared Submit, close same Run owner before first shutdown await; preserve all other feature joins/effect authority |
+| `Sources/PlotterApp/DrawingStudioPresentation.swift`: `request(matching:)`; `DrawingDestinationComposition.swift` | Current typed preview/explicit action adapters | No refreshed request at issuance; exact immutable per-call adapter; no registry/reprojection replacement |
+| `Sources/PlotterEpisodeModel/PlotterDrawingRun.swift` | Model submission/projection/Stop/readiness | Typed pending/issuance/own-transition facts with original request identity; no second owner |
+| `Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift`: `start`, `run`, `beginShutdown`, `ActiveRun` | Sole native Start and retained run settlement | Pending Stop before await, same retained identity task, newly-staged-only permission and accepted-link-before-effects; remove its pre-stage fresh RunID allocation, preserve lower runtime authorities |
+| `Sources/PlotterRuntime/DrawingRunIntent.swift`, `DrawingRunEvidenceStore.swift` | Raw staged intent/archive writer | Normalized `DrawingRunIntentBody`, `DrawingRunIssuanceProposal`, atomic canonical RunID choice/exact-binding lookup and stage proof; preserve non-job record paths |
+| `Sources/PlotterApp/DrawingRunEvidenceComposition.swift`: `stagedPortraitBinding`, `loadForPortraitBinding`, `finishPortraitBinding`; `DrawingStudioPhysicalEvidence.swift` | Exact pre-motion portrait proof and final evidence binding | Adapt returned canonical intent; remove only unbound authored-Start/fresh-RunID fallback; preserve Learning Border and exact leaf verification |
+| `Sources/PortraitLibrary/PortraitEvidenceSource.swift`: `proveStagedAttempt`; `PortraitDrawingAttemptBinding.swift`, `PortraitSketchCollection.swift` | Exact staged attempt manifest proof and Library writer | Only exact staged binding/proof adaptation; no general Library helper expansion |
+| `Sources/PlotterEpisodeModel/PlotterDrawingDraft.swift`, `Sources/PlotterEpisodeRuntime/PlotterDrawingDraftRuntime.swift` | Canonical Draft source/plan/placement/material facts | Only proved immutable issuance-currentness pins; no geometry/parking-policy algorithm change |
+| `Sources/PlotterApp/PassiveProbeComposition.swift` | Existing interpreter nominal adapter | Only proved fresh cancel/admission guard, no lower owner/algorithm rewrite |
+| `Sources/PlotterApp/AdaptivePlotterApp.swift`, runtime view; `Sources/PortraitStudio/PortraitStudioApp.swift` | Existing document/task lifecycle and status | Narrow metadata delegate/runtime-view/status copy only; file ingress cannot authorize Submit; Studio status copy only |
+| `Sources/DrawingDestinationHarness` | Actual shared service refusal-only disposable process helper; currently no fake-owner construction | Retain narrow refusal smoke. No accepted execution harness just to delete fake seam; accepted process smoke belongs DX-15/DX-18 |
+| `Package.swift`, existing `Sources/PlotterTestSupport` | Existing acyclic target graph/lower fake fixtures | Only necessary direct PortraitCore edges to EpisodeModel/PlotterRuntime/EpisodeRuntime and corresponding existing test dependencies; optional proved harness direct EpisodeModel/EpisodeRuntime/test-support edges only; no new executable, plugin, runner or configuration framework |
+| `Tests/PlotterAppTests`, `Tests/PortraitStudioTests`, `Tests/PlotterRuntimeTests`, `Tests/PlotterEpisodeRuntimeTests`, `Tests/PlotterEpisodeModelContractTests` | Actual native/service/composition owners with existing lower fakes | Add fixed `PlotterDrawingIssuanceTests`, `DrawingIssuanceServiceTests`, `DrawingIssuanceCompositionTests`; adapt only directly affected fixtures; no fake replacement executor |
+
+`AFFECTED-CONSUMERS` scans current consumers for UI import inversion, duplicate
+Start/issuance authority and unbound forwarding. `DELETE` additionally requires
+fake-owner removal, canonical raw-stage types, fixed suites and exact portrait-proof
+consumers. The named checker is structural evidence only; lifecycle/permission,
+monotonicity and crash semantics require the fixed executable suites. Do not claim
+that token presence proves dispatch safety. No generic EpisodeRuntime or
+PlotterOperationRegistry redesign is authorized. No obsolete source location is
+mandated for the new canonical RunID constructor: it belongs to the existing raw
+DrawingRunEvidenceStore/staging path, not an interchangeable new runtime owner.
+The fresh request scan targets the actual Unrecorded native sink; Stop/review/
+new-paper contexts and non-job calibration IDs are not globally prohibited.
+Current public → Recorded → Unrecorded delegates Run outside Learning journaling;
+no Run semantic transfer into the Learning wrapper is authorized.
+
+### DX-13-ISSUANCE evidence ordering
+
+`DX12-PREREQUISITE` verifies `5cbf791de3756fffb74412d2abfd78a549c22020`
+is an ancestor and reads the actual bounded DX-12 closure in Current Evidence and
+its retained lifecycle receipt. It is not a ledger row or fresh physical acceptance.
+
+While DX-13 remains pending, run every required gate on a clean committed frozen
+software candidate, including normal configured docs/full serial QUICK/diff. Retain
+exact production Swift, tests, Package/resources and build-configuration pins plus
+the actual machine receipt. Missing, failed, skipped or zero-case required gates do
+not pass. Only after all required passes may completion/evidence rows and minimally
+necessary checker completion/checksum constants change. Run final DOC/DIFF and prove
+that final delta contains only evidence/ledger/checker completion records and all
+runtime/product/test/build inputs are identical. QUICK names the tested candidate,
+not the final docs-only tree. Any software/test/config change refreshes affected and
+required gates. Historical source receipts are not eligible final-tree evidence_ref.
+This is this package's ordered evidence rule, not an unlanded-candidate framework or
+configuration bypass. Existing global STRICT remains unchanged and is not claimed
+by ISSUANCE-STRICT.
+
 ## Work ledger
 
 Blackdog owns active task state. This table records only not-started work,
@@ -1828,7 +2004,15 @@ replay identity is either removed from the ledger or is currently
 dependency-ineligible. The diagnostic remains visible and hash-bound; a missing
 or unverifiable replay identity, retained owner/worktree/branch, required owner
 finalization, active attempt, or current dependency-ready recoverable ordinary
-package remains a launch blocker.
+package remains a launch blocker. This is the legacy blocked/failed diagnostic
+contract. DOC-06 additionally normalizes the installed snapshot/v2 status schema:
+explicitly inactive done/success is completed history; canceled with terminal
+abandoned/blocked/failed is administratively closed even with an intentionally
+retained workspace. These records appear in separately hash-bound `closed_history`,
+not legacy `terminal_history`; completed done/success remains excluded. A blocked
+task is not a canceled task. Unknown/missing or
+inconsistent current schema, active claims and finalization uncertainty block.
+No task-ID exception or cleanup of preserved canceled workspaces is authorized.
 
 1. `TRANCHE-LEARNING` executes `EA-10G`, then `EA-10C`, `EA-10D`, `EA-10E`,
    and `EA-10F` in that exact order.
@@ -1929,6 +2113,8 @@ final `VAL-01` attended validation boundary.
 | EA-12B | complete | EA-12A | authority-slice | Cutover: model-owned typed Learning item/action/request identity and availability now travel unchanged through immutable `PlotterUI` projection and the one public `PlotterUIIntentSink` to the authoritative feature runtime. App semantic side registries, opaque retained/application intents, ID recompilation, redundant `ExerciseActionKind` translations, dead IDs/UI declarations, and **Discard Camera Samples** are deleted. Tip retry is absent during busy commit/revalidation; every touched effect-bearing control binds its exact projected request/remedy and cannot silently terminate. At the slice boundary, `BUILD`, UI-authority 19/19, model 20/20, composition 6/6, and UI 20/20 passed; the repaired candidate passed 22 consumer and 29 full cutover scans. | `BUILD`, `UI-AUTHORITY`, `PLOTTER-MODEL`, `COMPOSITION`, `UI`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
 | EA-12C | complete | EA-12B | authority-slice | Cutover: one stable model-owned `PlotterLearningEpisodeID` and bounded ordered `PlotterLearningTransitionID` record spans retained feature requests without fabricating or merging their journals. Every effect-bearing Learning action/reset records its exact union request/source, pre revision, typed accepted/refused result/remedy, and bounded immutable post-transition projection; the retained root task is keyed by transition only for asynchronous cancel/join. Slider/direction controls carry exact per-value requests, and both LIVE/SIMULATED Border runtimes retain, cancel, and join step/accept/reject effects before root persistence. Residual UUID/string identity, duplicate ingress, duplicate controller/observation bridge types, and request reconstruction helpers are deleted. Final focused repair validation passed `BUILD`, UI-authority 21/21, Border 9/9, model 22/22, composition 8/8, and UI 22/22; 12 consumer and 26 full cutover scans passed. This slice does not assemble or export an incident package, and the accepted `Sources +1631/-1600` exception means the original net-deletion target did not pass. | `BUILD`, `UI-AUTHORITY`, `BORDER-VALIDATION`, `PLOTTER-MODEL`, `COMPOSITION`, `UI`, `AFFECTED-CONSUMERS`, `DIFF`, `DELETE` |
 | FIX-10 | complete | TRANCHE-MODEL-UI-CONSOLIDATION | software | Correction: user-directed scope replacement for practical debugging and operator throughput. Export an on-demand bounded diagnostic snapshot of the existing Learning record, current UI actions/refusals, source, and runtime/UI revisions. Do not create a second event stream, merge unrelated feature journals, or require a complete replay archive for the Learning Path. Keep the canonical incident assembler as an unbound archival foundation. Improve measured live-preview cost, native workbench layout, and contextual spoken responses through the existing projected requests without changing the Learning sequence or adding admission rules. Complete archive/source integration is deferred until a concrete continuity or replay need justifies it. Completed through `TASK-128DF0C7`, attempt `TASK-128DF0C7-93f0fac9a2b1`; software checks and measured live-camera rendering do not claim attended physical or microphone evidence. | `BUILD`, `INCIDENT-APP`, `UI`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `STRICT` |
+| DOC-06 | complete | FIX-10 | repository | Define the one coupled DX-13-ISSUANCE Correction, ordered lifecycle, exact owners/consumers/deletions, current runtime-summary interface, fixed gates and honest candidate-to-completion evidence ordering; execute no Swift migration. Completed as repository candidate by `task-7666d0443b0748318f5aa9e4b468726e`, attempt `attempt-5667b0e490134ecdbf06aa8a0ac46d68`, after actual preliminary DOC/DIFF passes; final completion-delta DOC/DIFF and normal task landing remain required. Package DOC-06 complete; migration remains incomplete. | `DOC`, `DIFF` |
+| DX-13-ISSUANCE | pending | DOC-06, EA-08A, EA-08B | software | Correction: bind one durable Drawing job to the existing Run/raw intent/Library owners using original request identity, pending Stop, canonical atomic raw stage, accepted link before effects, newly-staged-only live permission, responsive monotonic metadata and exact staged-leaf proof; remove the superseded fake acceptance and unbound authored Start paths. | `DX12-PREREQUISITE`, `BUILD`, `DRAW-ISSUANCE`, `DRAW-RUN`, `DRAW-DRAFT`, `COMPOSITION`, `AFFECTED-CONSUMERS`, `DELETE`, `DOC`, `DIFF`, `QUICK`, `JOURNEY`, `ISSUANCE-STRICT` |
 | VAL-01 | pending | FIX-10 | attended-physical | On the exact signed landed FIX-10 validation candidate, execute the complete attended runbook including Drawing Studio, exercise visible refusal/progress/Stop and diagnostic snapshot export, and land controller/camera/operator/ink evidence and limitations without changing architecture. The failed 2026-08-31 section-1 prefix and the incomplete 2026-09-01 Exercise 1.4 frame-handoff attempt remain nonpass evidence and cannot satisfy `PHYSICAL-FINAL`. | `DOC`, `DIFF`, `STRICT`, `PHYSICAL-FINAL` |
 | GATE-02 | pending | VAL-01 | gate | Prove one globally exclusive projection-bound public `PlotterUIIntentSink`, complete operator journey, replay/simulation/incident evidence, same-landing deletion, final attended evidence, and packaging decision. It moves no authority and does not require a redundant root intent reevaluator. | `DOC`, `DIFF`, `FINAL-GATE` |
 
@@ -2018,6 +2204,9 @@ the gate. All commands run from the task workspace on the recorded target.
 | `COMPOSITION` | `swift test --filter PlotterEpisodeCompositionTests` selects a nonzero discoverable suite proving production-root projection-bound submission, ordered model Learning episode transitions, transition-keyed retained-task cancel/join, synchronous close-before-await, feature joins, ordered persistence, exact nonterminal-owner reporting, and no false termination/quiescence | EA-11C |
 | `AFFECTED-CONSUMERS` | `sh Scripts/check_episode_cutover.sh <PACKAGE-ID> --consumer-only` proves the exact direct-port, duplicate-ingress, forbidden-import, forbidden-conformance, and environment-branch consumer scans for that slice; it does not substitute for `DELETE` | EA-01 |
 | `DELETE` | `sh Scripts/check_episode_cutover.sh <PACKAGE-ID>` executes the exact zero-match deleted-symbol, forbidden-import, forbidden-conformance, direct-port, duplicate-ingress, task-owner, fixture, and environment-branch scans recorded by EA-01 for that package; any unassigned remaining consumer fails | EA-01 |
+| `DX12-PREREQUISITE` | Verify adopted ancestor `5cbf791de3756fffb74412d2abfd78a549c22020` and its bounded DX-12 lifecycle/closure receipts in Current Evidence; not a ledger dependency | DX-13-ISSUANCE |
+| `DRAW-ISSUANCE` | `swift test --no-parallel --filter DrawingIssuance` selects nonzero cases in `PlotterDrawingIssuanceTests`, `DrawingIssuanceServiceTests`, and `DrawingIssuanceCompositionTests` | DX-13-ISSUANCE |
+| `ISSUANCE-STRICT` | `swift test --no-parallel --filter DrawingIssuance -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` selects the same three nonzero fixed issuance suites | DX-13-ISSUANCE |
 | `PHYSICAL-FINAL` | On the exact signed landed FIX-10 validation candidate, one continuously attending operator executes Attended Hardware Runbook sections 1 through 6 and completes its Evidence record; the record must additionally capture one visible typed refusal/remedy, active owner/progress/Stop, runtime/UI revisions, one bounded diagnostic snapshot export, controller transcript completeness, camera artifact presence or declared absence, and observed-ink/ambiguity outcomes | VAL-01 |
 | `FINAL-GATE` | `sh Scripts/check_episode_final_gate.sh` proves every ledger row through VAL-01 complete, all final-matrix software/replay/simulation/UI evidence linked from Current Evidence, one globally exclusive public gateway and one package `PlotterOperationRegistry` mechanism by structural scan while retaining named feature-runtime lanes, zero superseded paths, and a passed PHYSICAL-FINAL record for the exact signed landed FIX-10 validation candidate | EA-11C |
 
