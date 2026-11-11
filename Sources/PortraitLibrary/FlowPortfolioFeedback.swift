@@ -126,6 +126,26 @@ extension FlowPortfolioStore {
     try asset.validate(bytes, maximumBytes: 128 * 1024 * 1024); return bytes
   }
 
+  /// Resolve immutable feature assets on this actor. The caller assembles its
+  /// local closure after the await; no async helper captures mutable buffers.
+  private func feedbackFeatureAssets(_ item: FlowPortfolioPresentationItem) async throws
+    -> (value: FlowPortfolioFeatureCapsule, assets: [(ExchangeAsset, Data)]) {
+    let value = try await featureCapsule(candidateID: item.candidateID, revisionID: item.revisionID)
+    var assets = [(try value.asset, try DrawingArtifactCoding.encoder().encode(value))]
+    if let root = value.rootFeatures {
+      let original = try await featureCapsule(candidateID: value.candidateID)
+      guard try original.asset == root else { throw FlowPortfolioError.invalid("Exact root feature basis changed.") }
+      assets.append((root, try DrawingArtifactCoding.encoder().encode(original)))
+    }
+    for asset in [value.producer.record, value.extractor.record] {
+      let bytes: Data
+      if let local = featureSupportingAssets[asset.object] { bytes = local }
+      else { bytes = try await readFeedbackAsset(asset) }
+      assets.append((asset, bytes))
+    }
+    return (value, assets)
+  }
+
   /// Build only the canonical human response closure, never the portfolio/photos
   /// or compared Drawing geometry. Local navigation is committed separately in
   /// the same Library transaction by the owner below.
@@ -178,27 +198,13 @@ extension FlowPortfolioStore {
       files["data/assessments/" + state.id.uuidString.lowercased() + "/" + id.uuidString.lowercased() + ".json"] = bytes
       assessments.append(ref); return ref
     }
-    func features(_ item: FlowPortfolioPresentationItem,
-      owner: isolated FlowPortfolioStore) async throws -> FlowPortfolioFeatureCapsule {
-      let value = try await owner.featureCapsule(candidateID: item.candidateID, revisionID: item.revisionID)
-      let bytes = try DrawingArtifactCoding.encoder().encode(value)
-      try addAsset(try value.asset, bytes: bytes)
-      if let root = value.rootFeatures {
-        let original = try await owner.featureCapsule(candidateID: value.candidateID)
-        guard try original.asset == root else { throw FlowPortfolioError.invalid("Exact root feature basis changed.") }
-        try addAsset(root, bytes: DrawingArtifactCoding.encoder().encode(original))
-      }
-      for asset in [value.producer.record, value.extractor.record] {
-        let bytes: Data
-        if let local = owner.featureSupportingAssets[asset.object] { bytes = local }
-        else { bytes = try await owner.readFeedbackAsset(asset) }
-        try addAsset(asset, bytes: bytes)
-      }
-      return value
-    }
     for choice in newChoices {
       var support: [ExchangeAsset] = []
-      for item in choice.offeredItems { support.append(try await features(item, owner: self).asset) }
+      for item in choice.offeredItems {
+        let resolved = try await feedbackFeatureAssets(item)
+        for (asset, bytes) in resolved.assets { try addAsset(asset, bytes: bytes) }
+        support.append(try resolved.value.asset)
+      }
       guard let selected = choice.offeredItems.firstIndex(where: { $0.id == choice.selectedItemID }) else { throw FlowPortfolioError.invalid("Choice target missing.") }
       let ref = try assessment(id: choice.id, date: choice.createdAt, target: ["kind": "asset", "asset": try object(support[selected])],
         answerType: "adaptiveplotter.flow-choice", answer: object(FlowCanonicalChoiceAnswer(choice)), support: support)
@@ -206,8 +212,12 @@ extension FlowPortfolioStore {
     }
     for prune in newPrunes {
       guard let candidate = next.candidates.first(where: { $0.id == prune.candidateID }) else { throw FlowPortfolioError.invalid("Prune candidate missing.") }
-      let base = try await features(.init(id: candidate.id, candidateID: candidate.id, revisionID: nil, sourceID: candidate.sourceID, removedIndices: []), owner: self)
-      let edited = try await features(.init(id: prune.id, candidateID: candidate.id, revisionID: prune.id, sourceID: candidate.sourceID, removedIndices: prune.removedIndices), owner: self)
+      let baseAssets = try await feedbackFeatureAssets(.init(id: candidate.id, candidateID: candidate.id, revisionID: nil, sourceID: candidate.sourceID, removedIndices: []))
+      for (asset, bytes) in baseAssets.assets { try addAsset(asset, bytes: bytes) }
+      let base = baseAssets.value
+      let editedAssets = try await feedbackFeatureAssets(.init(id: prune.id, candidateID: candidate.id, revisionID: prune.id, sourceID: candidate.sourceID, removedIndices: prune.removedIndices))
+      for (asset, bytes) in editedAssets.assets { try addAsset(asset, bytes: bytes) }
+      let edited = editedAssets.value
       let region = try localAsset(DrawingArtifactCoding.encoder().encode(base.strokeIDs))
       let ref = try assessment(id: prune.id, date: prune.createdAt, target: ["kind": "asset", "asset": try object(base.asset)],
         answerType: "adaptiveplotter.flow-pruning", answer: object(FlowCanonicalPruneAnswer(prune, basis: base.strokeIDs)), support: [base.asset, edited.asset], region: region)
@@ -217,7 +227,9 @@ extension FlowPortfolioStore {
       guard let presentation = next.presentations.first(where: { $0.id == rank.presentationID }) else { throw FlowPortfolioError.invalid("Ranking presentation missing.") }
       var shown: [[String: Any]] = []
       for item in presentation.items {
-        let value = try await features(item, owner: self)
+        let resolved = try await feedbackFeatureAssets(item)
+        for (asset, bytes) in resolved.assets { try addAsset(asset, bytes: bytes) }
+        let value = resolved.value
         shown.append(["id": item.id.uuidString.lowercased(), "features": try object(value.asset),
           "producer": ["id": value.producer.id, "version": value.producer.version, "record": value.producer.record.object.description],
           "extractor": ["id": value.extractor.id, "version": value.extractor.version, "record": value.extractor.record.object.description]])

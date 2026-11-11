@@ -33,7 +33,8 @@ struct PlotterEpisodeComposition {
     )
     let artifactResetComposition = PlotterArtifactResetComposition.make()
     let library = DrawingLibrary(directoryURL: FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/Application Support/AdaptivePlotter/DrawingLibrary", isDirectory: true))
+      .appendingPathComponent("Library/Application Support/AdaptivePlotter/DrawingLibrary", isDirectory: true),
+      payloadValidators: DrawingDestinationResult.payloadValidators)
     let application = PlotterApplicationRuntime(
       machineSession: MachineSessionComposition.session,
       observationSession: CameraComposition.observationSession,
@@ -74,6 +75,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   private struct PreparationReplyKey: Hashable { let client: UUID; let delivery: UUID }
   private var observedPreparationReplies: Set<PreparationReplyKey> = []
   private var revealPreparedDrawing: DrawingDestinationReveal?
+  private var pendingDrawingPreparation: DrawingDestinationReply?
   private var destinationViewRestorationCompleted = false
   private(set) var drawingDestinationRecoveryScanCount = 0
   private var destinationRecoveryTask: Task<Void, Never>?
@@ -81,6 +83,13 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   private var terminationTask: Task<Void, Never>?
   private var didReplyToTermination = false
   var restoreOperatorWindow: (() -> Void)?
+  /// AppKit response adapter; termination ownership remains terminationTask.
+  var replyToTermination: @MainActor (NSApplication, Bool) -> Void = {
+    $0.reply(toApplicationShouldTerminate: $1)
+  }
+  var drawingPresentationAdmissionIsOpen: Bool {
+    terminationTask == nil && applicationRuntime.drawingDestinationRecoveryAdmissionIsOpen
+  }
 
   override init() {
     destinationRoot = DrawingDestinationFiles.defaultRoot
@@ -113,7 +122,9 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
             showDrawingPreparation(try await applicationRuntime.drawingDestination.handle(.prepare(ref)), foreground: true)
           }
         } catch {
-          applicationRuntime.drawingDestinationStatus = "Drawing could not be opened: " + error.localizedDescription
+          if drawingPresentationAdmissionIsOpen {
+            applicationRuntime.drawingDestinationStatus = "Drawing could not be opened: " + error.localizedDescription
+          }
         }
       }
     })
@@ -124,6 +135,12 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     destinationViewRestorationCompleted = true
   }
   private func showDrawingPreparation(_ reply: DrawingDestinationReply, foreground: Bool) {
+    guard drawingPresentationAdmissionIsOpen else {
+      // A failed quit may reopen this same window. Keep only its presentation
+      // value; the Library and destination still own all durable preparation.
+      if terminationTask != nil { pendingDrawingPreparation = reply }
+      return
+    }
     switch reply {
     case .prepared(let ticket):
       if revealPreparedDrawing?(ticket) == true {
@@ -154,12 +171,16 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
         guard self.applicationRuntime.drawingDestinationRecoveryAdmissionIsOpen else { return }
         let recovery = await self.destinationFileServer.drainPreparations()
         self.drawingDestinationRecoveryScanCount += 1
-        for response in recovery.responses {
-          guard self.observedPreparationReplies.insert(.init(client: response.client, delivery: response.delivery)).inserted else { continue }
-          self.showDrawingPreparation(response.reply, foreground: false)
-        }
-        if let failure = recovery.failures.first {
-          self.applicationRuntime.drawingDestinationStatus = "Drawing preparation recovery failed: " + failure
+        // Drain durable work even while a quit attempt is pending, but do not
+        // consume its presentation receipt. A canceled quit can still reveal it.
+        if self.drawingPresentationAdmissionIsOpen {
+          for response in recovery.responses {
+            guard self.observedPreparationReplies.insert(.init(client: response.client, delivery: response.delivery)).inserted else { continue }
+            self.showDrawingPreparation(response.reply, foreground: false)
+          }
+          if let failure = recovery.failures.first {
+            self.applicationRuntime.drawingDestinationStatus = "Drawing preparation recovery failed: " + failure
+          }
         }
         do { try await Task.sleep(for: .seconds(1)) } catch { return }
       }
@@ -203,7 +224,11 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
         alert.runModal()
         self.didReplyToTermination = true
         self.terminationTask = nil
-        sender.reply(toApplicationShouldTerminate: false)
+        if let pending = self.pendingDrawingPreparation {
+          self.pendingDrawingPreparation = nil
+          self.showDrawingPreparation(pending, foreground: false)
+        }
+        self.replyToTermination(sender, false)
         return
       }
       self.cancelDrawingDestinationRecovery()
@@ -224,7 +249,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     didReplyToTermination = true
     terminationTask?.cancel()
     terminationTask = nil
-    application.reply(toApplicationShouldTerminate: true)
+    replyToTermination(application, true)
   }
 }
 

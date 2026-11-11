@@ -119,17 +119,18 @@ tickets, decisions, refusals, cancellation acknowledgement/settlement and result
 
 | Operation | Current behavior |
 | --- | --- |
-| Describe | Stable local engine identity, current exchange/Drawing/stroke profiles, authored-style preservation and captured destination applicability. Placement/border/material/readiness options are captured; arbitrary overrides and a nominal-width requirement are absent. Production execution is unavailable. |
+| Describe | Stable local engine identity, current exchange/Drawing/stroke profiles, authored-style preservation and captured destination applicability. Placement/border/material/readiness options are captured; arbitrary overrides and a nominal-width requirement are absent. Native Plot capability remains with the existing Run owner. |
 | Prepare | Through the existing projection-bound app/draft owners, load/retain the exact Drawing/input/parent closure, select/fit and capture a genuine current plan/options. No executable plan means typed refusal and no ticket. A ticket pins full DrawingRef, destination, draft revision, actual plan ID/hash and plan/options asset digests. |
 | Submit | Recheck the original native request against its stored ticket and immutable plan/fact pins. Native Plot enters the existing Run owner, atomically stages one bound raw attempt, then commits the accepted receipt/Run link before effects. Same-key retry returns or reconciles the original job without another dispatch. File/automatic Submit lacks native Plot capability and is durably refused; there is no unbound Start fallback. |
 | Status | Look up by JobRef or client namespace/request after a lost reply; compact domain rows contain no geometry/plan bytes. Metadata counter evidence excludes explicit owner opening/recovery. |
-| Cancel | Acknowledgement and settlement are separate fields. A refused job is already settled and retains its immutable receipt. Only the disposable non-device harness exercises accepted/held/reconciling cancellation. |
-| ExportResult | A genuine prepared refusal exports engine-owned authored closure, actual frozen plan/options and refused receipt, zero attempts/issuance. Missing return publication may be repaired without submitting/dispatching again. Accepted zero-attempt results remain invalid. |
+| Cancel | Acknowledgement and settlement are separate fields. A refused job is already settled and retains its immutable receipt. Accepted cancellation uses the same Run/Stop owner and retains its exact lower-handle settlement. |
+| ExportResult | Refusal carries zero attempts. An accepted job carries its original pre-motion proposal, selected raw attempt and any retained terminal record/media, exact Drawing/job/issuance/plan/options bindings and cumulative snapshot lineage. Missing return publication retries the chosen delivery without another Submit, RunID or dispatch. Accepted zero-attempt results remain invalid. |
 
 The existing Library actor/journal/CAS owns the engine/client identities, prepared
 records, namespace-qualified request digest mappings, job decisions and pending deliveries.
 A namespace is part of the request record kind, so equal request UUIDs from different
-clients do not collide. Admission queues the complete operation across awaits. Decision
+clients do not collide. Admission serializes short metadata transitions; raw reads,
+media copying and result assembly run outside that boundary. Decision
 and request mapping commit atomically; uncertainty recovers through the existing writer
 and exact lookup. Preparation owns plan/options assets before acknowledging its ticket;
 status rows retain only their pins. There is no new database or Library writer.
@@ -147,7 +148,14 @@ and dynamic request/ticket guards prevent stale completion from retargeting sele
 
 Result publication streams its seal, builds a same-directory private ZIP, synchronizes
 it and installs with exclusive atomic rename. A verified same-job result is reused;
-a divergent target is preserved. `includedAsOf` is the immutable refusal wall time.
+a divergent target is preserved. `includedAsOf` belongs to the chosen immutable
+delivery. A pending/published result cursor in the existing job metadata binds its
+content and predecessor; lost acknowledgement cannot fork that lineage.
+Native candidates remain in a private directory until that metadata cursor
+chooses one; only its verified bytes may become a visible Return ZIP. Competing
+assemblies do not hold the global Status/Cancel metadata lane; a caller with newer
+captured evidence continues from the published predecessor instead of returning
+an older pending boundary.
 The local `adaptiveplotter.local-prepared-plan/1` and
 `adaptiveplotter.local-medium-options/1` validators decode the actual owner plan/options,
 with their existing validation/bounds; the exact plan asset pin is not the authored
@@ -512,9 +520,9 @@ producer-proof, mount, job or result-adoption gates.
 
 ## Baseline and bounded format check
 
-The raw execution owner distinguishes a staged intent, possible ink and terminal observations. The historical v1 attachment was limited to a transferred origin and terminal ordinary run; its retired exporter is not an active compatibility route. Current authored transfers use the exact-ref Drawing Exchange carrier. Portable result adoption remains a separate later gate: review notes and no-ink confirmations retain their raw archive authority and need explicit scope/attribution in an exchange snapshot. [Staged intent](../Sources/PlotterRuntime/DrawingRunIntent.swift) · [Terminal record](../Sources/PlotterRuntime/DrawingRunEvidence.swift) · [Current authored transfer](../Sources/DrawingLibrary/DrawingLibraryExchange.swift) · [Start allocation](../Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift)
+The raw execution owner distinguishes a staged intent, possible ink and terminal observations. The historical v1 attachment was limited to a transferred origin and terminal ordinary run; its retired exporter is not an active compatibility route. Current authored transfers use the exact-ref Drawing Exchange carrier. The native adapter described above adds accepted and interrupted portable results. Local review notes and no-ink confirmations retain their raw archive authority; this adapter does not convert them into portable testimony or release local retry. [Staged intent](../Sources/PlotterRuntime/DrawingRunIntent.swift) · [Terminal record](../Sources/PlotterRuntime/DrawingRunEvidence.swift) · [Current authored transfer](../Sources/DrawingLibrary/DrawingLibraryExchange.swift) · [Start allocation](../Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift)
 
-The [source-free drawing example](../Tests/Fixtures/DrawingExchange/v1/source-free.zip) is the v1 authored-side reference vector. A temporary build from the current PlotterModel generated the built-in line from (5,50) to (95,50) in its 100 × 100 field. Swift decoded the program and verified its canonical content hash. An independent Python reader opened the ZIP alone, checked both manifests, resolved the drawing and assets, verified asset lengths/digests, and recovered the two points. A separate Python implementation recomputed the existing APCB canonical stroke-program digest from the decoded fields and matched Swift. A deliberately changed payload failed integrity checking. Program digest `960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097`. Drawing-record digest `e6f9f570fa580fa59cb5f6f3435641aa5c5c3acbcc4eeb944f3a606fe0b55ddd`. This exercises the proposed carrier and existing stroke representation. An actual result export from an interrupted or completed run, cross-language coverage of the other program and evidence fixtures, and separate-process job recovery remain implementation gates. Historical archive migration is deferred.
+The [source-free drawing example](../Tests/Fixtures/DrawingExchange/v1/source-free.zip) is the v1 authored-side reference vector. A temporary build from the current PlotterModel generated the built-in line from (5,50) to (95,50) in its 100 × 100 field. Swift decoded the program and verified its canonical content hash. An independent Python reader opened the ZIP alone, checked both manifests, resolved the drawing and assets, verified asset lengths/digests, and recovered the two points. A separate Python implementation recomputed the existing APCB canonical stroke-program digest from the decoded fields and matched Swift. A deliberately changed payload failed integrity checking. Program digest `960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097`. Drawing-record digest `e6f9f570fa580fa59cb5f6f3435641aa5c5c3acbcc4eeb944f3a606fe0b55ddd`. This exercises the proposed carrier and existing stroke representation. That original authored vector alone does not exercise a run result. Later actual native result, cross-language and recovery evidence is recorded in Current Evidence. Historical archive migration is deferred.
 
 The source-free vector is checked by `python3 Scripts/check_drawing_exchange_fixture.py` and `make docs-check`.
 
@@ -537,6 +545,68 @@ plan/options bind to one atomic raw stage and durable accepted Run link before
 effects. Only the original live newly-staged continuation can dispatch. Status/Cancel
 share short monotonic metadata transitions; restart never reissues. Package adoption
 and actual validation are recorded separately in Current Evidence.
-Accepted zero-attempt export remains invalid; real accepted result snapshots belong
-to DX-15. DX-14 parking/outline policy is outside issuance currentness. No additional
+Accepted zero-attempt export remains invalid. The read-only DX-15 adapter below
+exports actual accepted attempts without changing issuance. DX-14 movement policy
+is outside issuance currentness. No additional
 UI field, learning/setup step, width declaration or historical loading is required.
+
+## Native returned-result and offline task boundary
+
+`DrawingNativeResultCodec` interprets the original
+`adaptiveplotter.drawing-run-proposal/1`, `adaptiveplotter.raw-attempt-state/1`,
+`adaptiveplotter.raw-terminal-record/1` and `adaptiveplotter.native-coverage/1`
+payloads. The raw store exports one already-admitted selected attempt, rechecks its
+committed manifest/components and streams declared original media. It grants no
+stage, dispatch or retry permission. Cold or changed raw state requires the
+existing startup/recovery owner; export does not repair or silently rescan it.
+Generic JSON envelopes retain their 8-MiB bound. The exact allowlisted raw terminal
+asset has a separate 256-MiB bound because its admitted coverage contains inline
+pixels and provenance; per-package materialization/read-work budgets still apply.
+Original-frame decoding and UI preview each have their own 64-MiB frame limit.
+
+The snapshot keeps exact raw prefixes, planned/requested/controller-completed/
+ink-verified frontiers, observation classification and explicit unavailable facts.
+Original options capture live/simulation when preparation knows it; absent old
+environment remains unknown. Raw ticks are preserved without inventing a boot or
+clock-domain identity. Native semantic interpretation requires positive proof for
+that exact snapshot, including its predecessor. Unknown annotation semantics stay
+attributed and opaque without invalidating independently proved native facts.
+
+**Export Run Result** uses the selected run's existing job binding. Both Library
+browsers offer explicit **Import Result**, exact mounted-result export and a
+read-only inspector. Import uses the existing Library journal/CAS; export does not
+mount a duplicate engine archive. Inspection loads the chosen result explicitly;
+original-image previews are lazy and bounded. Neither action releases local
+possible-ink or no-redraw authority. A sealed delivery stays immutable; separately
+attributed assessment supplements target that same snapshot.
+
+`DrawingEvidenceTraining` adds an immutable task manifest to the preserved closed
+result. It pins the original index bytes, selections, input/label contracts,
+extractor/model revisions, included-as-of, exclusions and grouped splits. Inspection
+creates no label. Interruption labels require admitted native state; residual
+labels remain unavailable without a registered aligned-measurement decoder.
+Missing observations, testimony, preference and simulation cannot become physical
+negative labels. Declared source/session connections remain in one split. The
+independent Python reader checks these carried bindings and original media; native
+physical-plan mathematics, registration and clock semantics remain explicitly
+unsupported. Integrity is not external authentication.
+
+The independent reader proves the source-to-execution relationship when the
+programs are identical. It reports a composed program's unimplemented relationship
+explicitly and grants no independent training eligibility from it. A self-consistent
+rehashed source declaration supplies carried consistency, not an authenticated
+original issuer or external provenance.
+
+Result import, inspection and re-export perform bulk validation/file work outside
+the shared Library actor. Exact inventory selection and final SQL publication stay
+with its existing catalog. Live journal reservations prevent ordinary recovery
+from consuming another in-flight result. Every CAS installer synchronizes its
+directory before acknowledgement, including an all-existing duplicate. A failed
+owned result may be deferred by routine metadata work after its exact journal and
+catalog authority are verified; explicit remount resumes the same transaction.
+Cold or explicit recovery still checks the complete staged bag. Rollback-safe
+SQLite FULL/BUSY/LOCKED is distinct from fatal schema/ownership/corruption errors.
+Close joins admitted result work before releasing the writer lease.
+
+Current software validation and unresolved native/scale/physical acceptance are
+recorded in [Current Evidence](CURRENT_EVIDENCE.md#drawing-object-software-completion).

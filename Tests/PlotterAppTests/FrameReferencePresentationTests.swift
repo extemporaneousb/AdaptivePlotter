@@ -73,7 +73,7 @@ struct FrameReferencePresentationTests {
     await app.shutdown()
   }
 
-  @Test("hiding Drawing Region refuses cached new assertions while preserving exact coverage and plan identities")
+  @Test("active and parked Drawings expose the sheet outline independently of passive Video Settings")
   func hiddenRegionAdmission() async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
@@ -86,38 +86,154 @@ struct FrameReferencePresentationTests {
     let registration = app.tipCameraRegistration
     let guides = app.displayedFrame.map { app.sparseTipGuideOverlays(on: $0) }
     let features = SceneFeatureSet(preference: app.overlayPreferenceState)
+    let inkProtection = app.drawingRunSnapshot?.noRedraw
     await submitObservationConfigurationForTest(app, .setOverlay(.drawingRegion, enabled: false))
     await app.drawingDraftSynchronizationTask?.value
-    let hidden = app.drawingDraftSnapshot
-    #expect(!app.paperCoverageOutlineIsVisible)
-    #expect(!hidden.projection.externalFacts.paperCoverageOutlineIsVisible)
-    #expect(hidden.paperCoverageObservation == before.paperCoverageObservation)
-    #expect(hidden.plan == before.plan)
-    #expect(hidden.paperCoverageIsCurrent)
+    let passiveOff = app.drawingDraftSnapshot
+    #expect(!app.overlayPreferenceState.enabled.contains(.drawingRegion))
+    #expect(app.paperCoverageOutlineIsVisible)
+    #expect(passiveOff.projection.externalFacts.paperCoverageOutlineIsVisible)
+    #expect(ActionSurfaceOverlayContent(presentation: app.testActionSurfacePresentation).overlays.contains { $0.provenance.kind == .drawingRegion })
+    #expect(passiveOff.paperCoverageObservation == before.paperCoverageObservation)
+    #expect(passiveOff.plan == before.plan && passiveOff.authoredProgram == before.authoredProgram)
+    #expect(passiveOff.paperCoverageIsCurrent)
     #expect(app.tipCameraRegistration == registration)
     #expect(app.displayedFrame.map { app.sparseTipGuideOverlays(on: $0) } == guides)
     #expect(SceneFeatureSet(preference: app.overlayPreferenceState) == features)
     #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)) != nil)
-    #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingDraft(.assertPaperCoverage)) == nil)
+    #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingDraft(.assertPaperCoverage)) != nil)
     guard case .refused(let refusal) = await app.submitPlotterUIRequest(cached) else {
-      Issue.record("Cached sheet assertion bypassed hidden Drawing Region"); await app.shutdown(); return
+      Issue.record("Cached sheet assertion bypassed its original UI revision"); await app.shutdown(); return
     }
     #expect(refusal.reason == .staleUIRevision)
     #expect(app.drawingDraftSnapshot.paperCoverageObservation == before.paperCoverageObservation)
     #expect(app.drawingDraftSnapshot.plan == before.plan)
-    #expect(app.paperAcceptanceUnavailableReason == "Show Drawing Region before confirming sheet coverage.")
-    // The existing Draft owner independently refuses a fresh request with these facts.
+    #expect(app.paperAcceptanceUnavailableReason == nil)
+    // The same Draft owner receives a truthful visible-outline fact even when
+    // the passive preference is off; it still binds the exact frame and paper.
     let owner = nominalDrawingDraftRuntime()
     let facts = app.drawingDraftExternalFacts
     let snapshot = await owner.synchronize(facts)
     let result = await owner.submit(.init(projection: snapshot.projection, intent: .assertPaperCoverage), facts: facts)
-    #expect(result.snapshot.paperCoverageObservation == nil)
-    #expect(result.snapshot.lastSubmissionRefusal?.remedy == "Show Drawing Region before confirming sheet coverage.")
+    #expect(result.snapshot.lastSubmissionRefusal == nil)
+    #expect(result.snapshot.paperCoverageObservation?.paper == facts.revisions.paper)
+    try await fixture.submit(.assertPaperCoverage)
+    let confirmed = app.drawingDraftSnapshot
+    try await fixture.submit(.hideTarget)
+    #expect(app.paperCoverageOutlineIsVisible)
+    #expect(ActionSurfaceOverlayContent(presentation: app.testActionSurfacePresentation).overlays.contains { $0.provenance.kind == .drawingRegion })
+    #expect(app.drawingDraftSnapshot.authoredProgram == before.authoredProgram)
+    #expect(app.drawingDraftSnapshot.plan == confirmed.plan)
+    #expect(app.drawingDraftSnapshot.paperCoverageObservation == confirmed.paperCoverageObservation)
+    #expect(app.drawingRunSnapshot?.noRedraw == inkProtection)
+    try await fixture.submit(.showTarget)
     await submitObservationConfigurationForTest(app, .setOverlay(.drawingRegion, enabled: true))
     await app.drawingDraftSynchronizationTask?.value
-    #expect(app.drawingDraftSnapshot.paperCoverageObservation == before.paperCoverageObservation)
+    #expect(app.drawingDraftSnapshot.paperCoverageObservation == confirmed.paperCoverageObservation)
     #expect(app.drawingDraftSnapshot.plan == before.plan)
     #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingDraft(.assertPaperCoverage)) != nil)
+    await app.shutdown()
+  }
+
+  @Test("Drawing and calibration editor geometry survives begin, drag, Apply and Cancel with passive reference on or off", arguments: [false, true])
+  func editorGeometryRemainsVisible(passive: Bool) async throws {
+    let fixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { fixture.stores.remove() }
+    let app = fixture.application
+    try await fixture.submit(.showTarget)
+    await submitObservationConfigurationForTest(app, .setOverlay(.drawingRegion, enabled: passive))
+    await app.drawingDraftSynchronizationTask?.value
+    let frame = try #require(app.testActionSurfacePresentation.displayedFrame)
+    let id = UUID()
+    #expect(await app.beginDrawingFrameEdit(id: id, on: frame))
+    let editing = app.testActionSurfacePresentation
+    #expect(editing.showsDrawingRegion && !app.paperCoverageOutlineIsVisible)
+    #expect(app.paperAcceptanceUnavailableReason != nil)
+    let canvas = try #require(editing.drawingStudioCanvas)
+    #expect(canvas.targetPreview(for: editing.displayedFrame) != nil)
+    let authoredFrame = try #require(canvas.frame)
+    let center = try authoredFrame.cameraCenter
+    let transform = try #require(CameraPixelToViewTransform(frameWidth: frame.frame.width, frameHeight: frame.frame.height, viewWidth: 800, viewHeight: 600))
+    let drag = try #require(DrawingFrameDrag(frame: authoredFrame, start: transform.point(center), transform: transform))
+    let moved = try drag.updated(at: .init(x: center.x + 1, y: center.y + 1), minimumScale: canvas.placement.allowedScale.lowerBound)
+    let session = try #require(app.drawingFrameEditSession)
+    let placement = PlotterDrawingDraftCameraPlacement(frame: try #require(session.frame.plotterExactFrameReferenceIfMaterialized),
+      point: try moved.cameraCenter, uniformScale: moved.geometry.placement.uniformScale, draftRevision: canvas.draftProjection.draftRevision)
+    #expect(app.testActionSurfacePresentation.showsDrawingRegion)
+    let projected = app.plotterUIProjection(selectedItemID: app.testCurrentLearningPathItemID, manualDraft: .init(),
+      includesLearningPath: false, pendingDrawingPlacement: placement)
+    let request = try #require(projected.semantic.request(matching: .drawingDraft(.placeAtCameraPoint(placement))))
+    #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    app.endDrawingFrameEdit(id: id)
+    #expect(app.drawingDraftSnapshot.frame?.geometry == moved.geometry)
+    #expect(app.testActionSurfacePresentation.showsDrawingRegion && app.paperCoverageOutlineIsVisible)
+    let appliedFrame = app.drawingDraftSnapshot.frame
+    let cancelID = UUID()
+    #expect(await app.beginDrawingFrameEdit(id: cancelID, on: frame))
+    #expect(app.testActionSurfacePresentation.showsDrawingRegion && !app.paperCoverageOutlineIsVisible)
+    app.endDrawingFrameEdit(id: cancelID)
+    #expect(app.drawingDraftSnapshot.frame == appliedFrame && app.testActionSurfacePresentation.showsDrawingRegion)
+    let tip = LearningPathItemID.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)
+    await app.performTestExerciseAction(.redoThisStep, for: tip)
+    let working = try #require(app.calibrationWorkingRegionPresentation)
+    #expect(working.unavailableReason == nil)
+    let regionFrame = try #require(app.testActionSurfacePresentation.displayedFrame)
+    #expect(app.beginCalibrationWorkingRegionEdit(id: UUID(), on: regionFrame))
+    let regionEdit = try #require(app.tipCalibrationRuntime.workingRegionEdit)
+    #expect(app.testActionSurfacePresentation.showsDrawingRegion && !app.paperCoverageOutlineIsVisible)
+    #expect(app.paperAcceptanceUnavailableReason != nil)
+    let bounds = try CalibrationWorkingRegionGeometry.smaller(working.bounds)
+    let workingCenter = try working.context.machineMap.fit.cameraPoint(from: .init(x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2))
+    let regionDrag = try #require(CalibrationWorkingRegionDrag(bounds: bounds, context: working.context, start: transform.point(workingCenter), transform: transform))
+    let movedRegion = try regionDrag.updated(at: .init(x: workingCenter.x + 1, y: workingCenter.y + 1))
+    #expect(app.applyCalibrationWorkingRegion(regionEdit, bounds: movedRegion) == nil)
+    #expect(app.calibrationWorkingRegionPresentation?.bounds == movedRegion && app.testActionSurfacePresentation.showsDrawingRegion)
+    #expect(app.beginCalibrationWorkingRegionEdit(id: UUID(), on: regionFrame))
+    let canceled = try #require(app.tipCalibrationRuntime.workingRegionEdit)
+    #expect(app.testActionSurfacePresentation.showsDrawingRegion)
+    app.cancelCalibrationWorkingRegionEdit(id: canceled.id)
+    #expect(app.calibrationWorkingRegionPresentation?.bounds == movedRegion && app.testActionSurfacePresentation.showsDrawingRegion)
+    #expect(app.tipCalibrationRuntime.workingRegionEdit == nil && !app.paperCoverageOutlineIsVisible)
+    await app.shutdown()
+  }
+
+  @Test("Calibration sheet confirmation without a selected Drawing exposes its admitted guide with passive region preference off")
+  func calibrationGuideIgnoresPassivePreference() async throws {
+    let checkpoint = ArtifactResetCheckpointStoreFixture()
+    let clock = TestClock()
+    let harness = makeCausalSimulatorAppFixture(
+      statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: { checkpoint.load() },
+        saveCheckpoint: { checkpoint.save($0) }, clearCheckpoint: { checkpoint.clear() }),
+      residualEffectPort: TestApplicationResidualEffectPort(discoverDevices: { [] }, readNanoseconds: { clock.next() }))
+    let app = harness.workspace
+    try await completeSimulatedPenInteractionPrerequisite(app)
+    try await installAcceptedBoundaryTestProjection(runtime: harness.boundaryRuntime, workspace: app, environment: .simulated)
+    let camera = LearningPathItemID.humanGuidedDiscovery(.calibrateCameraAndVisibleCap)
+    await app.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: camera)
+    await app.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: camera)
+    #expect(app.tipCameraRegistration == nil && app.machineCameraRegistration != nil)
+    #expect(app.portraitStudio.projectedDrawing == nil && app.portraitStudio.sketches.selected == nil)
+    #expect(try await app.portraitStudio.library.drawings().entries.isEmpty)
+    // Draft's built-in source exists before a canonical Drawing is selected.
+    // This calibration guide must stand on its own registration and exact frame.
+    #expect(app.drawingDraftSnapshot.selectedCatalogItemID == .square)
+    let noRedraw = app.drawingRunSnapshot?.noRedraw
+    await submitObservationConfigurationForTest(app, .setOverlay(.drawingRegion, enabled: false))
+    await app.drawingDraftSynchronizationTask?.value
+    #expect(!app.overlayPreferenceState.enabled.contains(.drawingRegion))
+    let facts = app.drawingDraftExternalFacts.revisions
+    let guide = try #require(facts.placementGuide)
+    #expect(app.paperCoverageOutlineIsVisible && app.paperAcceptanceUnavailableReason == nil)
+    #expect(ActionSurfaceOverlayContent(presentation: app.testActionSurfacePresentation).overlays.contains { $0.provenance.kind == .drawingRegion })
+    let request = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingDraft(.assertPaperCoverage)))
+    #expect(await app.submitPlotterUIRequest(request) == .accepted(requestID: request.id))
+    #expect(app.drawingDraftSnapshot.sheetPlacementIsCurrent)
+    #expect(app.drawingDraftSnapshot.sheetPlacementAssertion?.guide == guide)
+    #expect(app.drawingDraftSnapshot.sheetPlacementAssertion?.paper == facts.paper)
+    #expect(app.drawingDraftSnapshot.sheetPlacementAssertion?.frame == app.drawingDraftSnapshot.projection.externalFacts.displayedFrame)
+    #expect(app.drawingRunSnapshot?.noRedraw == noRedraw)
+    #expect(app.portraitStudio.projectedDrawing == nil && app.portraitStudio.sketches.selected == nil)
+    #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 0)
     await app.shutdown()
   }
 
@@ -238,7 +354,7 @@ struct FrameReferencePresentationTests {
     #expect(app.drawingTargetIsVisible)
     let hiddenTarget = try #require(ActionSurfaceOverlayContent(presentation: hiddenSurface).targetPreview)
     #expect(hiddenTarget.strokes == ActionSurfaceOverlayContent(presentation: surface).targetPreview?.strokes)
-    #expect(!hiddenSurface.showsMachineBoundary && !hiddenSurface.showsDrawingRegion)
+    #expect(!hiddenSurface.showsMachineBoundary && hiddenSurface.showsDrawingRegion)
     try await render(ActionSurface(presentation: hiddenSurface, plotterUIProjection: hidden.semantic,
       plotterUIIntentSink: app), path: "/tmp/reference-frames-hidden.png", width: 800, height: 600)
     await app.shutdown()

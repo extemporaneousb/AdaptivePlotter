@@ -1,6 +1,6 @@
 """Closed BagIt carrier verifier. No catalog writes, extraction API, or media cache."""
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import os
 from pathlib import Path
@@ -12,6 +12,8 @@ import unicodedata
 import zipfile
 import zlib
 import reader
+import native
+import json
 
 class UnsupportedFormat(ValueError):
     """Preservable transport/profile outside this reader's declared capabilities."""
@@ -25,6 +27,8 @@ class Limits:
     tag_bytes: int = 32 * 1024**2
     expansion_ratio: int = 10000
     chunk_bytes: int = 1024 * 1024
+    terminal_record_bytes: int = 256 * 1024**2
+    materialized_bytes: int = 256 * 1024**2
 
 BAGIT = b'BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n'
 DIGEST = re.compile(r'[0-9a-f]{64}')
@@ -44,6 +48,7 @@ class FileBackedStore:
     def __init__(self, root, inventory, limits):
         self.root, self.inventory, self.limits = Path(root), inventory, limits
         self.objects = {}
+        self.materialized_objects=set();self.materialized_bytes=0
         self.root_fingerprint=fingerprint(os.stat(self.root,follow_symlinks=False))
         self.fingerprints = {p:fingerprint(os.stat(self.root/p,follow_symlinks=False)) for p in inventory}
         for path, (digest, size) in inventory.items():
@@ -73,6 +78,9 @@ class FileBackedStore:
         size = self.object_size(digest)
         maximum = self.limits.record_bytes if maximum is None else maximum
         reader.require(size <= maximum, 'object size')
+        if digest not in self.materialized_objects:
+            reader.require(size <= self.limits.materialized_bytes-self.materialized_bytes,'package materialization budget')
+            self.materialized_objects.add(digest);self.materialized_bytes+=size
         with self.open_object(digest) as f:
             before=fingerprint(os.fstat(f.fileno()));raw = f.read(maximum+1)
             reader.require(fingerprint(os.fstat(f.fileno()))==before,'staged object changed while reading')
@@ -135,6 +143,7 @@ class VerifiedCarrier:
     store: FileBackedStore
     drawings: list
     unsupported: list
+    native_inspections: list = field(default_factory=list)
 
 class _Stager:
     def __init__(self, parent, limits, cancelled, fault):
@@ -339,12 +348,12 @@ def import_carrier(source, staging_parent, *, limits=Limits(), cancelled=None, f
             if identity not in drawing_results:drawing_results[identity]=reader.drawing(store,ref,asset_descriptors=descriptors)
         drawings=list(drawing_results.values())
         # Closure validator covers all indexed records, including opaque evidence.
-        validate_closure(store,index,descriptors,unsupported)
+        native_inspections = validate_closure(store,index,descriptors,unsupported)
         if exchange_blocked:
             for result in drawings:
                 result["blocked"]=True
                 result["capabilities"]={k:False for k in ("preview","plot","edit","regenerate","train")}
-        return VerifiedCarrier(stage.root,index,store,drawings,unsupported)
+        return VerifiedCarrier(stage.root,index,store,drawings,unsupported,native_inspections)
     except (zlib.error,UnicodeError,struct.error,KeyError,TypeError,AttributeError) as cause:
         error=ValueError('invalid carrier byte encoding/compression')
         error.staging=stage.root
@@ -442,7 +451,7 @@ def envelope_shape(kind,value,unsupported):
 def validate_closure(store,index,descriptors,unsupported):
     """Independent envelope/link admission; native evidence remains unsupported."""
     envelope_shape('index',index,unsupported)
-    identities={}; visited=set(); jobs={}; requests={}; attempts={}; used=set();admitted_paths=set();validated_drawings=set()
+    identities={}; visited=set(); jobs={}; requests={}; attempts={}; used=set();admitted_paths=set();validated_drawings=set();native_inspections=[]
     profiles={'drawing':'drawing','photo':'photo','input':'image-input','assessment':'assessment',
               'ranking-capsule':'feature-ranking','attempt':'plot-attempt','job':'plot-job-receipt'}
     def key(ref): return tuple(ref[k] for k in ('issuer','revision','digest'))
@@ -454,7 +463,8 @@ def validate_closure(store,index,descriptors,unsupported):
         reader.asset(store,d,descriptors); used.add(d['object'])
     def digest(d):
         reader.require(d in descriptors,'undeclared payload digest'); asset(descriptors[d])
-        return reader.parse(store.read_object(d,store.limits.record_bytes)) if descriptors[d]['mediaType']=='application/json' else None
+        maximum=min(store.limits.terminal_record_bytes,native.TERMINAL_JSON_BYTES) if descriptors[d]['encoding']==native.TERMINAL else store.limits.record_bytes
+        return reader.parse(store.read_object(d,maximum),maximum) if descriptors[d]['mediaType']=='application/json' else None
     def typed(ref,kind):
         if kind=='attempt':
             reader.require(set(ref)=={'archive','run','sequence','digest'},'attempt reference fields')
@@ -539,7 +549,12 @@ def validate_closure(store,index,descriptors,unsupported):
             if 'plan' in value:asset(value['plan'])
             for a in value['assessments']:typed(a,'assessment')
             attempts[(ref['archive'],ref['run'],ref['sequence'])]=(d,value)
-            unsupported.append('native intent/coverage/frontier semantics unsupported')
+            inspection = native.inspect_attempt(store, value, receipt, descriptors, coverage)
+            if inspection is None:
+                unsupported.append('native intent/coverage/frontier semantics unsupported')
+            else:
+                native_inspections.append(inspection)
+                unsupported.extend(inspection['limitations'])
         elif kind=='assessment':
             reader.timestamp(value['time'])
             reader.require(bool(value['targets']),'assessment targets')
@@ -643,7 +658,22 @@ def validate_closure(store,index,descriptors,unsupported):
     for path,(d,size) in store.inventory.items():
         if path.startswith('data/') and path!='data/exchange.json' and not path.startswith('data/objects/sha256/'):
             reader.require(path in admitted_paths,'unreferenced typed record')
+    prior_native={}
+    for row in sorted(native_inspections, key=lambda r:(r['archive'],r['run'],r['sequence'])):
+        key=(row['archive'],row['run']);prior=prior_native.get(key)
+        row['predecessorProofSupported']=(row['sequence']==1 or (prior is not None and prior['sequence']==row['sequence']-1 and
+            prior['selectedRequirementsSupported'] and prior['predecessorProofSupported'] and prior['nativeBindingVerified']))
+        if not row['predecessorProofSupported']:
+            row['selectedRequirementsSupported']=False
+            row['limitations'].append('Exact predecessor owner proof or required semantics are unavailable.')
+        if prior is not None:
+            native.require_extension(store,prior,row)
+            for name,value in prior['frontiers'].items():
+                if name in row['frontiers']:reader.require(row['frontiers'][name]>=value,'native cumulative frontier reverted')
+            reader.require(set(prior['originalMedia'])<=set(row['originalMedia']),'native cumulative media reverted')
+        prior_native[key]=row
     unsupported[:]=sorted(set(unsupported))
+    return sorted(native_inspections, key=lambda row: (row['archive'], row['run'], row['sequence']))
 
 def validate_coverage(value,asset,unsupported,assessment):
     fields(value,('profile',));text(value['profile'])
@@ -667,9 +697,193 @@ def validate_coverage(value,asset,unsupported,assessment):
             if 'asset' in evidence:asset(evidence['asset'])
             unsupported.append('unsupported evidence status')
 
+
+def inspect_result(result):
+    """Inspection is available without a model, controller, camera or Library."""
+    index=result.index
+    return {'profile': 'adaptiveplotter.offline-result-inspection/1', 'staging': str(result.staging),
+            'integrityVerified': True, 'includedAsOf': index.get('includedAsOf'),
+            'drawings': index.get('roots', []), 'jobs': index.get('jobs', []),
+            'snapshots': index.get('attempts', []), 'nativeBindings': result.native_inspections,
+            'unsupported': result.unsupported, 'readinessAuthority': False, 'retryAuthority': False,
+            'physicalValidityClaim': False, 'task': inspect_task(result)}
+
+
+TASK_CONTRACTS = {
+    'adaptiveplotter.result-inspection/1': (
+        'Exact Drawing/job/snapshot/assessment closure; unavailable facts remain explicit.',
+        'Inspection only; no positive or negative training label.'),
+    'adaptiveplotter.interruption-state/1': (
+        'Exact native pre-motion binding and recorded stage/frontier; no elapsed-clock inference.',
+        'Recorded interruption category and frontier only; no inferred ink or image residual.'),
+    'adaptiveplotter.aligned-residual/1': (
+        'Exact live target, attributable aligned observation, registration and measured residual label.',
+        'A registered aligned-residual measurement; testimony, preference and synthetic images are not labels.')}
+
+
+def task_grouping_keys(result, drawing):
+    keys=set();seen=set()
+    def visit(ref, depth=0):
+        reader.require(depth<=64 and len(seen)<=10000,'task grouping bound')
+        key=(ref['issuer'],ref['revision'],ref['digest'])
+        if key in seen:return
+        seen.add(key);keys.add('drawing:'+ref['issuer']+'/'+ref['revision'])
+        value=reader.parse(result.store.read_object(ref['digest']))
+        if result.index.get('requiredFeatures',[]) or value.get('profile')!='adaptiveplotter.drawing/1' or value.get('requiredFeatures',[]):
+            keys.add('unknown-drawing:'+ref['digest']);return
+        parent=value['parent']
+        if parent['state']=='present':visit(parent['ref'],depth+1)
+        elif parent['state']=='unavailable':keys.add('unknown-parent:'+ref['digest'])
+        elif parent['state']!='none':keys.add('unknown-parent:'+ref['digest'])
+        source=value['input']
+        if source['state']=='unavailable':keys.add('unknown-input:'+ref['digest'])
+        elif source['state']=='present':
+            ref=source['ref'];keys.add('input:'+ref['issuer']+'/'+ref['revision'])
+            inp=reader.parse(result.store.read_object(ref['digest']))
+            if inp.get('profile')!='adaptiveplotter.image-input/1' or inp.get('requiredFeatures')!=[]:
+                keys.add('unknown-input:'+ref['digest']);return
+            photo=inp['photo']
+            keys.add('photo:'+photo['issuer']+'/'+photo['revision'])
+            record=reader.parse(result.store.read_object(photo['digest']))
+            if record.get('profile')!='adaptiveplotter.photo/1' or record.get('requiredFeatures')!=[]:
+                keys.add('unknown-photo:'+photo['digest']);return
+            keys.add('photo-bytes:'+record['original']['object'])
+            capture=record.get('captureFacts')
+            if capture is not None:
+                facts=reader.parse(result.store.read_object(capture['object'])) if capture['encoding']=='utf8-json' and capture['mediaType']=='application/json' else None
+                known=(record.get('profile')=='adaptiveplotter.photo/1' and not record.get('requiredFeatures') and type(facts) is dict and not facts.get('requiredFeatures') and
+                    {'photoID','label','capturedAt','pose','captureSessionID','imageSHA256'}<=facts.keys() and facts['imageSHA256']==record['original']['object'] and
+                    type(facts['label']) is str and type(facts['capturedAt']) in (int,float) and facts['pose'] in ('Left','Front','Right'))
+                if known:
+                    # Flow capture facts use Foundation UUID spelling; canonical
+                    # wire Photo references remain separately exact.
+                    try:
+                        reader.uuid_text(facts['photoID'],canonical=False)
+                        session=reader.uuid_text(facts['captureSessionID'],canonical=False)
+                        keys.add('capture-session:'+str(session))
+                    except ValueError:keys.add('unknown-capture-session:'+capture['object'])
+                else:keys.add('unknown-capture-session:'+capture['object'])
+        elif source['state']!='none':keys.add('unknown-input:'+ref['digest'])
+    visit(drawing);return keys
+
+
+def same_json_value(left, right):
+    """Compare full JSON values without Python's bool-as-integer equality."""
+    if type(left) is dict and type(right) is dict:
+        return left.keys()==right.keys() and all(same_json_value(left[k],right[k]) for k in left)
+    if type(left) is list and type(right) is list:
+        return len(left)==len(right) and all(same_json_value(a,b) for a,b in zip(left,right))
+    if type(left) in (int,float) and type(right) in (int,float):return left==right
+    return type(left) is type(right) and left==right
+
+
+def task_index(source, source_asset, task_asset):
+    """The export/read transformation preserves every original JSON field."""
+    reader.require(source.get('profile')=='adaptiveplotter.exchange/1' and source.get('kind')=='result', 'task original result profile/kind')
+    derived=dict(source);assets=list(source['assets'])
+    for asset in (source_asset,task_asset):
+        descriptor={k:asset[k] for k in ('object','byteLength','mediaType','encoding')}
+        if not any(same_json_value(existing,descriptor) for existing in assets):assets.append(descriptor)
+    derived.update(assets=assets,scope=task_asset)
+    return derived
+
+
+def inspect_task(result):
+    scope=result.index.get('scope')
+    if not isinstance(scope,dict) or scope.get('encoding')!='adaptiveplotter.drawing-evidence-task/1':return None
+    reader.asset(result.store,scope)
+    task=reader.parse(result.store.read_object(scope['object']))
+    reader.require(task.get('profile')=='adaptiveplotter.drawing-evidence-task/1' and task.get('taskVersion')=='1' and task.get('requiredFeatures')==[], 'unsupported evidence task contract')
+    contract=TASK_CONTRACTS.get(task['task'])
+    reader.require(contract is not None and (task['inputContract'],task['labelContract'])==contract,'task input/label contract differs')
+    reader.require(task['includedAsOf']==result.index['includedAsOf'] and type(task['extractorRevision']) is str and task['extractorRevision'],'task as-of/extractor differs')
+    source=task['sourceIndex'];reader.asset(result.store,source)
+    reader.require(source['encoding']=='adaptiveplotter.exchange/1','task original index encoding')
+    original=reader.parse(result.store.read_object(source['object']))
+    reader.require(same_json_value(task_index(original,source,scope),result.index), 'task carrier is not the exact allowed derivation of its original result index')
+    reader.require(original['includedAsOf']==task['includedAsOf'], 'task original included-as-of differs')
+    source_descriptors={}
+    source_unsupported=[]
+    envelope_shape('index',original,source_unsupported)
+    for descriptor in original['assets']:
+        h=descriptor['object'];reader.require(h not in source_descriptors or reader.asset_facts(source_descriptors[h])==reader.asset_facts(descriptor),'task original descriptor conflict')
+        reader.asset(result.store,descriptor);source_descriptors[h]=descriptor
+    # The original scope was replaced, so validate its original edge as well as
+    # every original typed reference against precisely its original descriptors.
+    validate_closure(result.store,original,source_descriptors,source_unsupported)
+    rows=[];groups={};declared_splits={};selections=set()
+    for entry in task['entries']:
+        selection=entry['selection'];job=selection['job']
+        encoded=json.dumps(selection,sort_keys=True);reader.require(encoded not in selections,'duplicate task selection');selections.add(encoded)
+        reader.require(job in result.index.get('jobs',[]) and type(entry['eligible']) is bool and type(entry['exclusions']) is list and type(entry['limitations']) is list, 'task entry')
+        split=selection['split'];reader.require(split in ('inspection','training','holdout') and type(selection['group']) is str and selection['group'], 'task group/split')
+        reader.require(selection['group'] not in declared_splits or declared_splits[selection['group']]==split,'one declared task group crosses training/holdout splits')
+        declared_splits[selection['group']]=split
+        receipt=reader.parse(result.store.read_object(job['receiptDigest']))
+        reader.require(entry['drawing']==receipt['drawing'],'task Drawing differs from receipt')
+        keys=task_grouping_keys(result,receipt['drawing'])|{'declared:'+value for value in selection['relatedGroups']}
+        reader.require(sorted(keys)==entry['groupingKeys'],'task source grouping keys differ')
+        for key in keys:
+            reader.require(key not in groups or groups[key]==(selection['group'],split), 'related task evidence crosses groups/splits')
+            groups[key]=(selection['group'],split)
+        ref=selection.get('snapshot');snapshot=None
+        if ref:
+            path=f"data/attempts/{ref['archive']}/{ref['run']}/{ref['sequence']}/attempt.json"
+            reader.require(path in result.store.inventory and result.store.inventory[path][0]==ref['digest'],'task exact snapshot')
+            snapshot=reader.parse(result.store.read_object(ref['digest']))
+            reader.require(snapshot['job']==job and snapshot['drawing']==receipt['drawing'],'task snapshot binding')
+        else:reader.require(receipt['disposition']=='refused','accepted task entry requires snapshot')
+        expected_outcome=snapshot['state'] if snapshot else 'refused'
+        reader.require(entry['outcome']==expected_outcome and entry.get('environment')==(snapshot['environment'] if snapshot else None),'task outcome/environment differs')
+        expected_claims=[]
+        assessment_selections=array(selection['assessments'])
+        reader.require(len({json.dumps(r,sort_keys=True) for r in assessment_selections})==len(assessment_selections),'duplicate task assessment selection')
+        for assessment_ref in assessment_selections:
+            reader.require(type(assessment_ref) is dict and set(assessment_ref)=={'issuer','revision','digest'},'task assessment full typed reference')
+            reader.uuid_text(assessment_ref['issuer']);reader.uuid_text(assessment_ref['revision'])
+            reader.require(type(assessment_ref['digest']) is str and DIGEST.fullmatch(assessment_ref['digest']),'task assessment digest')
+            path=f"data/assessments/{assessment_ref['issuer']}/{assessment_ref['revision']}.json"
+            reader.require(path in result.store.inventory and result.store.inventory[path][0]==assessment_ref['digest'],'task assessment is not an admitted typed record')
+            assessment=reader.parse(result.store.read_object(assessment_ref['digest']))
+            reader.require(assessment.get('profile')=='adaptiveplotter.assessment/1' and assessment.get('ref')=={k:assessment_ref[k] for k in ('issuer','revision')},'task assessment typed identity differs')
+            reviewer=assessment['reviewer'];answer=assessment['answer']['type']
+            reader.require(any(t.get('kind')=='drawing' and t.get('ref')==receipt['drawing'] or t.get('kind')=='attempt' and t.get('ref')==ref for t in assessment['targets']),'task assessment target differs')
+            kind='uninterpreted-claim'
+            claim={'reference':assessment_ref,'kind':kind,'answerType':answer,'reviewerKind':reviewer['kind'],'reviewerID':reviewer['id']}
+            if 'version' in reviewer:claim['reviewerVersion']=reviewer['version']
+            expected_claims.append(claim)
+        reader.require(entry['claims']==expected_claims,'task attributed claims differ')
+        native_row=next((r for r in result.native_inspections if ref and (r['archive'],r['run'],r['sequence'])==(ref['archive'],ref['run'],ref['sequence'])),None)
+        if task['task']=='adaptiveplotter.result-inspection/1':
+            reader.require(split=='inspection' and entry['eligible'] and not entry['exclusions'], 'inspection cannot declare training labels')
+        elif task['task']=='adaptiveplotter.aligned-residual/1':
+            reader.require(not entry['eligible'] and entry['exclusions'], 'residual eligibility needs a registered aligned-label decoder')
+        elif entry['eligible']:
+            reader.require(native_row is not None and native_row['selectedRequirementsSupported'] and snapshot and
+                native_row['environment'] in ('live','simulation') and native_row['environment']==snapshot['environment'] and
+                snapshot['state'] in ('staged','running','cancelling','interrupted','failed','cancelled') and
+                not original.get('requiredFeatures') and not any(k.startswith('unknown-') for k in keys),'interruption claim lacks known exact stage/frontier facts')
+        independent_eligible=(task['task']=='adaptiveplotter.interruption-state/1' and split in ('training','holdout') and
+            native_row is not None and native_row['nativeBindingVerified'] and native_row['programRelationSupported'] and
+            native_row['selectedRequirementsSupported'] and snapshot is not None and
+            native_row['environment'] in ('live','simulation') and native_row['environment']==snapshot['environment'] and
+            snapshot['state'] in ('staged','running','cancelling','interrupted','failed','cancelled') and
+            not original.get('requiredFeatures') and not any(k.startswith('unknown-') for k in keys))
+        rows.append({'job':job,'snapshot':ref,'outcome':entry['outcome'], 'declaredEligible':entry['eligible'],
+                     'independentTrainingEligibility':independent_eligible,'exclusions':entry['exclusions'],
+                     'limitations':entry['limitations'] + (native_row['limitations'] if native_row is not None else ['Native payload interpretation is unavailable.'])})
+    return {'profile':task['profile'],'id':task['id'],'task':task['task'],'taskVersion':task['taskVersion'],
+            'inputContract':task['inputContract'],'labelContract':task['labelContract'],'extractorRevision':task['extractorRevision'],
+            'modelRevision':task.get('modelRevision'),'modelRevisionUnavailableReason':task.get('modelRevisionUnavailableReason'),
+            'entries':rows,'limitation':'Task claims remain attributed; this independent reader grants no physical residual labels.'}
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source',type=Path);parser.add_argument('--staging-parent',type=Path,required=True)
+    parser.add_argument('--json', action='store_true', help='Emit bounded result inspection as JSON; supplies no readiness, retry or physical authority')
     args=parser.parse_args()
     result=import_carrier(args.source,args.staging_parent)
-    print('verified',result.staging,'drawings',len(result.drawings),'unsupported',result.unsupported)
+    if args.json:
+        print(json.dumps(inspect_result(result), sort_keys=True))
+    else:
+        print('verified',result.staging,'drawings',len(result.drawings),'unsupported',result.unsupported)

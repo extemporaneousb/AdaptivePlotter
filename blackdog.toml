@@ -16,7 +16,7 @@ doc_routing_defaults = [
 [landing]
 schema_version = 1
 automatic_stale_rebase = false
-validation_timeout_seconds = 1800
+validation_timeout_seconds = 3600
 
 [[handlers]]
 id = "python"

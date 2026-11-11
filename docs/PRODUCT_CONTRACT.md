@@ -1947,6 +1947,32 @@ paper-clearance, resume or redraw authority. Controller settlement and original
 photographs retain separate meanings; neither software fit nor settlement proves
 deposited ink.
 
+**Export Run Result** refers to an existing job-bound attempt. Its immutable
+carrier retains the exact authored closure, original pre-motion proposal and
+reviewed plan/options, raw state/terminal bytes and declared original media.
+Successive snapshots extend the same cumulative lineage; retry cannot mint
+dispatch permission. **Import Result** mounts that closed carrier through the
+common Library and presents read-only evidence in either application. Annotation
+identity and target remain separate from native interpretation and physical fact.
+Bulk result import, inspection and export leave Status and Cancel available through
+the shared owner. Closing the Library joins its admitted result work before
+releasing the writer lease. After a recoverable result-publication failure, live
+metadata operations can defer the verified pending journal. Redelivery resumes
+that transaction; fatal catalog and ownership errors remain visible.
+
+Evidence task export freezes exact selected references, original index, input and
+label contracts, exclusions, extractor/model revisions and grouped splits.
+Inspection supplies no label; interruption classification requires the exact
+admitted native proof and original environment. Missing images, testimony, artistic
+preference and simulation cannot supply an aligned residual or negative physical
+label. No residual decoder or automatic model activation is introduced by export.
+
+The required Drawing/sheet outline is independent of cosmetic Video Settings.
+Actual frame, placement and calibration applicability still govern confirmation;
+editing geometry must remain visible without claiming that sheet confirmation is
+available. Quit suppresses late presentation after awaits while admitted durable
+work and lower-owner joins finish; canceling quit restores ordinary presentation.
+
 ### Embedded Studio and Drawing
 
 Within AdaptivePlotter, the same Dojo is a full workspace independent of plotter

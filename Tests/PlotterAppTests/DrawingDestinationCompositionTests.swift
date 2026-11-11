@@ -454,6 +454,52 @@ import Testing
     } catch { gate.release(); await app.shutdown(); throw error }
   }
 
+  @Test("Actual quit drains a held document Prepare without adopting its late preview or status")
+  func quitSuppressesLateDocumentPresentation() async throws {
+    let fixture = try await DrawingWorkbenchApplicationFixture.make()
+    defer { fixture.stores.remove() }
+    let app = fixture.application, gate = DestinationArtifactGate()
+    let library = app.portraitStudio.sketches.library
+    let root = library.directoryURL.appendingPathComponent("quit-document")
+    let delegate = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
+    let window = DestinationWindowBindings()
+    delegate.completeDrawingDestinationRestoration(window.presentation.revealAction(application: app))
+    var replies: [Bool] = [], foregrounds = 0
+    delegate.replyToTermination = { _, accepted in replies.append(accepted) }
+    delegate.restoreOperatorWindow = { foregrounds += 1 }
+    defer { gate.release() }
+    do {
+      let drawing = try drawingTestValue(program: #require(app.drawingDraftSnapshot.authoredProgram))
+      let retained = try await library.retain(drawing, reason: "quit-document")
+      let document = root.appendingPathComponent("Drawing.drawingexchange")
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      try await library.exportDrawing(retained.reference, to: document)
+      try await library.holdNextDestinationTicketCommit(gate)
+      delegate.application(NSApplication.shared, open: [document])
+      try await gate.waitUntilEntered()
+      let route = window.route
+      app.drawingDestinationStatus = "Closing document fixture"
+      #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+      await Task.yield()
+      #expect(replies.isEmpty)
+      gate.release()
+      await delegate.settleDrawingDocuments()
+      let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+      while replies.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+      #expect(replies == [true])
+      #expect(window.route == route && foregrounds == 0)
+      #expect(app.drawingDestinationStatus == "Closing document fixture")
+      #expect(try await library.drawing(retained.reference).reference == retained.reference)
+      #expect(try await library.records(kind: "adaptiveplotter.destination.prepared").count == 1)
+      #expect(await fixture.planGate.request == nil)
+      await library.clearDestinationTicketCommitGate()
+      await library.closeLibrary()
+    } catch {
+      gate.release(); await delegate.settleDrawingDocuments()
+      await library.clearDestinationTicketCommitGate(); await app.shutdown(); throw error
+    }
+  }
+
 }
 
 final class DestinationArtifactGate: @unchecked Sendable {

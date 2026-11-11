@@ -10,7 +10,10 @@ public enum DrawingLibraryError: Error, Sendable {
   case recordIntentConflict(UUID, expected: ExchangeDigest, actual: ExchangeDigest)
   case retentionIntentConflict(UUID, expected: ExchangeDigest, actual: ExchangeDigest)
 }
-package enum DrawingLibraryDatabaseError: Error { case database(String) }
+package enum DrawingLibraryDatabaseError: Error {
+  case database(String)
+  case retryableSQLite(code: Int32, message: String)
+}
 package struct DrawingLibraryGeneration: Equatable, Sendable { let revision: Int64 }
 public enum DrawingLibraryDrawingScope: Hashable, Sendable {
   case all, photo(PhotoRef), input(ImageInputRef), children(DrawingRef)
@@ -55,6 +58,9 @@ public actor DrawingLibrary {
   package var pendingRetentions: [UUID: DrawingLibraryPendingRetention] = [:]
   package var committedGeneration: DrawingLibraryGeneration?
   package var committedIndexState: DrawingLibraryFileState?
+  var resultRetryWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
+  private var resultWork = 0
+  private var closeWaiters: [CheckedContinuation<Void, Never>] = []
   package var closed = false
   public init(directoryURL: URL, validators: DrawingProducerValidators = .init(),
     payloadValidators: ExchangePayloadValidators = .init()) {
@@ -68,7 +74,7 @@ public actor DrawingLibrary {
   /// Actual app owners call this once before domain reload or preparing values.
   /// Readonly inspectors deliberately omit it and never acquire a writer lease.
   public func open() throws { _ = try commonCatalog() }
-  public func recover() throws { _ = try commonCatalog() }
+  public func recover() throws { _ = try commonCatalog(includingFailedResults: true) }
   package var commonDatabaseURL: URL { directoryURL.appendingPathComponent("drawing-library.sqlite") }
   package func libraryDatabase() throws -> DrawingLibraryDatabase {
     guard !closed else { throw DrawingLibraryError.closed }
@@ -76,17 +82,21 @@ public actor DrawingLibrary {
     let opened = try DrawingLibraryDatabase(url: commonDatabaseURL)
     database = opened; return opened
   }
-  package func commonCatalog() throws -> LibraryExchangeCatalog {
+  package func commonCatalog(includingFailedResults: Bool = false) throws -> LibraryExchangeCatalog {
     let db = try libraryDatabase()
-    if let committedGeneration,try db.generation != committedGeneration { throw DrawingLibraryError.staleSelection }
-    if let committedIndexState,try DrawingLibraryFileState(db.url) != committedIndexState { throw DrawingLibraryError.staleSelection }
+    try checkOwnership(db)
     if let cachedExchangeCatalog {
       defer { refreshOwnership() }
-      try cachedExchangeCatalog.recover()
+      try cachedExchangeCatalog.recover(includingFailedResults: includingFailedResults)
       return cachedExchangeCatalog
     }
     let value = try LibraryExchangeCatalog(database: db)
     cachedExchangeCatalog = value; refreshOwnership(); return value
+  }
+  func checkOwnership(_ db: DrawingLibraryDatabase) throws {
+    try db.assertSelectedFile()
+    if let committedGeneration, try db.generation != committedGeneration { throw DrawingLibraryError.staleSelection }
+    if let committedIndexState, try DrawingLibraryFileState(db.url) != committedIndexState { throw DrawingLibraryError.staleSelection }
   }
   package func refreshOwnership() {
     guard let database else { return }
@@ -103,11 +113,27 @@ public actor DrawingLibrary {
     selectedDrawingCache.removeValue(forKey: ref)
     selectedDrawingCacheRecency.removeAll { $0 == ref }
   }
-  public func closeLibrary() {
+  func beginResultWork() throws {
+    guard !closed else { throw DrawingLibraryError.closed }
+    resultWork += 1
+  }
+  func endResultWork() {
+    resultWork -= 1
+    if resultWork == 0 {
+      let waiters = closeWaiters
+      closeWaiters.removeAll()
+      for waiter in waiters { waiter.resume() }
+    }
+  }
+  public func closeLibrary() async {
+    closed = true
+    if resultWork > 0 {
+      await withCheckedContinuation { closeWaiters.append($0) }
+    }
     for value in pendingRetentions.values { if let root=value.temporaryRoot { try? FileManager.default.removeItem(at:root) } }
     pendingRetentions.removeAll()
     selectedDrawingCacheRecency.removeAll()
-    selectedDrawingCache.removeAll(); cachedExchangeCatalog = nil; database = nil; closed = true
+    selectedDrawingCache.removeAll(); cachedExchangeCatalog = nil; database = nil
   }
   package func assignedLibraryIdentity(_ db: DrawingLibraryDatabase) throws -> UUID? {
     guard let value = try db.scalar("SELECT value FROM state WHERE key='library_uuid'") else { return nil }

@@ -29,6 +29,14 @@ digest verification and raw physical evidence remain required. The completed
 [DX-01 inventory](CURRENT_EVIDENCE.md#reachable-callers-replacement-and-retained-owners)
 records the former owners. Use current call sites for implementation.
 
+The remaining software object/format cutover is tracked in
+[Drawing-object software completion](CURRENT_EVIDENCE.md#drawing-object-software-completion):
+native raw-result/offline/task adapters, required outline/lifetime fixes and
+disconnected contract deletion. Its source/test acceptance is distinct from
+signed visible native interaction, the full scale/10-GiB gate, movement-policy
+changes and attended deployment. The desktop launcher handoff follows this
+software work; it does not authorize launching an app or moving hardware.
+
 ### Delivery rules and ownership
 
 DX-10 is adopted under its recorded definition. Group the eligible slices in each
@@ -168,8 +176,9 @@ definition-only prerequisite; its
 [canonical contract](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#doc-06-drawing-issuance-definition)
 owns the coupled **DX-13-ISSUANCE** Correction in the existing Run/raw/Library owners.
 The implementation binds native Plot to that durable path; adoption and validation
-belong to the execution ledger and Current Evidence. DX-14 parking/outline
-presentation and DX-15 accepted snapshots remain later work. No hardware execution
+belong to the execution ledger and Current Evidence. The later bounded software
+cutover addresses required outline presentation and accepted result snapshots;
+new carriage-parking policy retains its separate runtime authorization. No hardware execution
 is authorized by this software change.
 The known DX-18 post-await quit-presentation guard followup is recorded separately
 in Current Evidence and does not reopen DX-12 here.
@@ -208,7 +217,10 @@ Recovery: invalidate/reprepare changed plans, retain parked authored selection.
 
 **DX-15 — Raw attempt snapshots and offline mounting.** Allowed:
 `Sources/PlotterRuntime/{DrawingRunIntent,DrawingRunEvidence,DrawingRunMedia,DrawingRunMediaCoverage,DrawingRunObservationPlan}.swift`,
-`Sources/PortraitLibrary/DrawingTransfer.swift`, new snapshot adapters,
+read-only selected-run export in the existing `DrawingRunEvidenceStore` and its
+existing evidence-port/composition adapters, `Sources/PortraitLibrary/{DrawingDestinationResult,DrawingDestinationService}.swift`, new snapshot adapters,
+the existing `DrawingLibraryResults`/catalog/storage owner for bounded asynchronous
+result mounting, inspection and export with its original journal/lease authority,
 `Sources/PlotterApp/{DrawingRunEvidenceComposition,DrawingStudioPhysicalEvidence,DrawingStudioPhysicalGallery,DrawingReviewPresentation}.swift`
 and evidence/publication tests; episode seams only through DX-13. Extend v1's
 terminal/transferred-origin restriction through a new adapter: native/source-free,
@@ -223,7 +235,7 @@ no-ink assertion cannot release local retry. Recovery preserves interrupted and
 possible-ink history even when no portable result can yet be published.
 
 **DX-16 — Task-specific evidence and training export.** Allowed:
-DX-09 training/review files, `Sources/PortraitArtists/PortraitAttemptHistory.swift`,
+DX-09 training/review files, `Sources/PortraitLibrary/DrawingEvidenceTraining.swift`,
 exchange assessment/coverage/export adapters, offline reader and dataset tests.
 Export exact authored/deployed/observation/interpretation closure and explicit loss
 reasons; keep operator testimony, later analysis, synthetic media and artistic

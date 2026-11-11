@@ -51,21 +51,100 @@ public struct ExchangePayloadContext: Sendable {
 /// Enforces a shared load budget and per-record bound, including inside owner callbacks.
 public final class ExchangePayloadResolver: @unchecked Sendable {
   private let files: VerifiedExchangeFiles
+  private let originalMediaFiles: VerifiedExchangeFiles
+  private let assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor]
   private let maximum: Int
   private let budget: UInt64
   private var used: UInt64 = 0
+  private var originalMediaSizes: [ExchangeDigest: UInt64] = [:]
+  private var originalMediaBytes: UInt64 = 0
+  private var originalMediaReadBytes: UInt64 = 0
+  private var terminalRecordSizes: [ExchangeDigest: UInt64] = [:]
+  private var terminalRecordBytes: UInt64 = 0
+  private var terminalRecordReadBytes: UInt64 = 0
   private let lock = NSLock()
-  fileprivate init(files: VerifiedExchangeFiles, limits: ExchangeClosureLimits) {
-    self.files = files; maximum = limits.maximumRecordBytes; budget = limits.maximumMaterializedBytes
+  private var remainingMaterializationBytes: UInt64 {
+    guard used <= budget, terminalRecordBytes <= budget - used,
+      originalMediaBytes <= budget - used - terminalRecordBytes else { return 0 }
+    return budget - used - terminalRecordBytes - originalMediaBytes
+  }
+  fileprivate init(files: VerifiedExchangeFiles, originalMediaFiles: VerifiedExchangeFiles,
+    assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor], limits: ExchangeClosureLimits) {
+    self.files = files; self.originalMediaFiles = originalMediaFiles
+    self.assetDescriptors = assetDescriptors
+    maximum = limits.maximumRecordBytes; budget = limits.maximumMaterializedBytes
   }
   public func record(_ digest: ExchangeDigest, maximumBytes: Int = ExchangeJSON.maximumRecordBytes) throws -> Data {
     let size = try files.byteLength(digest)
     lock.lock(); defer { lock.unlock() }
-    guard maximumBytes > 0, size <= UInt64(min(maximum, maximumBytes)), used <= budget, size <= budget - used else { throw DrawingExchangeError.limit("Closure materialization budget") }
+    guard maximumBytes > 0, size <= UInt64(min(maximum, maximumBytes)), size <= remainingMaterializationBytes else { throw DrawingExchangeError.limit("Closure materialization budget") }
     used += size
     return try files.record(digest, maximumBytes: min(maximum, maximumBytes))
   }
   public func byteLength(_ digest: ExchangeDigest) throws -> UInt64 { try files.byteLength(digest) }
+  /// Exact index metadata supplied by semantic admission, never an owner codec's
+  /// untrusted replacement descriptor. Conflicting declarations are rejected.
+  public func assetDescriptor(_ digest: ExchangeDigest) throws -> ExchangeAssetDescriptor {
+    guard let value = assetDescriptors[digest] else { throw DrawingExchangeError.missingAsset("Object descriptor " + digest.description) }
+    return value
+  }
+  /// Native terminal records contain the existing owner's inline coverage
+  /// derivative, including per-pixel provenance and visibility masks. This
+  /// exact encoding may exceed the portable JSON envelope limit; other JSON
+  /// keeps that limit. Bound one transient record to 256 MiB and the caller's
+  /// closure budget, distinct records to that budget, and repeat read work to
+  /// four passes. The resolver retains sizes only, never decoded raw records.
+  public func rawTerminalRecord(_ digest: ExchangeDigest) throws -> Data {
+    let descriptor = try assetDescriptor(digest)
+    guard descriptor.asset.encoding == "adaptiveplotter.raw-terminal-record/1",
+      descriptor.asset.mediaType == "application/json" else {
+      throw DrawingExchangeError.malformed("Native terminal record requires its exact owner descriptor")
+    }
+    let size = try originalMediaFiles.byteLength(digest)
+    lock.lock(); defer { lock.unlock() }
+    let recordLimit = min(budget, UInt64(256 * 1024 * 1024))
+    let workLimit = budget > UInt64.max / 4 ? UInt64.max : budget * 4
+    guard size <= recordLimit, terminalRecordReadBytes <= workLimit,
+      size <= workLimit - terminalRecordReadBytes else {
+      throw DrawingExchangeError.limit("Native terminal record/read-work budget")
+    }
+    if terminalRecordSizes[digest] == nil {
+      guard size <= remainingMaterializationBytes else {
+        throw DrawingExchangeError.limit("Native terminal distinct-byte budget")
+      }
+      terminalRecordSizes[digest] = size; terminalRecordBytes += size
+    }
+    terminalRecordReadBytes += size
+    return try originalMediaFiles.record(digest, maximumBytes: Int(recordLimit))
+  }
+  /// Reads one verified original frame transiently, without retaining a frame
+  /// dictionary or applying the JSON record limit. Distinct frame bytes fit the
+  /// closure budget; repeat native verification has a separate four-pass work
+  /// budget. Generic record accounting and its per-record limit are unchanged.
+  public func originalMedia(_ digest: ExchangeDigest, maximumBytes: Int = 64 * 1024 * 1024) throws -> Data {
+    let descriptor = try assetDescriptor(digest)
+    guard descriptor.asset.mediaType != "application/json",
+      ["image/png", "image/jpeg"].contains(descriptor.asset.mediaType)
+        || (descriptor.pixelLayout != nil && descriptor.asset.encoding.hasPrefix("raw-")) else {
+      throw DrawingExchangeError.malformed("Original media requires an image or raw-pixel descriptor")
+    }
+    let size = try originalMediaFiles.byteLength(digest)
+    lock.lock(); defer { lock.unlock() }
+    let frameLimit = min(budget, UInt64(64 * 1024 * 1024))
+    let workLimit = budget > UInt64.max / 4 ? UInt64.max : budget * 4
+    guard maximumBytes > 0, size <= min(frameLimit, UInt64(maximumBytes)),
+      originalMediaReadBytes <= workLimit, size <= workLimit - originalMediaReadBytes else {
+      throw DrawingExchangeError.limit("Original media frame/read-work budget")
+    }
+    if originalMediaSizes[digest] == nil {
+      guard size <= remainingMaterializationBytes else {
+        throw DrawingExchangeError.limit("Original media distinct-byte budget")
+      }
+      originalMediaSizes[digest] = size; originalMediaBytes += size
+    }
+    originalMediaReadBytes += size
+    return try originalMediaFiles.record(digest, maximumBytes: min(maximumBytes, Int(frameLimit)))
+  }
 }
 public typealias ExchangePayloadValidator = @Sendable (ExchangePayloadContext) throws -> ExchangePayloadValidation
 public struct ExchangePayloadValidators: Sendable {
@@ -83,6 +162,10 @@ public struct ValidatedExchangePackage: Sendable {
   public let rankingCapsules: [RankingCapsuleRef: ExchangeRankingCapsule]
   public let opaqueRecords: [String: Data]
   public let capabilities: ExchangeCapabilities
+  /// Exact snapshot scopes whose own envelope, receipt, coverage, source and
+  /// owner binding were understood. Unrelated assessment answers do not erase
+  /// this proof; it grants no physical interpretation or retry authority.
+  public let interpretableAttempts: Set<SnapshotRef>
   public let assetSupport: [ExchangeDigest: ExchangeAssetSupport]
   public let integrityVerified: Bool
   public let knownClosureSemanticsSupported: Bool
@@ -98,6 +181,7 @@ public struct ValidatedExchangePackage: Sendable {
       return .opaque(originalJSON: frozen.originalJSON, profile: DrawingExchangeCodec.drawingProfile)
     }
     receipts = v.receipts; attempts = v.attempts
+    interpretableAttempts = v.interpretableAttempts
     assessments = v.assessments; rankingCapsules = v.rankings; opaqueRecords = v.opaque
     assetSupport = v.assetSupport
     integrityVerified = true
@@ -223,6 +307,9 @@ fileprivate final class ExchangeClosureValidator {
   var latestNotDispatched: [String: UInt64] = [:]
   var runForIssuance: [UUID: String] = [:]
   var factsByRun: [String: ExchangePayloadFacts] = [:]
+  var interpretableAttempts = Set<SnapshotRef>()
+  var interpretableReceipts = Set<JobReceiptRef>()
+  var understoodCoverage = Set<ExchangeDigest>()
   init(_ staged: StagedExchangePackage, producers: DrawingProducerValidators, payloads: ExchangePayloadValidators,
     features: Set<String>, limits: ExchangeClosureLimits) throws {
     guard limits.maximumRecords > 0, limits.maximumDepth > 0, limits.maximumRecordBytes > 0,
@@ -241,7 +328,14 @@ fileprivate final class ExchangeClosureValidator {
     }
     self.producers = producers; self.payloads = payloads
     self.features = features.subtracting(ExchangeRankingCapsule.localFeatures); self.limits = limits
-    resolver = .init(files: files, limits: limits)
+    var descriptorInventory: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
+    for descriptor in index?.assets ?? [] {
+      if let previous = descriptorInventory[descriptor.asset.object], previous != descriptor {
+        throw DrawingExchangeError.malformed("Conflicting asset descriptors")
+      }
+      descriptorInventory[descriptor.asset.object] = descriptor
+    }
+    resolver = .init(files: files, originalMediaFiles: originalFiles, assetDescriptors: descriptorInventory, limits: limits)
   }
   func unsupported(_ features: [String]) { for feature in features where !self.features.contains(feature) { reasons.insert("Required feature: " + feature) } }
   func validateSelectedDrawing(_ selected: DrawingRef) throws {
@@ -422,8 +516,10 @@ fileprivate final class ExchangeClosureValidator {
     receipts[ref] = r
     try drawing(r.drawing, depth: depth + 1); try asset(r.preparedPlan); try asset(r.requestedMediumOptions)
     if !["accepted", "refused"].contains(r.disposition) { reasons.insert("Unsupported job disposition: " + r.disposition) }
-    _ = try payload(r.preparedPlan.object, current: nil, prior: nil, receipt: r)
-    _ = try payload(r.requestedMediumOptions.object, current: nil, prior: nil, receipt: r)
+    let plan = try payload(r.preparedPlan.object, current: nil, prior: nil, receipt: r)
+    let options = try payload(r.requestedMediumOptions.object, current: nil, prior: nil, receipt: r)
+    if plan != nil, options != nil, r.requiredFeatures.allSatisfy(features.contains),
+      r.disposition == "accepted" { interpretableReceipts.insert(ref) }
   }
   func attemptPath(_ ref: SnapshotRef) -> String {
     "data/attempts/\(ref.archive.uuidString.lowercased())/\(ref.run.uuidString.lowercased())/\(ref.sequence)/attempt.json"
@@ -474,17 +570,35 @@ fileprivate final class ExchangeClosureValidator {
       runForIssuance[issuance] = runKey
     }
     guard a.previous == nil || prior != nil else { return }
+    var allPayloadsVerified = true
+    var localFacts: ExchangePayloadFacts?
     for digest in [a.intent, a.coverage] + (a.terminalRecord.map { [$0] } ?? []) + (a.plan.map { [$0.object] } ?? []) {
       if let facts = try payload(digest, current: a, prior: prior, receipt: r) {
         try checkFacts(facts, snapshot: a, receipt: r)
         let merged = try merge(factsByRun[runKey], facts)
         try checkFacts(merged, snapshot: a, receipt: r)
         factsByRun[runKey] = merged
-      }
+        localFacts = try merge(localFacts, facts)
+      } else { allPayloadsVerified = false }
     }
     let facts = factsByRun[runKey]
     if facts?.run == nil || facts?.job == nil || facts?.drawing == nil || facts?.clientRequestDigest == nil || facts?.issuance == nil || facts?.plan == nil || facts?.preMotion == nil || facts?.programSemanticHash == nil {
       reasons.insert("Unsupported owner binding semantics: incomplete run/request/program/plan/pre-motion proof")
+    }
+    let knownEnums = ["live", "simulation"].contains(a.environment)
+      && ["staged", "running", "cancelling", "interrupted", "completed", "failed", "cancelled"].contains(a.state)
+      && ["not-dispatched", "possibleInk"].contains(a.dispatch) && ["accepted", "rejected", "unavailable"].contains(a.observation)
+    if allPayloadsVerified, knownEnums, let proof = localFacts, proof.run == a.run, proof.job == r.handle,
+      proof.drawing == a.drawing, proof.clientRequestDigest == r.client.requestDigest,
+      proof.clientNamespace == r.client.namespace, proof.clientRequest == r.client.request,
+      proof.issuance == r.issuance, proof.plan == r.preparedPlan.object,
+      proof.preMotion != nil, proof.programSemanticHash != nil,
+      index?.requiredFeatures.allSatisfy(features.contains) == true,
+      a.requiredFeatures.allSatisfy(features.contains), interpretableReceipts.contains(a.job),
+      understoodCoverage.contains(a.coverage),
+      a.previous == nil || prior.map({ value in interpretableAttempts.contains(where: { $0.archive == ref.archive && $0.run == ref.run && $0.sequence == value.sequence }) }) == true,
+      case .materialized(_)? = drawings[a.drawing] {
+      interpretableAttempts.insert(ref)
     }
   }
   func payload(_ digest: ExchangeDigest, current: ExchangeAttemptSnapshot?, prior: ExchangeAttemptSnapshot?, receipt: ExchangeJobReceipt?) throws -> ExchangePayloadFacts? {
@@ -549,6 +663,7 @@ fileprivate final class ExchangeClosureValidator {
     let p = "data/objects/sha256/" + digest.description
     let bytes = try load(p, digest: digest)
     guard let j = try profile(bytes, path: p, expected: "adaptiveplotter.coverage/1") else { return }
+    if try envelopeFeatures(j).allSatisfy(features.contains) { understoodCoverage.insert(digest) }
     let _: ExchangeTimestamp = try envelopeValue(j, "includedAsOf")
     guard let entries = j["entries"] as? [[String: Any]], let frontiers = j["frontiers"] as? [String: Any] else { throw DrawingExchangeError.malformed("Coverage inventory") }
     for key in ["planned", "commanded", "controllerCompleted", "inkVerified"] where frontiers[key] == nil { throw DrawingExchangeError.malformed("Missing frontier status") }

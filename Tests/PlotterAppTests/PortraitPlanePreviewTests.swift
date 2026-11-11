@@ -205,17 +205,17 @@ struct PortraitPlanePreviewTests {
     }
   }
 
-  @Test("Reference ratings retain the display context without inventing a placed drawing height")
-  func referenceRating() throws {
+  @Test("Reference preview retains the display context without inventing a placed drawing height")
+  func referenceContext() throws {
     let candidate = try portraitPersistenceCandidate()
     let preview = PortraitPlanePreviewSource().resolve(program: candidate.program, nominalWidth: 0.4)
     let presentation = try #require(preview.presentationContext)
-    let label = try PortraitLabelRevision(candidate: candidate, rating: 1, scope: .screenSketch, presentation: presentation)
+    try presentation.validateDisplayEvidence(program: candidate.program)
     #expect(preview.actualDrawingHeightMM == nil)
-    #expect(label.presentation.displayEvidence?.mode == .reference)
-    #expect(label.presentation.rendererRevision == "portrait-plane-preview-v2")
-    #expect(try JSONDecoder().decode(PortraitLabelRevision.self,
-      from: PortraitCandidateCoding.encoder().encode(label)) == label)
+    #expect(presentation.displayEvidence?.mode == .reference)
+    #expect(presentation.rendererRevision == "portrait-plane-preview-v2")
+    #expect(try JSONDecoder().decode(PortraitPresentationContext.self,
+      from: PortraitCandidateCoding.encoder().encode(presentation)) == presentation)
   }
 
   @Test("Saved geometry and material width remain immutable when live placement and active material change")

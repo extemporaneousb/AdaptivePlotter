@@ -9,7 +9,7 @@ struct LibraryExchangeStorageFixture {
   let root: URL
   let lease: DrawingLibraryWriterLease
   let storage: LibraryExchangeStorage
-  init(fault: @escaping (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
+  init(fault: @escaping @Sendable (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
     bag = try DrawingExchangeCarrierTestBag(files: ["data/exchange.json": Data("{\"profile\":\"unknown/91\"}".utf8),
       "data/unknown.bin": Data(repeating: 73, count: 150_000), "data/duplicate.bin": Data(repeating: 73, count: 150_000)])
     root = bag.root.appendingPathComponent("library")
@@ -96,12 +96,10 @@ struct LibraryExchangeStorageTests {
     for boundary in boundaries {
       let f = try LibraryExchangeStorageFixture(); defer { f.dispose() }
       let stage = try f.stage()
-      var fired = false
       let interrupted = try LibraryExchangeStorage(root: f.root, lease: f.lease) { event in
-        if event.boundary == boundary && !fired { fired = true; throw StorageInjectedFailure.stop }
+        if event.boundary == boundary { throw StorageInjectedFailure.stop }
       }
       #expect(throws: StorageInjectedFailure.self) { try interrupted.installObjects(stage) }
-      #expect(fired)
       #expect(FileManager.default.fileExists(atPath: f.bag.source.appendingPathComponent("data/unknown.bin").path))
       #expect(try f.storage.pendingTransactions() == [stage])
       try f.storage.installObjects(stage)

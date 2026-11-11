@@ -69,7 +69,19 @@ package final class DrawingLibraryDatabase {
   deinit { sqlite3_close(db); writerLease?.releaseDatabase() }
 
   private func failure() -> DrawingLibraryDatabaseError {
-    .database(db.map { String(cString: sqlite3_errmsg($0)) } ?? "connection unavailable")
+    guard let db else { return .database("connection unavailable") }
+    // Capture the primary result from this failing statement before our caller
+    // finalizes it or rolls back the transaction and SQLite changes its error.
+    let code = sqlite3_errcode(db) & 0xff
+    let message = String(cString: sqlite3_errmsg(db))
+    switch code {
+    case SQLITE_FULL, SQLITE_BUSY, SQLITE_LOCKED: return .retryableSQLite(code: code, message: message)
+    default: return .database(message)
+    }
+  }
+  var isOutsideTransaction: Bool {
+    guard let db else { return false }
+    return !guardedTransaction && sqlite3_get_autocommit(db) != 0
   }
   package func assertSelectedFile() throws {
     selectedFileValidationCount += 1
@@ -114,7 +126,7 @@ package final class DrawingLibraryDatabase {
     for (index, value) in values.enumerated() {
       let code = value.map { sqlite3_bind_text(stmt, Int32(index + 1), $0, -1, transient) }
         ?? sqlite3_bind_null(stmt, Int32(index + 1))
-      guard code == SQLITE_OK else { sqlite3_finalize(stmt); throw failure() }
+      guard code == SQLITE_OK else { let error = failure(); sqlite3_finalize(stmt); throw error }
     }
     return stmt
   }

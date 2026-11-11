@@ -7,7 +7,7 @@ import PlotterModel
 
 /// Package-only observation of the real artifact worker. Tests may hold it;
 /// there is no replacement work path or application configuration.
-package enum DrawingDestinationArtifactBoundary: Sendable { case assemblyStarted, beforePublication }
+package enum DrawingDestinationArtifactBoundary: Sendable { case assemblyStarted, beforePublication, copyingOriginal, beforeResultLink }
 package final class DrawingDestinationArtifactObservation: @unchecked Sendable {
   package static let shared = DrawingDestinationArtifactObservation()
   private let lock = NSLock()
@@ -24,20 +24,20 @@ package final class DrawingDestinationArtifactObservation: @unchecked Sendable {
 public enum DrawingDestinationResult {
   /// Local owner codecs recognize only the concrete plan and options types.
   public static var payloadValidators: ExchangePayloadValidators {
-    .init([
-      .init(encoding: "adaptiveplotter.local-prepared-plan/1", version: "1"): { context in
+    var validators = DrawingNativeResultCodec.validators
+    validators[.init(encoding: "adaptiveplotter.local-prepared-plan/1", version: "1")] = { context in
         let bytes = try context.resolver.record(context.descriptor.asset.object, maximumBytes: DrawingExchangeLimits.maximumProgramBytes)
         let plan = try JSONDecoder().decode(ExecutionPlanRevision.self, from: bytes)
         guard !plan.strokes.isEmpty else { throw DrawingExchangeError.malformed("Empty prepared plan") }
         return .verified(.init(plan: context.descriptor.asset.object))
-      },
-      .init(encoding: "adaptiveplotter.local-medium-options/1", version: "1"): { context in
+      }
+    validators[.init(encoding: "adaptiveplotter.local-medium-options/1", version: "1")] = { context in
         let bytes = try context.resolver.record(context.descriptor.asset.object, maximumBytes: 65_536)
         let options = try JSONDecoder().decode(DrawingDestinationOptions.self, from: bytes)
         guard !options.readiness.isEmpty, options.readiness.utf8.count <= 4096 else { throw DrawingExchangeError.malformed("Invalid readiness") }
         return .verified(.init())
       }
-    ])
+    return .init(validators)
   }
   static func export(_ decision: DrawingJobDecision, library: DrawingLibrary, to destination: URL) async throws {
     DrawingDestinationArtifactObservation.shared.notify(decision.job.handle, .assemblyStarted)

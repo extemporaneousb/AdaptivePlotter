@@ -7,6 +7,7 @@ import ImageIO
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
+import AppKit
 
 /// Review visibility comes from the raw owner's projections. A hidden terminal
 /// is still a terminal and must never become a synthetic incomplete attempt.
@@ -61,15 +62,27 @@ struct DrawingReviewRefreshKey: Hashable {
 struct DrawingReviewerView: View {
   let application: PlotterApplicationRuntime
   let drawing: Drawing
+  @Environment(\.drawingPresentationPolicy) private var presentationPolicy
   @State private var failure: String?
   @State private var originalPixels = false
   @State private var records: [DrawingRunEvidenceRecord] = []
-  @State private var staged: [String] = []
+  @State private var staged: [DrawingRunAttemptState] = []
+  @State private var attributionFailures: [String] = []
   @State private var incomplete: [DrawingRunAttemptState] = []
   @State private var portable: [DrawingLibraryAttemptEntry] = []
   @State private var rawCursor: DrawingLibraryRecordCursor?
   @State private var portableCursor: DrawingLibraryAttemptCursor?
+  @State private var generation = UUID()
+  @State private var loadGeneration = UUID()
+  @State private var isClosed = false
+  @State private var exporting: JobRef?
+  @State private var exportStatus: String?
+  @State private var activePanel: NSSavePanel?
   private var library: DrawingLibrary { application.portraitStudio.library }
+  private var exportPresentationIsOpen: Bool {
+    application.drawingDestinationRecoveryAdmissionIsOpen
+      && (NSApplication.shared.delegate as? AdaptivePlotterApplicationDelegate)?.drawingPresentationAdmissionIsOpen != false
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -80,10 +93,15 @@ struct DrawingReviewerView: View {
             if let ref = drawing.reference {
               Text(ref.revision.uuidString).font(.caption).textSelection(.enabled)
               if records.isEmpty && staged.isEmpty && portable.isEmpty && incomplete.isEmpty { Text("No attributable attempts for this Drawing.").foregroundStyle(.secondary) }
-              ForEach(staged, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+              ForEach(attributionFailures, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+              ForEach(staged, id: \.intent.runID) { attempt in
+                Text("Run \(attempt.intent.runID.rawValue): staged before Start; not an attempted run or ink evidence").font(.caption).foregroundStyle(.secondary)
+                exportButton(for: attempt.intent)
+              }
               ForEach(incomplete, id: \.intent.runID) { attempt in
                 Text("Run \(attempt.intent.runID.rawValue) · possible ink; terminal result unavailable").font(.headline)
                 Text("Raw owner dispatch classification; execution environment is not retained here.").font(.caption).foregroundStyle(.secondary)
+                exportButton(for: attempt.intent)
                 let media = attempt.baselines + attempt.progressFrames.map(\.media)
                 ForEach(Array(media.enumerated()), id: \.offset) { _, reference in
                   DrawingReviewRetainedPhoto(application: application, reference: reference,
@@ -104,6 +122,7 @@ struct DrawingReviewerView: View {
                 Text("Raw execution environment unavailable in this record.").font(.caption).foregroundStyle(.secondary)
                 Text(String(describing: record.executionDisposition)).font(.caption)
                 if let attempt = record.attemptEvidence {
+                  exportButton(for: attempt.intent)
                   let media = attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames
                   ForEach(Array(media.enumerated()), id: \.offset) { _, reference in
                     DrawingReviewRetainedPhoto(application: application, reference: reference,
@@ -120,15 +139,59 @@ struct DrawingReviewerView: View {
             } else { Text("Select a drawing.").foregroundStyle(.secondary) }
           }.padding()
       if let failure { Text(failure).foregroundStyle(.red) }
-    }.padding().task(id: DrawingReviewRefreshKey(application.drawingEvidenceArchive)) { await load() }
+      if let exportStatus { Text(exportStatus).font(.caption) }
+      if exporting != nil { ProgressView("Preparing run result export").controlSize(.small) }
+    }.padding()
+      .onAppear { isClosed = false; generation = UUID() }
+      .task(id: DrawingReviewRefreshKey(application.drawingEvidenceArchive)) { await load() }
+      .onDisappear { isClosed = true; generation = UUID(); loadGeneration = UUID(); activePanel?.cancel(nil) }
+      .onChange(of: presentationPolicy.modalUnavailableReason) { _, reason in if reason != nil { activePanel?.cancel(nil) } }
+      .onChange(of: application.drawingDestinationRecoveryAdmissionIsOpen) { _, open in if !open { activePanel?.cancel(nil) } }
+  }
+  @ViewBuilder private func exportButton(for intent: DrawingRunIntent) -> some View {
+    if let binding = intent.issuance, binding.drawing == drawing.reference {
+      Button("Export Run Result") { Task { await export(binding) } }
+        .disabled(exporting != nil)
+        .accessibilityIdentifier("drawing.reviewer.exportRunResult")
+    }
+  }
+  private func export(_ binding: DrawingJobIssuance) async {
+    guard let ref = drawing.reference, binding.drawing == ref, !isClosed,
+      exportPresentationIsOpen, exporting == nil else { return }
+    if let reason = presentationPolicy.modalUnavailableReason { exportStatus = "Run result export: " + reason; return }
+    let request = generation
+    exporting = binding.job; exportStatus = nil
+    defer { if request == generation { exporting = nil } }
+    func isCurrent() -> Bool {
+      !isClosed && request == generation && drawing.reference == ref && !Task.isCancelled
+        && exportPresentationIsOpen
+    }
+    do {
+      let result = try await DrawingRunResultExport.prepare(binding: binding, drawing: ref, destination: application.drawingDestination)
+      defer { result.discard() }
+      guard isCurrent() else { return }
+      if let reason = presentationPolicy.modalUnavailableReason { exportStatus = "Run result export: " + reason; return }
+      let panel = NSSavePanel()
+      panel.title = "Export Run Result"; panel.nameFieldStringValue = "Run-\(binding.job.job.uuidString).zip"
+      activePanel = panel; defer { if activePanel === panel { activePanel = nil } }
+      guard await panel.begin() == .OK, let url = panel.url, isCurrent(), presentationPolicy.modalUnavailableReason == nil else { return }
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      try await result.save(to: url)
+      guard isCurrent() else { return }
+      exportStatus = "Run result exported. This read-only delivery does not authorize another run."
+    } catch {
+      if isCurrent() { exportStatus = "Run result export failed: " + error.localizedDescription }
+    }
   }
   private func load(more: Bool = false) async {
-    guard let ref = drawing.reference else { return }
-    if !more { failure = nil; records = []; staged = []; incomplete = []; portable = []; rawCursor = nil; portableCursor = nil }
+    guard let ref = drawing.reference, !isClosed else { return }
+    if !more { loadGeneration = UUID(); failure = nil; records = []; staged = []; attributionFailures = []; incomplete = []; portable = []; rawCursor = nil; portableCursor = nil }
+    let request = loadGeneration
     do {
       if !more || rawCursor != nil {
         let page = try await PortraitDrawingAttemptBinding.page(for: ref, library: library, after: more ? rawCursor : nil)
-        guard !Task.isCancelled, drawing.reference == ref else { return }
+        guard !Task.isCancelled, !isClosed, request == loadGeneration, drawing.reference == ref else { return }
         for record in page.entries {
           do {
             let binding = try PortraitDrawingAttemptBinding.decode(record, for: ref)
@@ -138,20 +201,20 @@ struct DrawingReviewerView: View {
             for match in matches where !records.contains(where: { $0.runID == match.runID }) { records.append(match) }
             if matches.isEmpty, let state = visible.incomplete, state.inkDispatchPossible {
               if !incomplete.contains(where: { $0.intent.runID == state.intent.runID }) { incomplete.append(state) }
-            } else if matches.isEmpty, visible.incomplete != nil {
-              staged.append("Run \(binding.run): staged before Start; not an attempted run or ink evidence")
+            } else if matches.isEmpty, let state = visible.incomplete {
+              if !staged.contains(where: { $0.intent.runID == state.intent.runID }) { staged.append(state) }
             }
-          } catch { staged.append("Raw attribution unavailable: " + error.localizedDescription) }
+          } catch { attributionFailures.append("Raw attribution unavailable: " + error.localizedDescription) }
         }
         rawCursor = page.next
       }
       if !more || portableCursor != nil {
         let page = try await library.attempts(for: ref, after: more ? portableCursor : nil)
-        guard !Task.isCancelled, drawing.reference == ref else { return }
+        guard !Task.isCancelled, !isClosed, request == loadGeneration, drawing.reference == ref else { return }
         portable += page.entries.filter { entry in !portable.contains { $0.archive == entry.archive && $0.run == entry.run } }
         portableCursor = page.next
       }
-    } catch { if !Task.isCancelled { failure = error.localizedDescription } }
+    } catch { if !Task.isCancelled, !isClosed, request == loadGeneration { failure = error.localizedDescription } }
   }
 }
 

@@ -2,6 +2,7 @@ import Foundation
 import DrawingLibrary
 import PortraitCore
 import PlotterModel
+import PlotterRuntime
 
 /// Library metadata transitions are serialized, not whole runs or artifact work.
 @MainActor public final class DrawingDestinationService: DrawingDestination, DrawingJobPublication {
@@ -11,6 +12,7 @@ import PlotterModel
   private let prepare: Prepare
   private let current: Current
   private let control: (any DrawingDestinationJobControl)?
+  private let resultSource: (any DrawingDestinationResultSource)?
   private let returns: URL
   package private(set) var inFlightOperationCount = 0
   private var closing = false
@@ -28,10 +30,14 @@ import PlotterModel
     let ticket: DrawingPreparedTicket
     var decision: DrawingJobDecision?
     var pending: DrawingPendingJob?
+    var publishedResult: DrawingPublishedResult?
+    var pendingResult: DrawingPublishedResult?
   }
   public init(library: DrawingLibrary, returnDirectory: URL, prepare: @escaping Prepare,
-    current: @escaping Current, control: (any DrawingDestinationJobControl)? = nil) {
+    current: @escaping Current, control: (any DrawingDestinationJobControl)? = nil,
+    resultSource: (any DrawingDestinationResultSource)? = nil) {
     self.library = library; returns = returnDirectory; self.prepare = prepare; self.current = current; self.control = control
+    self.resultSource = resultSource
   }
   private func transition<T: Sendable>(_ operation: @escaping @MainActor () async throws -> T) async throws -> T {
     let prior = tail
@@ -155,7 +161,8 @@ import PlotterModel
       return .cancellation(acknowledged: true, settled: cancellation.settled)
     case .exportResult(let job):
       let value = try await transition { try await self.lookup(.job(job), engine: engine) }
-      guard let decision = value?.decision, decision.phase == .refused else { return .refused(.preparationUnavailable) }
+      guard let value, let decision = value.decision else { return .refused(.preparationUnavailable) }
+      if decision.phase != .refused { return try await exportNativeResult(value) }
       let returns = self.returns, library = self.library
       let destination = returns.appendingPathComponent(job.job.uuidString.lowercased() + ".zip")
       try await Task.detached {
@@ -164,6 +171,98 @@ import PlotterModel
       }.value
       return .result(destination)
     }
+  }
+
+  private func exportNativeResult(_ initial: Admission) async throws -> DrawingDestinationReply {
+    guard let decision = initial.decision, let pending = initial.pending,
+      let proposal = pending.proposal, let run = pending.stagedRun else { return .refused(.preparationUnavailable) }
+    if let candidate = initial.pendingResult {
+      let attached = try await finishNativeResult(candidate, key: decision.key)
+      guard resultSource != nil,
+        let refreshed = try await transition({ try await self.readAdmission(decision.key) }) else { return attached }
+      return try await exportNativeResult(refreshed)
+    }
+    if let published = initial.publishedResult, published.sealed { return try await returnPublishedResult(published, decision: decision) }
+    guard let resultSource else { return .refused(.preparationUnavailable) }
+    // Original live continuations remain unknown to recovery. Export acquires
+    // no phase, dispatch or cancellation authority from a raw snapshot.
+    if decision.phase != .settled {
+      guard decision.phase == .reconciling || decision.phase == .cancelRequested,
+        let control, case .staged(let found, _) = await control.lookup(pending.binding), found == run else {
+        return .refused(.preparationUnavailable)
+      }
+    }
+    let raw = try await resultSource.exportAttempt(runID: RunID(run))
+    guard raw.attempt.intent.issuance == pending.binding,
+      raw.attempt.intent.runID.rawValue == run,
+      decision.phase != .settled || raw.record != nil else { throw DrawingDestinationRefusal.requestConflict }
+    let content = try DrawingNativeResultCodec.content(proposal: proposal.object, attempt: raw.attemptJSON, terminal: raw.recordJSON)
+    var previous = initial.publishedResult
+    while true {
+      if let previous, previous.content == content {
+        return try await returnPublishedResult(previous, decision: decision)
+      }
+      guard previous?.sealed != true else { throw DrawingDestinationRefusal.alreadySettled }
+      let library = self.library, directory = returns, capturedPrevious = previous
+      let candidate = try await Task.detached {
+        try await DrawingDestinationResult.prepareNative(decision, proposal: proposal,
+          raw: raw, previous: capturedPrevious, library: library, directory: directory)
+      }.value
+      let chosen: (DrawingPublishedResult?, DrawingPublishedResult?) = try await transition {
+        var value = try await self.bound(pending.binding)
+        if let staged = value.pendingResult { return (staged, value.publishedResult) }
+        guard value.publishedResult == capturedPrevious else { return (nil, value.publishedResult) }
+        value.pendingResult = candidate
+        try await self.save(value, key: decision.key)
+        return (candidate, value.publishedResult)
+      }
+      if let candidate = chosen.0 {
+        let attached = try await finishNativeResult(candidate, key: decision.key)
+        if candidate.content == content { return attached }
+        guard let refreshed = try await transition({ try await self.readAdmission(decision.key) }) else { throw DrawingDestinationRefusal.unknownJob }
+        previous = refreshed.publishedResult
+        continue
+      }
+      previous = chosen.1
+    }
+  }
+
+  private func finishNativeResult(_ candidate: DrawingPublishedResult, key: DrawingRequestKey) async throws -> DrawingDestinationReply {
+    guard URL(fileURLWithPath: candidate.fileName).lastPathComponent == candidate.fileName else {
+      throw DrawingExchangeError.malformed("Invalid result publication location")
+    }
+    let location = returns.appendingPathComponent(candidate.fileName)
+    let decision: DrawingJobDecision = try await transition {
+      guard let decision = try await self.readAdmission(key)?.decision else { throw DrawingDestinationRefusal.unknownJob }
+      return decision
+    }
+    let directory = returns
+    try await Task.detached {
+      try DrawingDestinationResult.publishNativeCandidate(candidate, decision: decision, directory: directory)
+    }.value
+    _ = try await returnPublishedResult(candidate, decision: decision, beforeLink: true)
+    try await transition {
+      guard var value = try await self.readAdmission(key) else { throw DrawingDestinationRefusal.unknownJob }
+      if value.publishedResult == candidate { return }
+      guard value.pendingResult == candidate else { throw DrawingDestinationRefusal.requestConflict }
+      value.publishedResult = candidate; value.pendingResult = nil
+      try await self.save(value, key: key)
+    }
+    return .result(location)
+  }
+
+  private func returnPublishedResult(_ publication: DrawingPublishedResult, decision: DrawingJobDecision,
+    beforeLink: Bool = false) async throws -> DrawingDestinationReply {
+    let location = returns.appendingPathComponent(publication.fileName)
+    try await Task.detached {
+      let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("native-result-read-" + UUID().uuidString)
+      try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+      defer { try? FileManager.default.removeItem(at: temporary) }
+      _ = try DrawingDestinationResult.validatedNativePublication(publication, at: location,
+        decision: decision, stagingParent: temporary)
+      if beforeLink { DrawingDestinationArtifactObservation.shared.notify(decision.job.handle, .beforeResultLink) }
+    }.value
+    return .result(location)
   }
   public func closeAdmission() { closing = true }
   public func close() async {
@@ -273,6 +372,9 @@ import PlotterModel
     for value in values {
       guard !closing, !Task.isCancelled else { return }
       _ = try await recoverReply(value)
+      if let candidate = value.pendingResult, let key = value.decision?.key {
+        _ = try await finishNativeResult(candidate, key: key)
+      }
     }
   }
   /// Recovery is observation/publication only. It never invokes an admission port.

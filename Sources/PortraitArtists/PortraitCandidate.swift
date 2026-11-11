@@ -7,57 +7,6 @@ package enum PortraitLabelObjective: String, Codable, CaseIterable, Sendable {
   case screenAesthetic, physicalRealization
 }
 
-package enum PortraitTrainableParameter: String, Codable, CaseIterable, Sendable {
-  case contourLevels, minimumContourLength, simplificationTolerance, hatchSpacing
-  case tonalStrength, smoothing, sketchThreshold, hatchAngleDegrees, headScale
-  case foreheadWidth, foreheadHeight, eyeScale, lateralScale
-}
-
-package struct PortraitFrozenParameter: Codable, Hashable, Sendable {
-  package let parameter: PortraitTrainableParameter
-  package let value: Double
-
-  package init(parameter: PortraitTrainableParameter, value: Double) {
-    self.parameter = parameter
-    self.value = value
-  }
-}
-
-package struct PortraitStyleScope: Identifiable, Codable, Hashable, Sendable {
-  package let id: UUID
-  package let name: String
-  package let revision: Int
-  package let objective: PortraitLabelObjective
-  package let allowedFamilies: [PortraitStyle]
-  package let activeParameters: [PortraitTrainableParameter]
-  package let frozenParameters: [PortraitFrozenParameter]
-
-  package static let screenSketch = Self(
-    id: UUID(uuidString: "BC4D5C09-434A-4092-8762-C4DB391D463F")!, name: "My drawing style", revision: 1,
-    objective: .screenAesthetic, allowedFamilies: PortraitStyle.legacyCases,
-    activeParameters: [.contourLevels, .minimumContourLength, .simplificationTolerance,
-      .hatchSpacing, .tonalStrength, .smoothing, .sketchThreshold, .hatchAngleDegrees],
-    frozenParameters: [.init(parameter: .headScale, value: 1)])
-
-  package init(
-    id: UUID,
-    name: String,
-    revision: Int,
-    objective: PortraitLabelObjective,
-    allowedFamilies: [PortraitStyle],
-    activeParameters: [PortraitTrainableParameter],
-    frozenParameters: [PortraitFrozenParameter]
-  ) {
-    self.id = id
-    self.name = name
-    self.revision = revision
-    self.objective = objective
-    self.allowedFamilies = allowedFamilies
-    self.activeParameters = activeParameters
-    self.frozenParameters = frozenParameters
-  }
-}
-
 package struct PortraitPresentationContext: Codable, Hashable, Sendable {
   package let rendererRevision: String
   package let drawingHeightMM: Double
@@ -150,14 +99,12 @@ package struct PortraitCandidateLineage: Codable, Hashable, Sendable {
 }
 
 package enum PortraitCandidateError: Error, LocalizedError {
-  case missingSource, invalidPresentation, invalidRating, integrityMismatch, incompatibleScope
+  case missingSource, invalidPresentation, integrityMismatch
   package var errorDescription: String? {
     switch self {
     case .missingSource: "The exact source and analyzed drawing are unavailable."
     case .invalidPresentation: "Drawing size and ink width must be positive and finite."
-    case .invalidRating: "Choose a rating from 1 to 5."
     case .integrityMismatch: "The retained candidate does not match its content identity."
-    case .incompatibleScope: "The rating objective does not match the selected style scope."
     }
   }
 }
@@ -261,43 +208,5 @@ package struct PortraitCandidate: Identifiable, Codable, Equatable, Sendable {
     guard rebuilt.id == id, rebuilt.sourceSHA256 == sourceSHA256,
       rebuilt.rasterSHA256 == rasterSHA256, rebuilt.recipeSHA256 == recipeSHA256,
       producerRevision == rebuilt.producerRevision else { throw PortraitCandidateError.integrityMismatch }
-  }
-}
-
-package enum PortraitRetentionReason: Codable, Hashable, Sendable {
-  case shortlisted
-  case rated(labelRevisionID: UUID)
-  case projectionAccepted(acceptanceID: UUID)
-  case physicalAttempt(attemptID: UUID)
-}
-
-package struct PortraitRetentionEvent: Identifiable, Codable, Hashable, Sendable {
-  package let id: UUID
-  package let reason: PortraitRetentionReason
-  package let createdAt: Date
-  package init(reason: PortraitRetentionReason, id: UUID = UUID(), createdAt: Date = Date()) {
-    self.id = id; self.reason = reason; self.createdAt = createdAt
-  }
-}
-
-package struct PortraitLabelRevision: Identifiable, Codable, Hashable, Sendable {
-  package let id: UUID
-  package let previousRevisionID: UUID?
-  package let candidateID: String
-  package let programContentHash: String
-  package let rating: Int
-  package let createdAt: Date
-  package let scope: PortraitStyleScope
-  package let presentation: PortraitPresentationContext
-
-  package init(candidate: PortraitCandidate, rating: Int, scope: PortraitStyleScope,
-    presentation: PortraitPresentationContext, previousRevisionID: UUID? = nil,
-    id: UUID = UUID(), createdAt: Date = Date()) throws {
-    guard (1...5).contains(rating) else { throw PortraitCandidateError.invalidRating }
-    guard scope.objective == presentation.objective else { throw PortraitCandidateError.incompatibleScope }
-    try presentation.validateDisplayEvidence(program: candidate.program)
-    self.id = id; self.previousRevisionID = previousRevisionID
-    candidateID = candidate.id; programContentHash = candidate.program.contentHash.description
-    self.rating = rating; self.scope = scope; self.presentation = presentation; self.createdAt = createdAt
   }
 }

@@ -55,6 +55,12 @@ Drawing Library format, fitting limits and physical evidence boundaries. The
 [frozen development baseline](#portrait-studio-development-baseline) remains a
 historical renderer reference; it does not restore multiple authoring paths.
 
+In AdaptivePlotter, **Export Run Result** exports the existing job-bound attempt's
+exact Drawing, plan and retained raw evidence. Both Library browsers can explicitly
+**Import Result**, inspect its read-only returned evidence and export the mounted
+carrier. Export/import does not start, resume or redraw a run. Unknown environment,
+clock and observation facts remain explicit; software checks do not establish ink.
+
 ## Operator journey
 
 The persistent **Learning Path** is an ergonomic navigator, not a motion

@@ -21,7 +21,7 @@ struct DrawingRunTransferTests {
     let record = try terminalRecord(fixture.intent, baseline: baseline, terminal: terminal)
     _ = try await store.append(record)
     let archiveBytes = try Data(contentsOf: url)
-    let exported = try await store.exportTerminalRecord(runID: record.runID)
+    let exported = try await store.exportAttempt(runID: record.runID)
     #expect(exported.record == record)
     #expect(try Data(contentsOf: url) == archiveBytes)
     let outer = try #require(JSONSerialization.jsonObject(with: archiveBytes) as? [String: Any])
@@ -32,12 +32,14 @@ struct DrawingRunTransferTests {
     let hash = try #require(entries.first?["sha256"] as? String)
     let originalRecord = try Data(contentsOf: directory.appendingPathComponent("raw.json.records").appendingPathComponent(hash + ".json"))
     #expect(exported.recordJSON == originalRecord)
-    #expect(exported.originalMedia[baseline.frame.frameSHA256] == fixture.baseline.bytes.data)
-    #expect(exported.originalMedia[terminal.frame.frameSHA256] == fixture.terminal.bytes.data)
-    try record.validateOriginalMedia(exported.originalMedia)
-    #expect(try await store.exportTerminalRecord(runID: record.runID).recordJSON == originalRecord)
+    #expect(try exported.originalMedia[baseline.frame.frameSHA256]?.frame().bytes.data == fixture.baseline.bytes.data)
+    #expect(try exported.originalMedia[terminal.frame.frameSHA256]?.frame().bytes.data == fixture.terminal.bytes.data)
+    try record.validateOriginalMedia(availableDigests: Set(exported.originalMedia.keys)) { reference in
+      try #require(exported.originalMedia[reference.frame.frameSHA256]).frame(reference: reference)
+    }
+    #expect(try await store.exportAttempt(runID: record.runID).recordJSON == originalRecord)
     _ = try await store.deleteReview(recordID: record.recordID)
-    await #expect(throws: (any Error).self) { try await store.exportTerminalRecord(runID: record.runID) }
+    await #expect(throws: (any Error).self) { try await store.exportAttempt(runID: record.runID) }
   }
 
   @Test("Pure terminal validation refuses missing, additional and corrupt originals")
@@ -48,13 +50,19 @@ struct DrawingRunTransferTests {
     let record = try terminalRecord(fixture.intent, baseline: baseline, terminal: terminal)
     let good = [baseline.frame.frameSHA256: fixture.baseline.bytes.data,
       terminal.frame.frameSHA256: fixture.terminal.bytes.data]
-    try record.validateOriginalMedia(good)
-    #expect(throws: (any Error).self) { try record.validateOriginalMedia([:]) }
+    func validate(_ originals: [String: Data]) throws {
+      try record.validateOriginalMedia(availableDigests: Set(originals.keys)) { reference in
+        let bytes = try #require(originals[reference.frame.frameSHA256])
+        return try DrawingRunMediaValidation.frame(reference: reference, bytes: bytes)
+      }
+    }
+    try validate(good)
+    #expect(throws: (any Error).self) { try validate([:]) }
     var extra = good; extra[String(repeating: "a", count: 64)] = Data([0])
-    #expect(throws: (any Error).self) { try record.validateOriginalMedia(extra) }
+    #expect(throws: (any Error).self) { try validate(extra) }
     var corrupt = good
     corrupt[baseline.frame.frameSHA256] = Data(repeating: 0, count: fixture.baseline.bytes.count)
-    #expect(throws: (any Error).self) { try record.validateOriginalMedia(corrupt) }
+    #expect(throws: (any Error).self) { try validate(corrupt) }
   }
 
   private func makeFixture() throws -> Fixture {

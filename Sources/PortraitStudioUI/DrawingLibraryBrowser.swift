@@ -146,12 +146,42 @@ package final class DrawingLibraryBrowserModel {
       if current(revision), route.wrappedValue == opening, !Task.isCancelled { self.error = error.localizedDescription }
     }
   }
+  package func importResult(from url: URL, route: Binding<DrawingLibraryRoute>) async {
+    guard !isClosed, !isBusy, !sketches.isClosing, !Task.isCancelled else { return }
+    let opening = route.wrappedValue
+    requestRevision &+= 1; let revision = requestRevision
+    dismissEditor(); isBusy = true
+    defer { if current(revision) { isBusy = false } }
+    do {
+      let mounted = try await sketches.library.mountResult(from: url)
+      let result = try await sketches.library.result(mounted.reference)
+      guard current(revision), route.wrappedValue == opening, !Task.isCancelled else { return }
+      guard let reference = result.index.known?.roots.first else {
+        error = "The returned result is preserved, but has no supported Drawing to reveal."; return
+      }
+      var next = opening; next.showDrawing(reference); next.workspace = .library
+      let destination = next
+      route.wrappedValue = destination
+      await restore(destination, isStillCurrent: { route.wrappedValue == destination })
+    } catch {
+      if current(revision), route.wrappedValue == opening, !Task.isCancelled { self.error = error.localizedDescription }
+    }
+  }
   package func exportDrawing(_ ref: DrawingRef, to url: URL) async {
     guard !isClosed, !isBusy, !sketches.isClosing else { return }
     requestRevision &+= 1; let revision = requestRevision
     isBusy = true; defer { if current(revision) { isBusy = false } }
     do {
       try await sketches.exportDrawing(ref, to: url)
+      if current(revision) { error = nil }
+    } catch { if current(revision) { self.error = error.localizedDescription } }
+  }
+  package func exportResult(_ reference: DrawingLibraryResultRef, to url: URL) async {
+    guard !isClosed, !isBusy, !sketches.isClosing else { return }
+    requestRevision &+= 1; let revision = requestRevision
+    isBusy = true; defer { if current(revision) { isBusy = false } }
+    do {
+      try await sketches.library.exportResult(reference, to: url)
       if current(revision) { error = nil }
     } catch { if current(revision) { self.error = error.localizedDescription } }
   }
@@ -203,6 +233,8 @@ package struct DrawingLibraryBrowser: View {
         Spacer()
         Button("Import Drawing", systemImage: "square.and.arrow.down") { Task { await importDrawing() } }
           .accessibilityIdentifier("drawing.library.import").disabled(model.isBusy)
+        Button("Import Result", systemImage: "tray.and.arrow.down") { Task { await importResult() } }
+          .accessibilityIdentifier("drawing.library.importResult").disabled(model.isBusy)
         Button("Close") { model.close(); close() }
           .keyboardShortcut(.escape, modifiers: presentationPolicy.modalUnavailableReason == nil ? [] : [.command])
           .accessibilityIdentifier("drawing.library.close")
@@ -256,6 +288,7 @@ package struct DrawingLibraryBrowser: View {
             Button("Child Drawings") {
               route.collection = .children; route.branchParent = ref; route.photo = nil; route.input = nil; route.drawing = nil
             }
+            DrawingResultReviewView(library: sketches.library, drawing: ref, export: exportResult).id(ref)
             review(drawing)
           } else { Text("Select a drawing.").foregroundStyle(.secondary) }
         }.padding() }
@@ -283,6 +316,27 @@ package struct DrawingLibraryBrowser: View {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
     await model.importDrawings(from: url, route: $route)
+  }
+  private func importResult() async {
+    if let reason = presentationPolicy.modalUnavailableReason { model.report(reason); return }
+    let opening = route
+    let panel = NSOpenPanel(); panel.title = "Import Returned Result"
+    activePanel = panel; defer { activePanel = nil }
+    panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+    guard await panel.begin() == .OK, let url = panel.url else { return }
+    guard route == opening, !Task.isCancelled, !model.isClosed else { return }
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    await model.importResult(from: url, route: $route)
+  }
+  private func exportResult(_ reference: DrawingLibraryResultRef) async {
+    if let reason = presentationPolicy.modalUnavailableReason { model.report(reason); return }
+    let panel = NSSavePanel(); panel.title = "Export Returned Result"; panel.nameFieldStringValue = "Drawing-Result.zip"
+    activePanel = panel; defer { activePanel = nil }
+    guard await panel.begin() == .OK, let url = panel.url, !model.isClosed, !Task.isCancelled else { return }
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    await model.exportResult(reference, to: url)
   }
   private func exportDrawing(_ ref: DrawingRef) async {
     if let reason = presentationPolicy.modalUnavailableReason { model.report(reason); return }

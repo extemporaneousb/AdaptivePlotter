@@ -25,7 +25,7 @@ import Testing
   }
   func release() { released = true; let waiting = continuation; continuation = nil; waiting?.resume() }
 }
-@MainActor private final class DestinationFixture {
+@MainActor final class DestinationFixture {
   let root: URL
   let library: DrawingLibrary
   let reference: DrawingRef
@@ -268,18 +268,31 @@ import Testing
         process.arguments = [fixture.root.path, planURL.path, input.path] + (boundary.map { [$0] } ?? [])
         let pipe = Pipe(); process.standardOutput = pipe
         try process.run()
+        defer {
+          // This harness owns only this process. Cancellation or a read error
+          // must not leave its helper running after the fixture is removed.
+          if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
+          try? pipe.fileHandleForReading.close()
+          try? pipe.fileHandleForWriting.close()
+        }
         let deadline = ContinuousClock.now.advanced(by: .seconds(20))
         while process.isRunning, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         if process.isRunning {
           process.terminate()
           let terminationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
           while process.isRunning, ContinuousClock.now < terminationDeadline { try await Task.sleep(for: .milliseconds(10)) }
-          if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
-          process.waitUntilExit()
+          if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+            let killDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while process.isRunning, ContinuousClock.now < killDeadline { try await Task.sleep(for: .milliseconds(10)) }
+            if process.isRunning { Issue.record("Owned destination helper did not terminate after SIGKILL: \(process.processIdentifier)") }
+          }
           throw DrawingDestinationRefusal.preparationUnavailable
         }
         let bytes = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        // isRunning is already false and stdout reached EOF. Calling
+        // waitUntilExit again can wait on a different thread's run loop after
+        // the asynchronous polling above; terminationStatus is available now.
         return (process.terminationStatus, String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
       }.value
     }
@@ -425,4 +438,131 @@ import Testing
     await fixture.library.closeLibrary()
   }
 
+  @Test("Actual standalone quit joins admitted handoff but suppresses its late opening status")
+  func quitSuppressesLateHandoffPresentation() async throws {
+    let fixture = try await DestinationFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let delegate = PortraitStudioApplicationDelegate(), gate = DestinationPreparationGate()
+    delegate.library = fixture.library
+    delegate.destinationRoot = fixture.root.appendingPathComponent("quit-handoff")
+    delegate.openDestination = { _ in await gate.wait() }
+    var replies: [Bool] = [], foregrounds = 0
+    delegate.replyToTermination = { _, accepted in replies.append(accepted) }
+    delegate.restorePortfolioWindow = { foregrounds += 1 }
+    let drawing = try await fixture.library.drawing(fixture.reference)
+    let admitted = Task { await delegate.prepareAtDestination(drawing) }
+    try await gate.waitUntilEntered()
+    delegate.destinationStatus = "Closing handoff fixture"
+    delegate.documentError = "Retained error fixture"
+    #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+    await Task.yield(); #expect(replies.isEmpty)
+    gate.release()
+    #expect(await admitted.value == nil)
+    try await waitForTermination { !replies.isEmpty }
+    #expect(replies == [true] && foregrounds == 0)
+    #expect(delegate.destinationStatus == "Closing handoff fixture" && delegate.documentError == "Retained error fixture")
+    let reopened = DrawingLibrary(directoryURL: fixture.library.directoryURL)
+    let client = DrawingDestinationClient(library: reopened, root: delegate.destinationRoot)
+    #expect(try await client.pending().count == 1)
+    #expect(try await reopened.drawing(fixture.reference).reference == fixture.reference)
+    #expect(try await reopened.records(kind: "adaptiveplotter.destination.job").isEmpty)
+    await reopened.closeLibrary()
+  }
+
+  @Test("Actual standalone quit retains a committed import without late selection, reveal or foreground")
+  func quitSuppressesLateDocumentPresentation() async throws {
+    let fixture = try await DestinationFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let document = fixture.root.appendingPathComponent("late-document.drawingexchange")
+    try await fixture.library.exportDrawing(fixture.reference, to: document)
+    let directory = fixture.root.appendingPathComponent("closing-document-library")
+    let library = DrawingLibrary(directoryURL: directory)
+    // The window's collection borrows the actual importing owner.
+    let importedAcquisition = PortraitStudioModel(library: library)
+    let delegate = PortraitStudioApplicationDelegate(), gate = StudioDocumentCommitGate()
+    var reveals: [DrawingRef] = [], replies: [Bool] = [], foregrounds = 0
+    delegate.installDocumentHandling(library: library, acquisition: importedAcquisition, reveal: { reveals.append($0) })
+    delegate.replyToTermination = { _, accepted in replies.append(accepted) }
+    delegate.restorePortfolioWindow = { foregrounds += 1 }
+    try await library.holdStudioPublication(gate, failAfterRelease: false)
+    delegate.application(NSApplication.shared, open: [document])
+    try await gate.waitUntilEntered()
+    delegate.destinationStatus = "Closing import fixture"
+    #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+    await Task.yield(); #expect(replies.isEmpty)
+    gate.release(); await delegate.settleDrawingDocuments()
+    try await waitForTermination { !replies.isEmpty }
+    #expect(replies == [true] && reveals.isEmpty && foregrounds == 0)
+    #expect(importedAcquisition.sketches.selected == nil)
+    #expect(delegate.destinationStatus == "Closing import fixture" && delegate.documentError == nil)
+    let reopened = DrawingLibrary(directoryURL: directory)
+    #expect(try await reopened.drawing(fixture.reference).reference == fixture.reference)
+    await reopened.closeLibrary(); await fixture.library.closeLibrary()
+  }
+
+  @Test("A quit canceled by an admitted autosave failure restores standalone Drawing handoff admission")
+  func canceledQuitRestoresDrawingAdmission() async throws {
+    let fixture = try await DestinationFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let dojo = FlowDojoModel(library: fixture.library, purpose: .validationFixture)
+    await dojo.open()
+    let gate = StudioDocumentCommitGate()
+    try await fixture.library.holdStudioPublication(gate, failAfterRelease: true)
+    let autosave = Task { await dojo.addPhoto(data: FlowDojoFixture.image(7), title: "Quit-cancel fixture") }
+    try await gate.waitUntilEntered()
+    let delegate = PortraitStudioApplicationDelegate()
+    delegate.library = fixture.library; delegate.dojo = dojo
+    delegate.destinationRoot = fixture.root.appendingPathComponent("canceled-quit-handoff")
+    var replies: [Bool] = [], foregrounds = 0, openings = 0
+    delegate.replyToTermination = { _, accepted in replies.append(accepted) }
+    delegate.restorePortfolioWindow = { foregrounds += 1 }
+    delegate.openDestination = { _ in openings += 1 }
+    #expect(!dojo.needsRecovery)
+    #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
+    gate.release(); await autosave.value
+    try await waitForTermination { !replies.isEmpty }
+    #expect(replies == [false] && foregrounds == 1 && dojo.needsRecovery)
+    await fixture.library.clearStudioPublicationFault()
+    await dojo.recoverAutosave()
+    #expect(!dojo.needsRecovery)
+    let drawing = try await fixture.library.drawing(fixture.reference)
+    #expect(await delegate.prepareAtDestination(drawing) == nil)
+    #expect(openings == 1 && delegate.destinationStatus?.hasPrefix("Opening the drawing preview") == true)
+    _ = await dojo.shutdown(); await fixture.library.closeLibrary()
+  }
+
+  private func waitForTermination(_ finished: @MainActor () -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while !finished(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    try #require(finished(), "The admitted termination did not settle")
+  }
+
+}
+
+private final class StudioDocumentCommitGate: @unchecked Sendable {
+  private let condition = NSCondition()
+  private var entered = false
+  private var released = false
+  func hold() {
+    condition.lock(); entered = true
+    let deadline = Date().addingTimeInterval(20)
+    while !released { if !condition.wait(until: deadline) { break } }
+    condition.unlock()
+  }
+  private var hasEntered: Bool { condition.lock(); defer { condition.unlock() }; return entered }
+  @MainActor func waitUntilEntered() async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while !hasEntered, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    try #require(hasEntered, "Library publication did not enter")
+  }
+  func release() { condition.lock(); released = true; condition.broadcast(); condition.unlock() }
+}
+private extension DrawingLibrary {
+  func holdStudioPublication(_ gate: StudioDocumentCommitGate, failAfterRelease: Bool) throws {
+    let catalog = try commonCatalog()
+    var armed = true
+    catalog.injectFault = { boundary in
+      guard armed, boundary == .beforeSQLPublication else { return }
+      armed = false; gate.hold()
+      if failAfterRelease { throw DrawingLibraryError.unavailable("Injected admitted autosave failure") }
+    }
+  }
+  func clearStudioPublicationFault() { cachedExchangeCatalog?.injectFault = nil }
 }

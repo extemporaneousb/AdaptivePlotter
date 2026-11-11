@@ -19,7 +19,8 @@ import PlotterModel
         return try application.preparedDestinationDrawing(ref, engine: engine)
       }, current: { [weak application] facts in
         try application?.preparedDestinationDrawing(facts.drawing, engine: facts.destination)?.facts
-      }, control: DrawingRunDestinationControl(runtime: application.drawingRunRuntime))
+      }, control: DrawingRunDestinationControl(runtime: application.drawingRunRuntime),
+      resultSource: application.drawingEvidencePort)
   }
 }
 enum DrawingDestinationPreparationOutcome: Sendable {
@@ -83,7 +84,8 @@ extension PlotterApplicationRuntime {
     let options = DrawingDestinationOptions(drawBorder: snapshot.drawBorder,
       sheetPlacementIsCurrent: snapshot.sheetPlacementIsCurrent, paperCoverageIsCurrent: snapshot.paperCoverageIsCurrent,
       readiness: String(describing: drawingRunSnapshot?.readiness),
-      applicability: .hash(try JSONSerialization.data(withJSONObject: applicability, options: [.sortedKeys, .withoutEscapingSlashes])))
+      applicability: .hash(try JSONSerialization.data(withJSONObject: applicability, options: [.sortedKeys, .withoutEscapingSlashes])),
+      environment: facts.environment == .live ? .live : .simulation)
     return try .init(drawing: ref, destination: engine, draftRevision: snapshot.projection.draftRevision.rawValue,
       plan: plan, options: options)
   }
@@ -248,7 +250,8 @@ import PlotterUI
       registration: facts.revisions.registrationRevisionID, material: facts.revisions.materialContextHash?.description))
     let options = DrawingDestinationOptions(drawBorder: draft.drawBorder,
       sheetPlacementIsCurrent: draft.sheetPlacementIsCurrent, paperCoverageIsCurrent: draft.paperCoverageIsCurrent,
-      readiness: "native-request", applicability: .hash(provenance))
+      readiness: "native-request", applicability: .hash(provenance),
+      environment: facts.revisions.environment == .live ? .live : .simulation)
     let preparation = try DrawingPreparation(drawing: ref, destination: identityPair.engine,
       draftRevision: identity.draftRevision.rawValue, plan: plan, options: options)
     let context = DrawingPreparationContext(isStillCurrent: { matchesCurrent() }, nativePreparation: preparation)

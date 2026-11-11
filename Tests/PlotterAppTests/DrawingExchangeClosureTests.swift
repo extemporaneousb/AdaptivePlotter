@@ -169,14 +169,73 @@ struct DrawingExchangeClosureTests {
     try withPackage("interrupted") { staged in
       let codecs = validators { context in
         let receipt = try #require(context.receipt)
+        #expect(throws: (any Error).self) { try context.resolver.originalMedia(context.descriptor.asset.object) }
+        #expect(throws: (any Error).self) { try context.resolver.rawTerminalRecord(context.descriptor.asset.object) }
         return .init(run: context.current?.run, job: receipt.handle, drawing: receipt.drawing,
-          clientRequestDigest: receipt.client.requestDigest, issuance: receipt.issuance,
+          clientRequestDigest: receipt.client.requestDigest, clientNamespace: receipt.client.namespace,
+          clientRequest: receipt.client.request, issuance: receipt.issuance,
           programSemanticHash: try ExchangeDigest("960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097"),
           plan: receipt.preparedPlan.object, preMotion: .hash(Data("frozen pre-motion".utf8)))
       }
       let admitted = try ExchangeAdmission.validate(staged, payloadValidators: codecs)
       #expect(admitted.capabilities.supported.contains(.interpretResults))
+      #expect(admitted.interpretableAttempts == Set(admitted.attempts.keys))
       #expect(!admitted.capabilities.supported.contains(.physicalInterpretation))
+    }
+  }
+  @Test("Per-snapshot proof cannot inherit verified prior facts over an unsupported current payload")
+  func selectedPayloadMustVerify() throws {
+    try withPackage("interrupted") { staged in
+      let callback: ExchangePayloadValidator = { context in
+        if context.current?.sequence == 2, context.descriptor.asset.encoding == "adaptiveplotter.coverage/1" {
+          return .unsupported(reason: "Synthetic selected current coverage is unsupported")
+        }
+        let receipt = try #require(context.receipt)
+        return .verified(.init(run: context.current?.run, job: receipt.handle, drawing: receipt.drawing,
+          clientRequestDigest: receipt.client.requestDigest, clientNamespace: receipt.client.namespace,
+          clientRequest: receipt.client.request, issuance: receipt.issuance,
+          programSemanticHash: try ExchangeDigest("960ce7fe5f34203bdaa451fbd48f401cdb34598bebcb3a8be7a739645f236097"),
+          plan: receipt.preparedPlan.object, preMotion: .hash(Data("frozen pre-motion".utf8))))
+      }
+      let codecs = ExchangePayloadValidators([
+        .init(encoding: "adaptiveplotter.fixture.owner/1", version: "1"): callback,
+        .init(encoding: "adaptiveplotter.coverage/1", version: "1"): callback])
+      let admitted = try ExchangeAdmission.validate(staged, payloadValidators: codecs)
+      #expect(admitted.interpretableAttempts.map(\.sequence) == [1])
+      #expect(!admitted.capabilities.supported.contains(.interpretResults))
+    }
+  }
+  @Test("Generic records and distinct native terminal/media payloads share one materialization budget")
+  func nativePayloadsShareMaterializationBudget() throws {
+    try withPackage("interrupted") { staged in
+      let terminal = try ExchangeAsset(bytes: Data(repeating: 32, count: 700 * 1024), mediaType: "application/json", encoding: "adaptiveplotter.raw-terminal-record/1")
+      let media = try ExchangeAsset(bytes: Data(repeating: 127, count: 700 * 1024), mediaType: "application/octet-stream", encoding: "raw-gray8")
+      let layout = try ExchangePixelLayout(width: 700, height: 1024, bytesPerPixel: 1, rowStride: 700)
+      let extra = [ExchangeAssetDescriptor(asset: terminal), ExchangeAssetDescriptor(asset: media, pixelLayout: layout)]
+      var index = try ExchangeJSON.validate(staged.indexJSON)
+      var descriptors = try #require(index["assets"] as? [[String: Any]])
+      for descriptor in extra {
+        descriptors.append(try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(descriptor)) as? [String: Any]))
+      }
+      index["assets"] = descriptors
+      var files: [String: Data] = [:]
+      for entry in staged.files.entries.values where entry.path.hasPrefix("data/") {
+        files[entry.path] = try staged.files.record(at: entry.path)
+      }
+      files["data/exchange.json"] = try JSONSerialization.data(withJSONObject: index, options: .sortedKeys)
+      files["data/objects/sha256/" + terminal.object.description] = Data(repeating: 32, count: 700 * 1024)
+      files["data/objects/sha256/" + media.object.description] = Data(repeating: 127, count: 700 * 1024)
+      let bag = try DrawingExchangeCarrierTestBag(files: files); defer { bag.dispose() }
+      let mixed = try DrawingExchangeCarrier.stageDirectory(bag.source, stagingParent: bag.root)
+      let codecs = validators { context in
+        let terminalBytes = try context.resolver.rawTerminalRecord(terminal.object)
+        let mediaBytes = try context.resolver.originalMedia(media.object)
+        #expect(terminalBytes.count == 700 * 1024 && mediaBytes.count == 700 * 1024)
+        return .init()
+      }
+      _ = try ExchangeAdmission.validate(mixed, payloadValidators: codecs)
+      var limited = ExchangeClosureLimits(); limited.maximumMaterializedBytes = 1024 * 1024
+      #expect(throws: (any Error).self) { try ExchangeAdmission.validate(mixed, payloadValidators: codecs, limits: limited) }
     }
   }
   @Test("Recognized owner codec contradictions fail", arguments: ["request", "run", "issuance", "preMotion", "frontierOrder", "frontierReversion"])
@@ -217,6 +276,7 @@ struct DrawingExchangeClosureTests {
       let admitted = try ExchangeAdmission.validate(staged, payloadValidators: validators { _ in .init() })
       #expect(!admitted.capabilities.supported.contains(.interpretResults))
       #expect(admitted.capabilities.supported.contains(.inspect))
+      #expect(admitted.interpretableAttempts.isEmpty)
     }
   }
   @Test("Unsupported feedback enum cannot hide known sibling claims", arguments: ["unknown-reviewer", "unknown-target", "unknown-response"])

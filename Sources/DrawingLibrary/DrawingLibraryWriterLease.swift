@@ -1,9 +1,10 @@
 import Darwin
 import Foundation
+import os
 
 /// The descriptor, not a pathname or process-local registry, owns the writer.
 /// Never unlink this lock: another opener must contend on the same inode.
-package final class DrawingLibraryWriterLease {
+package final class DrawingLibraryWriterLease: Sendable {
   private let originalRootURL: URL
   package var canonicalRootURL: URL {
     var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
@@ -12,14 +13,14 @@ package final class DrawingLibraryWriterLease {
   }
   private let rootDescriptor: Int32
   private let lockDescriptor: Int32
-  private let claimLock = NSLock()
-  private var hasDatabase = false
+  private let databaseClaim = OSAllocatedUnfairLock(initialState: false)
   func claimDatabase() throws {
-    claimLock.lock(); defer { claimLock.unlock() }
-    guard !hasDatabase else { throw DrawingLibraryDatabaseError.database("This writer lease already owns a writable catalog connection") }
-    hasDatabase = true
+    try databaseClaim.withLock { claimed in
+      guard !claimed else { throw DrawingLibraryDatabaseError.database("This writer lease already owns a writable catalog connection") }
+      claimed = true
+    }
   }
-  func releaseDatabase() { claimLock.lock(); hasDatabase = false; claimLock.unlock() }
+  func releaseDatabase() { databaseClaim.withLock { $0 = false } }
 
   package init(root: URL) throws {
     let resolved = root.standardizedFileURL.resolvingSymlinksInPath()

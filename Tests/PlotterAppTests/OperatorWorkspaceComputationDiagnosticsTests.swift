@@ -93,6 +93,32 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     await workspace.shutdown()
   }
 
+  @Test("A current live frame without a map or guide refuses sheet visibility without compiling Learning")
+  func missingSheetGuideReadsDoNotBuildLearning() async throws {
+    let clock = ComputationTestClock(), log = EventLog()
+    let camera = try TestObservationCameraSession()
+    let workspace = plotterApplicationRuntime(machine: try LowerMachineSessionFixture(log: log),
+      camera: camera, residualEffectPort: TestApplicationResidualEffectPort(
+        discoverDevices: { [] }, readNanoseconds: { clock.read() }),
+      loadOverlayPreference: { [.drawingRegion] }, log: log)
+    await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
+    let live = workspace.testPlotterUIProjection(includesLearningPath: true)
+    let frame = try #require(live.actionSurface.displayedFrame)
+    #expect(live.observationConfiguration.cameraIsLive && workspace.frameMode == .live)
+    #expect(frame.frame.width > 0 && frame.frame.height > 0)
+    #expect(workspace.overlayPreferenceState.enabled.contains(.drawingRegion))
+    #expect(workspace.tipCameraRegistration == nil && workspace.proposedTipCameraRegistration == nil)
+    #expect(workspace.machineCameraRegistration == nil && !workspace.savedLearningRecoveryIsPending)
+    #expect(workspace.drawingDraftExternalFacts.revisions.placementGuide == nil)
+    workspace.resetComputationDiagnosticsForTesting()
+    for _ in 0..<100 { #expect(!workspace.paperCoverageOutlineIsVisible) }
+    let diagnostics = workspace.computationDiagnosticsForTesting
+    #expect(diagnostics.learningProjectionBuildCount == 0)
+    #expect(diagnostics.selectedLearningProjectionBuildCount == 0)
+    #expect(diagnostics.learningSnapshotWithoutResetBuildCount == 0)
+    await workspace.shutdown()
+  }
+
   @Test("fresh preview recovery does not republish an unobserved stale state or regress to an older frame")
   func delayedPreviewKeepsPublishedControlsStable() async throws {
     let clock = ComputationTestClock()
@@ -581,6 +607,9 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       owner: tipOwner,
       workspace: workspace
     )
+    let admissionDiagnostics = workspace.computationDiagnosticsForTesting
+    #expect(admissionDiagnostics.learningProjectionBuildCount == 1)
+    #expect(admissionDiagnostics.selectedLearningProjectionBuildCount == 0)
     await workspace.performTestExerciseAction(.tipCalibration(.beginFourMarkBatch), for: tipOwner)
 
     let snapshotsAfterBatch = await machine.snapshotCallCount
@@ -601,7 +630,10 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     #expect(diagnostics.stoppableOperationSemanticInvalidationCount == 2)
     // One build admits the exact UI request; the second records the required
     // immutable post-transition Learning projection after owner settlement.
-    #expect(diagnostics.learningProjectionBuildCount == 2)
+    #expect(diagnostics.learningProjectionBuildCount == 2,
+      "Learning builds: admission=\(admissionDiagnostics.learningProjectionBuildCount), settled=\(diagnostics.learningProjectionBuildCount); selected admission=\(admissionDiagnostics.selectedLearningProjectionBuildCount), settled=\(diagnostics.selectedLearningProjectionBuildCount); base snapshots=\(diagnostics.learningSnapshotWithoutResetBuildCount), current items=\(diagnostics.currentLearningItemBuildCount)")
+    #expect(diagnostics.learningProjectionBuildCount - admissionDiagnostics.learningProjectionBuildCount == 1)
+    #expect(diagnostics.selectedLearningProjectionBuildCount == 0)
     #expect(diagnostics.semanticPresentationRevision - semanticRevisionBefore < 64)
     let expectedMarkedLocations = Set(plan.marks.map { mark in
       BlacklistedToolContactLocation(

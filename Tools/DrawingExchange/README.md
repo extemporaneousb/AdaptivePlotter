@@ -3,7 +3,7 @@
 Run from the repository root:
 
 ```sh
-python3 Tools/DrawingExchange/carrier.py path/to/exchange.zip --staging-parent /private/tmp
+python3 Tools/DrawingExchange/carrier.py path/to/exchange.zip --staging-parent /private/tmp --json
 # TEST_PYTHON names the provisioned test interpreter.
 "$TEST_PYTHON" -m unittest discover -s Tools/DrawingExchange -p 'test_*.py'
 ```
@@ -17,17 +17,83 @@ introduced by those tests.
 
 `import_carrier(source, staging_parent, *, limits=Limits(), cancelled=None,
 fault=None)` accepts a closed BagIt directory or classic ZIP. It returns
-`VerifiedCarrier(staging, index, store, drawings, unsupported)` only after integrity
+`VerifiedCarrier(staging, index, store, drawings, unsupported, native_inspections)` only after integrity
 and typed closure checks. Unsupported exchange major versions return opaque staged
 bytes and no drawings. Unknown exchange requirements disable drawing operations;
 unknown source/evidence semantics remain explicitly unsupported. Integrity is not
-authentication. Native intent, physical plan, cumulative coverage/frontier codecs,
-and assessment answer semantics are not implemented by this Python tool. Unknown job disposition remains opaque even when referenced by a known attempt: exact
+authentication. `--json` emits exact references, bounded native binding facts,
+recorded execution frontiers, explicit unsupported semantics, and task scope when
+present. It never grants readiness, retry, or physical-validity authority.
+Unknown job disposition remains opaque even when referenced by a known attempt: exact
 receipt/drawing links and snapshot-chain integrity still apply, while accepted-job
 issuance semantics remain unavailable. Known refused receipts cannot have attempts.
-Passing
-envelope checks supplies no physical evidence validity, readiness, retry authority,
-production adapter, or Library installation.
+Passing envelope checks supplies no production adapter or Library installation.
+
+`native.py` recognizes the existing `adaptiveplotter.drawing-run-proposal/1`,
+`adaptiveplotter.native-coverage/1`, `adaptiveplotter.raw-attempt-state/1`, and
+`adaptiveplotter.raw-terminal-record/1` payloads. It checks the exact original
+proposal/body/request/issuance/receipt/plan/options bindings, authored program
+APCB hash, raw attempt/terminal relationships, cumulative frontiers, retained
+possible-ink facts, every progress request/plan/frontier, exact retained raw
+baseline/progress prefixes, and original media descriptors derived from raw
+frames. The same bytes cannot acquire different dimensions, stride, orientation,
+or pixel interpretation. Known malformed payloads
+reject; unfamiliar encodings remain opaque and supply no native proof. Physical
+plan canonical hashing and registration geometry remain explicitly unsupported.
+Candidate identity must equal the exact authored Drawing digest. An unfamiliar
+authored-to-execution compositor relation reports `nativeBindingVerified=false`
+with its explicit limitation; a self-hashed replacement program proves no such
+relation. A task's sender declaration remains inspectable and supplies no
+independent training authority by itself. The interruption task independently
+admits only recorded stage/frontier labels when exact same-source native binding,
+selected requirements, original environment, stage, and source grouping are all
+proved. Inspection and residual tasks never gain training labels from this check.
+Environment comes from the original options asset; absence remains unknown.
+Raw monotonic ticks have no recorded clock namespace, so cross-event elapsed
+time is unavailable. No clock domain or current application mode is inferred.
+
+`adaptiveplotter.drawing-evidence-task/1` scope freezes exact receipt, snapshot,
+and assessment selections together with the original result index and its
+included-as-of value, task/input/label contracts, extractor/model provenance,
+exclusions, and source/parent/photo/canonical-capture-session grouping. Every
+declared group is confined to one split, including disjoint source records.
+Unknown ImageInput/Photo profiles or required features produce explicit unknown
+grouping keys; their apparent photo/session fields cannot establish independence.
+Inspection is available for refused,
+cancelled, interrupted, missing-observation, or opaque evidence without treating
+absence as a negative label. Answers stay attributed, uninterpreted claims until
+their actual owning decoder accepts the entire question/target/answer contract;
+familiar Flow answer names and reviewer strings alone grant no label semantics.
+human preference, algorithm analysis, and synthetic/simulation evidence are not
+interchangeable. Independent inspection recomputes known source grouping and
+rejects conflicting training/holdout assignments and coherently rehashed forged
+scope facts. Sender eligibility remains separate from independently recomputed
+task eligibility. No aligned-residual label decoder is registered, and Rank
+feedback remains a feature-only task with no physical geometry claim.
+
+Task admission requires the complete outer index to derive from the carried
+original index by only adding original-index/task asset descriptors and replacing
+scope. All original requirements, descriptor dictionaries and unknown fields
+remain part of this check, and the original scope/typed closure is validated.
+Selected assessments require their full issuer/revision/digest, admitted
+canonical typed path, matching record identity and no duplicates; an unindexed
+CAS JSON object cannot become testimony through a digest alone. These checks
+establish internal consistency, not external authenticity of the claimed original
+publication.
+
+The Swift task exporter copies all original evidence and media bytes and adds
+the immutable task scope plus the original index asset. It owns no job, retry,
+checkpoint, live store, or learner activation. To exercise actual Swift-produced
+carriers in the independent reader, set `DRAWING_NATIVE_TASK_FIXTURE_OUTPUT` to a
+new external directory when running `DrawingEvidenceTrainingTests`, then set the
+same variable for the Python suite. This enables the cross-language test over
+`native-task.zip`, `native-interruption-task.zip`, `session-task.zip` and
+`disjoint-task.zip`, including coherently hashed eligibility, original-index,
+capture-session and declared-group holdout forgeries. `ADAPTIVEPLOTTER_RESULT_FIXTURE_OUTPUT`
+from the native result suite supplies `native-large-terminal.zip` for the separate
+actual-owner record-size control. Without those explicit
+fixture directory the cross-language case reports a skip; synthetic binding
+tests still run and make no Swift-owner or physical-plan validation claim.
 
 The original source is never modified. A ZIP is copied unchanged to
 `<staging>/incoming.zip` before verification. Directory files are copied with
@@ -58,7 +124,11 @@ bits with zero type bits are accepted for the frozen fixture. Links, special fil
 file-as-parent conflicts, duplicate paths and NFC/case-fold collisions are refused.
 
 Default limits are 100,000 files, 32 GiB per file, 128 GiB expanded bytes, expansion
-ratio 10,000, 1 MiB streaming chunks, 8 MiB JSON records, 32 MiB manifests. Classic
+ratio 10,000, 1 MiB streaming chunks, 8 MiB JSON records, 32 MiB manifests.
+Only `adaptiveplotter.raw-terminal-record/1` has a separate 256 MiB JSON cap;
+generic envelopes retain the 8 MiB bound. Materializing unique object bytes is
+also bounded to 256 MiB per package, including these typed owner records.
+Classic
 ZIP transport has its inherent 32-bit sizes and 16-bit entry count; use directory
 transport for larger packages. Paths are NFC UTF-8, at most 4,096 bytes total and
 255 per component, with no empty/dot/dotdot components, absolute prefix, backslash,

@@ -61,16 +61,20 @@ public struct DrawingRequestKey: Codable, Hashable, Sendable {
   /// Namespace is part of the domain kind; the request UUID alone is never a key.
   public var recordKind: String { "adaptiveplotter.destination.request." + namespace.uuidString.lowercased() }
 }
+public enum DrawingDestinationEnvironment: String, Codable, Sendable { case live, simulation }
 public struct DrawingDestinationOptions: Codable, Equatable, Sendable {
   public let drawBorder: Bool
   public let sheetPlacementIsCurrent: Bool
   public let paperCoverageIsCurrent: Bool
   public let readiness: String
   public let applicability: ExchangeDigest
+  /// Captured before submission. Missing historical provenance remains unknown.
+  public let environment: DrawingDestinationEnvironment?
   public init(drawBorder: Bool, sheetPlacementIsCurrent: Bool, paperCoverageIsCurrent: Bool,
-    readiness: String, applicability: ExchangeDigest) {
+    readiness: String, applicability: ExchangeDigest, environment: DrawingDestinationEnvironment? = nil) {
     self.drawBorder = drawBorder; self.sheetPlacementIsCurrent = sheetPlacementIsCurrent
     self.paperCoverageIsCurrent = paperCoverageIsCurrent; self.readiness = readiness; self.applicability = applicability
+    self.environment = environment
   }
 }
 public struct DrawingPreparedFacts: Codable, Equatable, Sendable {

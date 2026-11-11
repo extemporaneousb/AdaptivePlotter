@@ -641,7 +641,7 @@ enum DrawingRunEvidenceProbeError: Error {
   case mediaFailed
 }
 
-actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
+actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort, DrawingDestinationResultSource {
   private let events: DrawingRunEventProbe
   private let store: DrawingRunEvidenceStore
   private var failuresRemaining: Int
@@ -699,6 +699,10 @@ actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
     archive = try await store.stageIntent(intent)
     return archive
   }
+
+  func rawStoreForResultTests() -> DrawingRunEvidenceStore { store }
+
+  func exportAttempt(runID: RunID) async throws -> DrawingRunAttemptExport { try await store.exportAttempt(runID: runID) }
 
   func rejectMediaFrames(_ ids: Set<FrameID>) { rejectedMediaFrames = ids }
 
@@ -817,6 +821,7 @@ struct DrawingRunRuntimeHarness: Sendable {
   uncertainStageAcknowledgement: Bool = false,
   archiveLoadResult: DrawingRunEvidenceStoreLoadResult = .absent,
   cameraFrames: [DisplayedFrame]? = nil,
+  payloadValidators: ExchangePayloadValidators = DrawingDestinationResult.payloadValidators,
   clock: any RuntimeClock = DrawingRunEpisodeClock()
 ) async -> DrawingRunRuntimeHarness {
   let events = DrawingRunEventProbe()
@@ -839,7 +844,7 @@ struct DrawingRunRuntimeHarness: Sendable {
     stageFailures: stageFailures, stageBaselineFailures: stageBaselineFailures,
     failDispatchAcknowledgement: failDispatchAcknowledgement,
     uncertainStageAcknowledgement: uncertainStageAcknowledgement)
-  let destination = try! await DrawingRunServicePreparation(facts: facts, environment: resolvedFacts.environment)
+  let destination = try! await DrawingRunServicePreparation(facts: facts, environment: resolvedFacts.environment, resultSource: evidence, payloadValidators: payloadValidators)
   await facts.installBinding(library: destination.library, collection: destination.collection, evidence: evidence, archiveURL: evidence.archiveURL)
   let runtime = PlotterDrawingRunRuntime(
     facts: facts,
@@ -968,14 +973,16 @@ func drawingRunCheckpointProgress(_ request: DrawingPlanRequest, completed count
   var lastReply: DrawingDestinationReply?
   let publicationProbe = DrawingRunPublicationProbe()
 
-  init(facts: DrawingRunFactProbe, environment: PlotterEnvironment) async throws {
+  init(facts: DrawingRunFactProbe, environment: PlotterEnvironment, resultSource: (any DrawingDestinationResultSource)? = nil,
+    payloadValidators: ExchangePayloadValidators = DrawingDestinationResult.payloadValidators) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("drawing-issuance-" + UUID().uuidString)
-    let library = DrawingLibrary(directoryURL: root.appendingPathComponent("library"), payloadValidators: DrawingDestinationResult.payloadValidators)
+    let library = DrawingLibrary(directoryURL: root.appendingPathComponent("library"), payloadValidators: payloadValidators)
     let collection = PortraitSketchCollection(library: library)
     try await library.open()
     let control = DrawingRunServiceControl()
     let options = DrawingDestinationOptions(drawBorder: false, sheetPlacementIsCurrent: true,
-      paperCoverageIsCurrent: true, readiness: "fixture-native", applicability: .hash(Data("fixture-applicability".utf8)))
+      paperCoverageIsCurrent: true, readiness: "fixture-native", applicability: .hash(Data("fixture-applicability".utf8)),
+      environment: environment == .live ? .live : .simulation)
     let service = DrawingDestinationService(library: library, returnDirectory: root.appendingPathComponent("results"),
       prepare: { ref, engine, _ in
         guard let current = await facts.drawingRunFacts(for: environment).plan else { return nil }
@@ -985,7 +992,7 @@ func drawingRunCheckpointProgress(_ request: DrawingPlanRequest, completed count
       current: { frozen in
         let current = await facts.drawingRunFacts(for: environment)
         return current.plan?.plan.revisionID == frozen.planID ? frozen : nil
-      }, control: control)
+      }, control: control, resultSource: resultSource)
     self.root = root; self.library = library; self.collection = collection; self.facts = facts
     self.control = control; self.service = service; self.environment = environment
   }
@@ -1004,7 +1011,8 @@ func drawingRunCheckpointProgress(_ request: DrawingPlanRequest, completed count
     let drawing = try await library.drawing(reference)
     let identity = try await service.nativeIdentity()
     let options = DrawingDestinationOptions(drawBorder: false, sheetPlacementIsCurrent: true,
-      paperCoverageIsCurrent: true, readiness: "fixture-native", applicability: .hash(Data("fixture-applicability".utf8)))
+      paperCoverageIsCurrent: true, readiness: "fixture-native", applicability: .hash(Data("fixture-applicability".utf8)),
+      environment: environment == .live ? .live : .simulation)
     let preparation = try DrawingPreparation(drawing: reference, destination: identity.engine,
       draftRevision: plan.identity.draftRevision.rawValue, plan: plan.plan, options: options)
     guard case .prepared(let ticket) = try await service.handle(.prepare(reference),

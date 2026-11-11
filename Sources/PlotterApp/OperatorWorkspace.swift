@@ -1440,8 +1440,7 @@ final class PlotterApplicationRuntime:
     let selected = tipCalibrationRuntime.selectedWorkingRegion
     let restored = tipCameraRegistration.flatMap { try? SparseTipBatchMarkPlan.selectedWorkingRegion(for: $0) }
     let reason: String?
-    if !overlayPreferenceState.enabled.contains(.drawingRegion) { reason = "Show Drawing Region in Video Settings to edit." }
-    else if drawingRunIsActive { reason = "Wait for drawing to finish, or use Stop." }
+    if drawingRunIsActive { reason = "Wait for drawing to finish, or use Stop." }
     else if drawingFrameEditSession != nil { reason = "Apply or Cancel drawing positioning first." }
     else if !tipCalibrationRuntime.workingRegionIsEditable { reason = "Finish the current calibration or resolve possible ink first." }
     else if pointSelectionEpisodeProjection.exactPointSelection.request != nil { reason = "Finish the current point selection first." }
@@ -2577,7 +2576,7 @@ final class PlotterApplicationRuntime:
       completedComparisonReview: completedComparisonReviewPresentation,
       drawingStudioCanvas: drawingTargetIsVisible ? drawingStudioPresentation.canvas : nil,
       showsMachineBoundary: overlayPreferenceState.enabled.contains(.machineBoundary),
-      showsDrawingRegion: overlayPreferenceState.enabled.contains(.drawingRegion),
+      showsDrawingRegion: drawingRegionIsRendered,
       drawingPositioningUnavailableReason: drawingPositioningUnavailableReason
     )
     let signature = ActionSurfaceDiagnosticSignature(
@@ -2839,15 +2838,43 @@ final class PlotterApplicationRuntime:
     )
   }
 
+  /// A retained active or parked Drawing keeps its working-area reference.
+  /// Video Settings controls the passive reference only; it cannot hide the
+  /// geometry on which an explicit sheet assertion depends.
   var paperCoverageOutlineIsVisible: Bool {
-    overlayPreferenceState.enabled.contains(.drawingRegion)
-      && tipCalibrationRuntime.workingRegionEdit == nil && drawingFrameEditSession == nil
-      && !(tipCameraRegistration != nil && isSparseTipRegionContext)
+    guard tipCalibrationRuntime.workingRegionEdit == nil, drawingFrameEditSession == nil,
+      !(tipCameraRegistration != nil && isSparseTipRegionContext),
+      let frame = displayedSheetAcceptanceFrame,
+      overlayPreferenceState.enabled.contains(.drawingRegion)
+        || drawingDraftSnapshot.authoredProgram != nil
+        || sparseTipPlacementGuide(on: frame) != nil else { return false }
+    // Before tip acceptance the same exact cap-map guide supplies this region
+    // in either Learning context. Inspect that geometry directly: asking the
+    // full overlay composer to filter calibration markers would rebuild a
+    // Learning presentation during an intermediate Draft-facts publication.
+    if tipCameraRegistration == nil, proposedTipCameraRegistration == nil,
+      savedLearningApplicationCandidate?.checkpoint.tipCalibration?.registration == nil {
+      return sparseTipGuideOverlays(on: frame).contains { $0.provenance.kind == .drawingRegion }
+    }
+    return learnedDrawingOverlays(on: frame).contains { $0.provenance.kind == .drawingRegion }
+  }
+
+  /// Editing replaces the sheet reference with exact, current editor geometry.
+  /// That geometry remains visible while an edit makes sheet confirmation inadmissible.
+  var drawingRegionIsRendered: Bool {
+    if let working = calibrationWorkingRegionPresentation,
+      let frame = retainedActionSurfaceFrame ?? displayedFrame,
+      calibrationWorkingRegionContext(on: frame) == working.context { return true }
+    if let edit = drawingFrameEditSession,
+      edit.matches(drawingDraftSnapshot.projection),
+      let frame = retainedActionSurfaceFrame ?? displayedFrame,
+      drawingStudioPresentation.canvas.frame != nil,
+      drawingStudioPresentation.canvas.targetPreview(for: frame) != nil { return true }
+    return paperCoverageOutlineIsVisible
   }
 
   var drawingPositioningUnavailableReason: String? {
     if isSparseTipRegionContext { return "Finish calibration before positioning artwork." }
-    if !overlayPreferenceState.enabled.contains(.drawingRegion) { return "Show Drawing Region in Video Settings to position artwork." }
     if pointSelectionEpisodeProjection.exactPointSelection.request != nil { return "Finish the current point selection first." }
     if drawingRunIsActive { return "Wait for drawing to finish, or use Stop." }
     if tipCalibrationRuntime.workingRegionEdit != nil { return "Apply or Cancel the region edit first." }
@@ -2856,6 +2883,7 @@ final class PlotterApplicationRuntime:
     if drawingRunRequiresNewPlan { return "Prepare the next drawing first." }
     if drawingDraftSnapshot.coverageExperiment != nil { return "Leave the coverage experiment first." }
     if drawingDraftSnapshot.frame == nil { return "Select a drawing that fits the working area." }
+    if !paperCoverageOutlineIsVisible { return "Show the current Plotter Video working-area outline before positioning artwork." }
     guard let frame = retainedActionSurfaceFrame ?? displayedFrame,
       drawingStudioPresentation.canvas.targetPreview(for: frame) != nil else {
       return "Show a compatible drawing preview first."
@@ -3628,7 +3656,6 @@ final class PlotterApplicationRuntime:
   var paperAcceptanceUnavailableReason: String? {
     if tipCameraRegistration != nil && isSparseTipRegionContext { return "Finish calibration before confirming sheet coverage." }
     if drawingFrameEditSession != nil { return "Apply or Cancel drawing positioning before confirming sheet coverage." }
-    if !overlayPreferenceState.enabled.contains(.drawingRegion) { return "Show Drawing Region before confirming sheet coverage." }
     if tipCalibrationRuntime.workingRegionEdit != nil {
       return "Apply or Cancel the working-region edit before accepting sheet placement."
     }

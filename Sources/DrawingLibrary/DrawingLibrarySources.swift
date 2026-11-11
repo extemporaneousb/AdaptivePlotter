@@ -255,7 +255,7 @@ private func sourceWallDate(_ fact: DrawingImageDatedFact?) -> Date? {
   return formatter.date(from: wall) ?? ISO8601DateFormatter().date(from: wall)
 }
 extension LibraryExchangeCatalog {
-  package func sourceSummaries(_ package: ValidatedExchangePackage, references: [LibraryExchangeReference]) throws -> [DrawingLibrarySourceSummary] {
+  package static func sourceSummaries(_ package: ValidatedExchangePackage, references: [LibraryExchangeReference]) throws -> [DrawingLibrarySourceSummary] {
     var result: [DrawingLibrarySourceSummary] = []
     for ref in references {
       let path: String, profile: String

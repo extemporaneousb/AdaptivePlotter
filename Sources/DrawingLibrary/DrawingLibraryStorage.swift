@@ -23,7 +23,7 @@ package struct LibraryExchangeStaging: Codable, Equatable, Sendable {
     self.transactionID = transactionID; self.intent = intent; self.entries = entries
   }
 }
-package struct LibraryExchangeStorageFault {
+package struct LibraryExchangeStorageFault: Sendable {
   package enum Boundary: String, CaseIterable, Sendable {
     case beforeJournalCreation, afterJournalCreation, beforeBagCopy, duringBagCopy, afterBagCopy
     case beforeStagingPublication, afterStagingPublication, duringCleanup
@@ -39,10 +39,12 @@ package struct LibraryExchangeStorageFault {
 
 /// Filesystem half of publication. The caller owns SQL commit/reconciliation decisions.
 /// No method opens a catalog or infers metadata from the carrier's records.
-package final class LibraryExchangeStorage {
+/// Workers can use the same retained root and lease for disjoint private
+/// directories and exclusive CAS installs. All file offsets are local opens.
+package final class LibraryExchangeStorage: Sendable {
   let rootFD: Int32
   let lease: DrawingLibraryWriterLease
-  let fault: (LibraryExchangeStorageFault) throws -> Void
+  let fault: @Sendable (LibraryExchangeStorageFault) throws -> Void
   static let maximumMetadataBytes = 16 * 1024 * 1024
   // Library SQL publication is a separate bounded gate from Core carrier admission.
   package static let maximumPublicationIntentBytes = 32 * 1024 * 1024
@@ -53,7 +55,7 @@ package final class LibraryExchangeStorage {
     let stage: LibraryExchangeStaging
   }
   package init(root: URL, lease: DrawingLibraryWriterLease,
-    fault: @escaping (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
+    fault: @escaping @Sendable (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
     try lease.assertMatches(root: root)
     self.lease = lease; self.fault = fault
     rootFD = Darwin.open(lease.canonicalRootURL.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -67,7 +69,17 @@ package final class LibraryExchangeStorage {
   }
   deinit { Darwin.close(rootFD) }
 
+  struct PreparedBag: Sendable {
+    fileprivate let name: String
+    let stage: LibraryExchangeStaging
+  }
+
   package func stage(files: VerifiedExchangeFiles, transactionID: UUID, intent: Data) throws -> LibraryExchangeStaging {
+    try publishBag(prepareBag(files: files, transactionID: transactionID, intent: intent))
+  }
+
+  /// Only this transaction's private directory is visible until publishBag.
+  func prepareBag(files: VerifiedExchangeFiles, transactionID: UUID, intent: Data) throws -> PreparedBag {
     guard intent.count <= Self.maximumPublicationIntentBytes else { throw LibraryExchangeStorageError.resourceLimit("publication intent exceeds 32MiB") }
     let entries = files.entries.values.map { LibraryExchangeStorageEntry(path: $0.path, digest: $0.digest, byteLength: $0.byteLength) }.sorted { $0.path < $1.path }
     try Self.validateInventory(entries)
@@ -87,6 +99,15 @@ package final class LibraryExchangeStorage {
     try hit(.afterBagCopy, transactionID, path + "/bag")
     let bag = try directory(path + "/bag"); defer { Darwin.close(bag) }
     try verifyBag(bag, entries: entries, syncFiles: true)
+    return PreparedBag(name: preparingName, stage: stage)
+  }
+
+  func publishBag(_ prepared: PreparedBag) throws -> LibraryExchangeStaging {
+    let stage = prepared.stage, transactionID = stage.transactionID
+    let preparingName = prepared.name, publishedName = transactionID.uuidString.lowercased()
+    let path = "exchange-staging/" + preparingName
+    let parent = try directory("exchange-staging"); defer { Darwin.close(parent) }
+    let fd = try directory(path); defer { Darwin.close(fd) }
     try hit(.beforeJournalCreation, transactionID, path)
     try writeEnvelope(Journal(version: 1, state: "prepared", stage: stage), directory: fd, name: "journal.json", maximumBytes: Self.maximumJournalBytes)
     try hit(.afterJournalCreation, transactionID, path)
@@ -97,20 +118,24 @@ package final class LibraryExchangeStorage {
     return stage
   }
 
-  package func pendingTransactions() throws -> [LibraryExchangeStaging] {
+  package func pendingTransactions(excluding active: Set<UUID> = []) throws -> [LibraryExchangeStaging] {
     let fd = try directory("exchange-staging"); defer { Darwin.close(fd) }
-    return try names(fd).sorted().filter { !Self.isPrivateStageName($0) }.map { name in
+    return try names(fd).sorted().filter { !Self.isPrivateStageName($0) }.compactMap { name in
       guard let id = UUID(uuidString: name), name == id.uuidString.lowercased() else { throw LibraryExchangeStorageError.invalidJournal(name) }
+      if active.contains(id) { return nil }
       return try journal(id).stage
     }
   }
 
   package func installObjects(_ stage: LibraryExchangeStaging) throws {
-    let durable = try journal(stage.transactionID)
-    guard durable.stage == stage else { throw LibraryExchangeStorageError.invalidJournal("stage differs from durable intent") }
-    let fd = try directory(stagingPath(stage.transactionID)); defer { Darwin.close(fd) }
-    let bag = try directory(stagingPath(stage.transactionID) + "/bag"); defer { Darwin.close(bag) }
-    try verifyBag(bag, entries: stage.entries, syncFiles: false)
+    try installObjectFiles(stage)
+    try markObjectsInstalled(stage)
+  }
+
+  /// Uses one published staging ID and exclusive immutable CAS installs. No SQL
+  /// connection or journal transition is accessible through this operation.
+  func installObjectFiles(_ stage: LibraryExchangeStaging) throws {
+    let bag = try openVerifiedBag(stage); defer { Darwin.close(bag) }
     let objects = try directory("objects/sha256"); defer { Darwin.close(objects) }
     var installed = Set<ExchangeDigest>()
     for entry in stage.entries where installed.insert(entry.digest).inserted {
@@ -143,6 +168,40 @@ package final class LibraryExchangeStorage {
       try sync(objects, name)
       try hit(.afterBlobDirectorySync, stage.transactionID, name)
     }
+    // An existing name may just have been installed by a different live
+    // transaction. Prove durability for this publication before SQL can commit.
+    try hit(.beforeBlobDirectorySync, stage.transactionID, "objects/sha256")
+    try sync(objects, "objects/sha256")
+    try hit(.afterBlobDirectorySync, stage.transactionID, "objects/sha256")
+  }
+
+  func stagedTransaction(_ id: UUID) throws -> LibraryExchangeStaging { try journal(id).stage }
+
+  private func openVerifiedBag(_ stage: LibraryExchangeStaging) throws -> Int32 {
+    guard try stagedTransaction(stage.transactionID) == stage else {
+      throw LibraryExchangeStorageError.invalidJournal("stage differs from durable intent")
+    }
+    let bag = try directory(stagingPath(stage.transactionID) + "/bag")
+    do {
+      try verifyBag(bag, entries: stage.entries, syncFiles: false)
+      return bag
+    } catch {
+      Darwin.close(bag)
+      throw error
+    }
+  }
+
+  func verifyStagedBag(_ stage: LibraryExchangeStaging) throws { Darwin.close(try openVerifiedBag(stage)) }
+
+  func verifyObjects(_ entries: [LibraryExchangeStorageEntry]) throws {
+    var verified = Set<ExchangeDigest>()
+    for entry in entries where verified.insert(entry.digest).inserted {
+      try verifyObject(digest: entry.digest, byteLength: entry.byteLength)
+    }
+  }
+
+  func markObjectsInstalled(_ stage: LibraryExchangeStaging) throws {
+    let fd = try directory(stagingPath(stage.transactionID)); defer { Darwin.close(fd) }
     try hit(.beforeJournalTransition, stage.transactionID, stagingPath(stage.transactionID))
     try writeEnvelope(Journal(version: 1, state: "assetsInstalled", stage: stage), directory: fd, name: "journal.json", maximumBytes: Self.maximumJournalBytes)
     try hit(.afterJournalTransition, stage.transactionID, stagingPath(stage.transactionID))

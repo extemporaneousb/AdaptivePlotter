@@ -36,8 +36,7 @@ struct PortraitDisplayEvidenceTests {
     let context = try PortraitPresentationContext(
       drawingHeightMM: candidate.program.fieldExtent.height * placement.uniformScale,
       inkWidthMM: 0.8, materialRevision: "measured-profile-revision", displayEvidence: evidence)
-    let label = try PortraitLabelRevision(candidate: candidate, rating: 5, scope: .screenSketch, presentation: context)
-    try PortraitArchiveValidation.label(label, candidate: candidate)
+    try context.validateDisplayEvidence(program: candidate.program)
     let restored = try JSONDecoder().decode(PortraitPresentationContext.self,
       from: PortraitCandidateCoding.encoder().encode(context))
     #expect(restored == context)
@@ -46,13 +45,12 @@ struct PortraitDisplayEvidenceTests {
     let wrongHeight = try PortraitPresentationContext(drawingHeightMM: context.drawingHeightMM + 1,
       inkWidthMM: 0.8, displayEvidence: evidence)
     #expect(throws: PortraitCandidateError.self) {
-      _ = try PortraitLabelRevision(candidate: candidate, rating: 3, scope: .screenSketch, presentation: wrongHeight)
+      try wrongHeight.validateDisplayEvidence(program: candidate.program)
     }
     let wrongProgram = try PortraitDisplayEvidence(mode: .reference,
       programContentHash: String(repeating: "b", count: 64), widthSource: .nominalProgram)
     #expect(throws: PortraitCandidateError.self) {
-      _ = try PortraitLabelRevision(candidate: candidate, rating: 3, scope: .screenSketch,
-        presentation: PortraitPresentationContext(displayEvidence: wrongProgram))
+      try PortraitPresentationContext(displayEvidence: wrongProgram).validateDisplayEvidence(program: candidate.program)
     }
   }
 

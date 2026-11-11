@@ -133,24 +133,6 @@ struct PortraitDrawingParametersTests {
     #expect(center.recipe == recipe)
   }
 
-  @Test("Legacy feature fitting refuses shared recipes instead of reading inactive kernel fields")
-  func legacyFeatureBoundary() throws {
-    let (scope, _) = try portraitTrainingFixture(sourceCount: 1, samplesPerSource: 1)
-    let options = PortraitVectorOptions(drawingParameters: .init())
-    let recipe = PortraitStyleRecipe(id: "shared", title: "Shared", seed: 0, style: .hatch,
-      vectorOptions: options, analysisOptions: .init())
-    let raster = portraitTestRaster()
-    let program = try PortraitVectorizer.program(from: raster, pose: .front, style: .hatch,
-      strokeStyle: portraitTestStyle(), vectorOptions: options)
-    let candidate = try PortraitCandidate(sourceData: Data([1]), sourcePixelExtent: nil, raster: raster,
-      recipe: recipe, program: program, photoID: UUID(), captureSessionID: UUID(), pose: .front)
-    do {
-      try PortraitTrainingFeatures.validateCandidate(candidate, scope: scope)
-      Issue.record("Legacy features accepted inactive kernel fields")
-    } catch PortraitTrainingError.incompatible(let reason) {
-      #expect(reason.contains("new feature schema"))
-    }
-  }
 
 
 }

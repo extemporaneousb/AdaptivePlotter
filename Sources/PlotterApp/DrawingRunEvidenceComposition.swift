@@ -86,7 +86,7 @@ enum DrawingRunEvidenceComposition {
   static let port = DrawingRunEvidencePort(store: store)
 }
 
-actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
+actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort, DrawingDestinationResultSource {
   private let store: DrawingRunEvidenceStore
   private(set) var loadCount = 0
   private var stagedPortraitBinding: (intent: DrawingRunIntent, archive: DrawingRunEvidenceArchive)?
@@ -182,8 +182,8 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     try await store.readMedia(reference)
   }
 
-  func exportTerminalRecord(runID: RunID) async throws -> DrawingRunTerminalExport {
-    try await store.exportTerminalRecord(runID: runID)
+  func exportAttempt(runID: RunID) async throws -> DrawingRunAttemptExport {
+    try await store.exportAttempt(runID: runID)
   }
 
   func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive {

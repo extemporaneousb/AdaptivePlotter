@@ -33,20 +33,17 @@ package struct PortraitProposalMetadata: Codable, Hashable, Sendable {
   package let kind: PortraitProposalKind
   package let seed: UInt64
   package let family: PortraitExplorationFamily
-  package var trainingSelection: PortraitTrainingSelection? = nil
 
   package init(
     policyRevision: String,
     kind: PortraitProposalKind,
     seed: UInt64,
-    family: PortraitExplorationFamily,
-    trainingSelection: PortraitTrainingSelection? = nil
+    family: PortraitExplorationFamily
   ) {
     self.policyRevision = policyRevision
     self.kind = kind
     self.seed = seed
     self.family = family
-    self.trainingSelection = trainingSelection
   }
 }
 

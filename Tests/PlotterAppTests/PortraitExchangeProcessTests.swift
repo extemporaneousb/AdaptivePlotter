@@ -166,11 +166,12 @@ struct LibraryExchangeProcessHelperTests {
     let selected = env["DX04_PROCESS_BOUNDARY"] ?? "", object = env["DX04_PROCESS_OBJECT"] ?? ""
     let identity = try DX04Process.identity()
     print("DX04_HELPER_RUNTIME=" + String(decoding:try JSONSerialization.data(withJSONObject:identity,options:[.sortedKeys]),as:UTF8.self))
-    func reached() throws {
+    var proof = identity
+    proof["boundary"] = selected; proof["object"] = object; proof["mode"] = mode
+    let proofBytes = try JSONSerialization.data(withJSONObject: proof, options: [.sortedKeys])
+    @Sendable func reached() throws {
       let ready = URL(fileURLWithPath: try #require(env["DX04_PROCESS_READY"]))
-      var proof = identity
-      proof["boundary"] = selected; proof["object"] = object; proof["mode"] = mode
-      try JSONSerialization.data(withJSONObject:proof,options:[.sortedKeys]).write(to:ready,options:.atomic)
+      try proofBytes.write(to: ready, options: .atomic)
       let handle = try FileHandle(forWritingTo: ready); try handle.synchronize(); try handle.close()
       while true { pause() }
     }

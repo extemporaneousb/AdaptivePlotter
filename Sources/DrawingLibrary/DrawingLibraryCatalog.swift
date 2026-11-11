@@ -122,9 +122,15 @@ struct LibraryExchangePublication: Codable {
 package final class LibraryExchangeCatalog {
   package let database: DrawingLibraryDatabase
   package let storage: LibraryExchangeStorage
+  // Actor-owned reservations protect the interval between journal publication
+  // and SQL commit while an immutable object copy is in flight.
+  var activeResultTransactions = Set<UUID>()
+  // Only an exactly identified durable result journal observed failing on this
+  // live owner may defer its retry until explicit recover, remount or cold open.
+  var failedResultTransactions: [UUID: ExchangeDigest] = [:]
   package var injectFault: ((LibraryExchangeCatalogBoundary) throws -> Void)?
   package init(database: DrawingLibraryDatabase,
-    storageFault: @escaping (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
+    storageFault: @escaping @Sendable (LibraryExchangeStorageFault) throws -> Void = { _ in }) throws {
     guard let lease = database.writerLease else { throw DrawingLibraryDatabaseError.database("Exchange publication requires the library writer") }
     try database.assertSelectedFile()
     self.database = database
@@ -151,8 +157,7 @@ package final class LibraryExchangeCatalog {
       try verifyPublished(prior)
       return .init(transactionID: prior, indexDigest: digest, wasAlreadyPublished: true)
     }
-    let resultHeader = try DrawingLibraryResultHeader(admitted)
-    let records = try references(admitted)
+    let records = try Self.references(admitted)
     guard Set(metadata.map(\.reference)).count == metadata.count,
       metadata.allSatisfy({ records.contains($0.reference) }) else {
       throw LibraryExchangeCatalogError.invalidPublication("Metadata must explicitly target unique included exact references")
@@ -170,36 +175,73 @@ package final class LibraryExchangeCatalog {
       guard let summary=attachment.summary,included.contains(.drawing(summary.reference)),libraryIdentity == nil || libraryIdentity.flatMap(UUID.init(uuidString:))==attachment.libraryUUID else { throw DrawingLibraryError.staleSelection }
       if let prior=try retentionIntent(attachment.intent,requestDigest:attachment.requestDigest),prior != summary.reference { throw DrawingLibraryError.staleSelection }
     }
-    let intent = LibraryExchangePublication(version: 1, transactionID: transactionID, indexDigest: digest,
-      packageDigest: packageDigest, records: records, links: try links(admitted), metadata: metadata, attachments: attachments, domainCommit: domainCommit, resultHeader: resultHeader, sourceSummaries: try sourceSummaries(admitted, references: records))
+    let intent = try Self.publication(admitted, transactionID: transactionID, indexDigest: digest,
+      packageDigest: packageDigest, records: records, metadata: metadata, attachments: attachments, domainCommit: domainCommit)
     let staging = try storage.stage(files: admitted.files, transactionID: transactionID, intent: JSONEncoder().encode(intent))
-    do { try checkCollisions(intent) }
-    catch is LibraryExchangeCatalogError { let preserved = try storage.preserveConflict(transactionID: transactionID); throw LibraryExchangeCatalogError.preservedConflict(preserved) }
+    try checkOrPreserveConflict(intent)
     try installAndPublish(staging, intent: intent)
     return .init(transactionID: transactionID, indexDigest: digest, wasAlreadyPublished: false)
   }
 
+  static func publication(_ admitted: ValidatedExchangePackage, transactionID: UUID, indexDigest: ExchangeDigest,
+    packageDigest: ExchangeDigest, records: [LibraryExchangeReference], metadata: [LibraryExchangeMetadata] = [],
+    attachments: [DrawingLibraryPublicationAttachment] = [], domainCommit: DrawingLibraryDomainCommit? = nil) throws -> LibraryExchangePublication {
+    try LibraryExchangePublication(version: 1, transactionID: transactionID, indexDigest: indexDigest,
+      packageDigest: packageDigest, records: records, links: links(admitted, references: records), metadata: metadata,
+      attachments: attachments, domainCommit: domainCommit, resultHeader: DrawingLibraryResultHeader(admitted),
+      sourceSummaries: sourceSummaries(admitted, references: records))
+  }
+
+  func checkOrPreserveConflict(_ intent: LibraryExchangePublication) throws {
+    do { try checkCollisions(intent) }
+    catch is LibraryExchangeCatalogError {
+      throw LibraryExchangeCatalogError.preservedConflict(try storage.preserveConflict(transactionID: intent.transactionID))
+    }
+  }
+
   /// Recovery never guesses from geometry or filesystem names. A complete durable
   /// intent either has its exact SQL transaction, can finish, or remains inspectable.
-  package func recover() throws {
+  package func recover(includingFailedResults: Bool = true) throws {
     try database.assertSelectedFile()
-    for staging in try storage.pendingTransactions() {
+    var excluded = activeResultTransactions
+    if !includingFailedResults { excluded.formUnion(failedResultTransactions.keys) }
+    for staging in try storage.pendingTransactions(excluding: excluded) {
       let intent = try JSONDecoder().decode(LibraryExchangePublication.self, from: staging.intent)
       guard intent.version == 1, intent.transactionID == staging.transactionID else {
         throw LibraryExchangeCatalogError.invalidPublication("Journal transaction identity")
+      }
+      if let expected = failedResultTransactions[staging.transactionID], expected != intent.packageDigest {
+        throw LibraryExchangeCatalogError.invalidPublication("Failed result journal identity changed")
       }
       if let commit=intent.domainCommit,let prior=try domainReceipt(commit.intent,request:commit.request) {
         try verifyPublished(prior)
         try storage.finish(transactionID:staging.transactionID)
       } else if try database.scalar("SELECT id FROM dx_transaction WHERE id=?",[intent.transactionID.uuidString.lowercased()]) != nil {
         let prior=intent.transactionID
+        if intent.resultHeader != nil { try validateStaging(staging, intent: intent); try storage.verifyStagedBag(staging) }
+        try verifyPublished(prior)
+        try storage.finish(transactionID: staging.transactionID)
+      } else if intent.resultHeader != nil, intent.domainCommit == nil, intent.attachments.isEmpty, intent.metadata.isEmpty,
+        let prior = try publishedTransaction(intent.packageDigest) {
+        // Identical mounts may finish their private copies concurrently. A crash
+        // between the first commit and the second cleanup still has one receipt.
+        try validateStaging(staging, intent: intent)
+        try storage.verifyStagedBag(staging)
         try verifyPublished(prior)
         try storage.finish(transactionID: staging.transactionID)
       } else {
         do { try checkCollisions(intent) }
-        catch is LibraryExchangeCatalogError { _ = try storage.preserveConflict(transactionID: staging.transactionID); continue }
+        catch is LibraryExchangeCatalogError {
+          _ = try storage.preserveConflict(transactionID: staging.transactionID)
+          failedResultTransactions.removeValue(forKey: staging.transactionID)
+          continue
+        }
         try installAndPublish(staging, intent: intent)
       }
+      failedResultTransactions.removeValue(forKey: staging.transactionID)
+    }
+    if includingFailedResults, !Set(failedResultTransactions.keys).isSubset(of: activeResultTransactions) {
+      throw LibraryExchangeCatalogError.invalidPublication("Failed result journal is missing")
     }
   }
 
@@ -243,7 +285,7 @@ package final class LibraryExchangeCatalog {
     guard payload.utf8.count<=128*1024 else { throw DrawingExchangeError.limit("Drawing metadata") }
     try database.execute("INSERT INTO dx_metadata(kind,namespace,identity,digest,payload,tombstoned) VALUES(?,?,?,?,?,?) ON CONFLICT(kind,namespace,identity) DO UPDATE SET payload=excluded.payload,tombstoned=excluded.tombstoned", value.reference.key.map(Optional.some) + [value.reference.digest.description, payload,value.tombstoned ? "1" : "0"])
   }
-  private func publishedTransaction(_ package: ExchangeDigest) throws -> UUID? {
+  func publishedTransaction(_ package: ExchangeDigest) throws -> UUID? {
     guard let value = try database.scalar("SELECT id FROM dx_transaction WHERE package_digest=?", [package.description]) else { return nil }
     guard let id = UUID(uuidString: value) else { throw LibraryExchangeCatalogError.invalidPublication("Stored transaction identity") }
     return id
@@ -290,12 +332,7 @@ package final class LibraryExchangeCatalog {
     }
     for summary in intent.sourceSummaries ?? [] { try verifySourceSummary(summary) }
     if let header = intent.resultHeader { try verifyResultHeader(header, transaction: transaction) }
-    if verifyObjects {
-      var verified = Set<ExchangeDigest>()
-      for entry in entries where verified.insert(entry.digest).inserted {
-        try storage.verifyObject(digest:entry.digest,byteLength:entry.byteLength)
-      }
-    }
+    if verifyObjects { try storage.verifyObjects(entries) }
     return entries
   }
   private func checkCollisions(_ intent: LibraryExchangePublication) throws {
@@ -314,12 +351,21 @@ package final class LibraryExchangeCatalog {
     }
   }
   private func installAndPublish(_ staging: LibraryExchangeStaging, intent: LibraryExchangePublication) throws {
+    try validateStaging(staging, intent: intent)
+    try storage.installObjects(staging)
+    try publishInstalled(staging, intent: intent)
+  }
+
+  func validateStaging(_ staging: LibraryExchangeStaging, intent: LibraryExchangePublication) throws {
     let inventory = Dictionary(grouping: staging.entries, by: { $0.digest.description })
-    guard Self.inventoryDigest(staging.entries) == intent.packageDigest, inventory[intent.indexDigest.description] != nil,
+    guard staging.transactionID == intent.transactionID, Self.inventoryDigest(staging.entries) == intent.packageDigest,
+      staging.entries.first(where: { $0.path == "data/exchange.json" })?.digest == intent.indexDigest,
       intent.records.allSatisfy({ inventory[$0.digest.description] != nil }) else {
       throw LibraryExchangeCatalogError.invalidPublication("Journal reference outside immutable inventory")
     }
-    try storage.installObjects(staging)
+  }
+
+  func publishInstalled(_ staging: LibraryExchangeStaging, intent: LibraryExchangePublication) throws {
     try injectFault?(.beforeSQLPublication)
     try database.transaction {
       try checkCollisions(intent)
@@ -366,7 +412,7 @@ package final class LibraryExchangeCatalog {
     return .hash(Data(bytes.utf8))
   }
 
-  private func references(_ package: ValidatedExchangePackage) throws -> [LibraryExchangeReference] {
+  static func references(_ package: ValidatedExchangePackage) throws -> [LibraryExchangeReference] {
     // The admitted v1 closure has checked every canonical record path, including
     // unselected records. Unknown index majors grant preservation only.
     guard package.index.known != nil else { return [] }
@@ -402,7 +448,7 @@ package final class LibraryExchangeCatalog {
     }
     return result
   }
-  private func links(_ package: ValidatedExchangePackage) throws -> [LibraryExchangeLink] {
+  private static func links(_ package: ValidatedExchangePackage, references: [LibraryExchangeReference]) throws -> [LibraryExchangeLink] {
     var result: [LibraryExchangeLink] = []
     for (ref, value) in package.drawings {
       if case .materialized(let drawing) = value {
@@ -411,7 +457,7 @@ package final class LibraryExchangeCatalog {
       }
     }
     let descriptors = Dictionary((package.index.known?.assets ?? []).map { ($0.asset.object, $0) }, uniquingKeysWith: { first, _ in first })
-    for reference in try references(package) {
+    for reference in references {
       if case .input(let ref) = reference {
         do {
           let input = try DrawingImageAdmission.input(ref, files: package.files, assetDescriptors: descriptors)

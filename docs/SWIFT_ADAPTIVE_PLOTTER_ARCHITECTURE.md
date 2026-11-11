@@ -125,6 +125,43 @@ PortraitLibrary and PlotterModel; it is a disposable non-device protocol executa
 not another app or production executor. Its refusal-only process smoke does not
 exercise accepted dispatch or establish physical behavior.
 
+Accepted result export uses the same service job metadata and existing DX-12
+artifact publisher. `DrawingRunEvidenceStore.exportAttempt` is read-only and
+selected-run bounded; it rechecks committed component/media bytes without staging
+an intent or changing raw visibility. `DrawingNativeResultCodec` validates exact
+proposal/raw/terminal/coverage bindings. Original environment is an optional field
+of the existing immutable preparation options; absent legacy facts stay unknown.
+Result assembly and streamed media run outside short service metadata transitions.
+The chosen pending/published result cursor owns lineage and acknowledgement replay;
+client import uses the existing Library journal/CAS. Export does not mount another
+engine archive or add a persistence/execution owner.
+
+The shared Library releases its actor for result carrier admission, immutable CAS
+copy/verification, selected inspection and re-export. Its existing catalog retains
+SQL, the journal and the writer lease. Live result transaction IDs exclude only
+their own in-flight journal from ordinary recovery. CAS installers always issue
+the object-directory barrier, including concurrent all-existing installs. Before
+cleanup, duplicate recovery verifies its abandoned journal/inventory/bag and the
+canonical publication. Close closes admission and joins entered result work; a
+pre-journal external admission cannot acquire a new writer after close begins.
+
+Known failed result journals use an in-memory ID/digest record qualified by exact
+durable stage, selected catalog and committed metadata. Rollback-safe SQLite
+FULL/BUSY/LOCKED additionally requires positive autocommit. Routine metadata work
+can proceed while explicit same-carrier remount resumes the original transaction;
+cold/explicit recovery still verifies the complete bag. No SQL connection or
+mutable catalog is sent to a worker. Storage is checked Sendable with immutable
+properties and a Sendable fault callback; the lease's claim Bool is protected by
+`OSAllocatedUnfairLock`. No second persistence authority is introduced.
+
+`DrawingResultReviewView` is a shared read-only selected-result adapter, with
+positive per-snapshot semantic proof and lazy bounded original-image decoding.
+`DrawingEvidenceTraining` freezes task scope over preserved immutable carriers;
+offline Python performs independent carried binding/media/eligibility checks.
+Neither adapter interprets unknown annotations as physical evidence or grants
+retry/activation authority. The removed portrait archive/history/ordinal DTOs had
+no live caller; active Flow feature feedback and checkpoint ownership are retained.
+
 `PortraitStudioUI` owns `FlowDojoModel`, the shared Explore/Prune/Rank/Fit & deploy
 views, the serial `FlowDojoRenderer` actor, preview generation and
 `FlowDojoTraining`'s frozen-snapshot-to-model-data adapter. The renderer retains

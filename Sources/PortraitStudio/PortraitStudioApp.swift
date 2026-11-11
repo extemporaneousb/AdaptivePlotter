@@ -23,7 +23,7 @@ struct PortraitStudioApp: App {
         location = URL(fileURLWithPath: args[index + 1], isDirectory: true)
       } else { error = "--library requires one absolute directory path." }
     }
-    let owner = DrawingLibrary(directoryURL: location)
+    let owner = DrawingLibrary(directoryURL: location, payloadValidators: DrawingDestinationResult.payloadValidators)
     library = owner
     _dojo = State(initialValue: FlowDojoModel(directory: location, library: owner))
     _acquisition = State(initialValue: PortraitStudioModel(library: owner))
@@ -159,8 +159,13 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
   var acquisition: PortraitStudioModel?
   var library: DrawingLibrary?
   var restorePortfolioWindow: (() -> Void)?
+  /// AppKit response adapter; terminating remains the sole admission flag.
+  var replyToTermination: @MainActor (NSApplication, Bool) -> Void = {
+    $0.reply(toApplicationShouldTerminate: $1)
+  }
   private var revealDrawing: ((DrawingRef) -> Void)?
   private var pendingDrawingReveal: DrawingRef?
+  private var pendingDestinationReplies: [DrawingDestinationReply] = []
   private var pendingDrawingDocuments: [URL] = []
   private var drawingDocumentTask: Task<Void, Never>?
   private var terminating = false
@@ -180,19 +185,18 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
     destinationStatus = nil
     do {
       let retained = try await library.retain(drawing, reason: "destination-handoff")
-      guard !terminating, isStillCurrent() else { return "Drawing handoff was cancelled." }
+      guard !terminating else { return nil }
+      guard isStillCurrent() else { return "Drawing handoff was cancelled." }
       let client = destinationClient ?? DrawingDestinationClient(library: library, root: destinationRoot)
       destinationClient = client
       let delivery = try await client.enqueue(.prepare(retained.reference), drawing: retained.reference)
       // Enqueue admission is durable. Closing the source after it is admitted
       // may leave Prepare queued, but must not foreground an obsolete window.
-      guard !terminating, isStillCurrent() else {
-        destinationStatus = "Drawing preparation is queued."
-        return nil
-      }
+      guard !terminating, isStillCurrent() else { return nil }
       let url = DrawingDestinationFiles.requestURL(root: client.root, client: delivery.client, delivery: delivery.id)
       if let openDestination {
         try await openDestination(url)
+        guard !terminating, isStillCurrent() else { return nil }
         destinationStatus = "Opening the drawing preview in AdaptivePlotter. Review it before choosing Draw."
         return nil
       }
@@ -202,9 +206,10 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
       let configuration = NSWorkspace.OpenConfiguration()
       configuration.activates = true
       try await NSWorkspace.shared.open([url], withApplicationAt: application, configuration: configuration)
+      guard !terminating, isStillCurrent() else { return nil }
       destinationStatus = "Opening the drawing preview in AdaptivePlotter. Review it before choosing Draw."
       return nil
-    } catch { return error.localizedDescription }
+    } catch { return terminating || !isStillCurrent() ? nil : error.localizedDescription }
   }
   func recoverDestinationRequests() async {
     guard !terminating, let library else { return }
@@ -212,19 +217,23 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
     let client = destinationClient ?? DrawingDestinationClient(library: library, root: destinationRoot)
     destinationClient = client
     do {
-      for reply in try await client.recoverPending() {
-        if case .refused = reply { documentError = "The drawing could not be prepared. Review it in AdaptivePlotter." }
-        if case .prepared = reply { documentError = nil; destinationStatus = "Preparation received from AdaptivePlotter. Review the preview before choosing Draw." }
-      }
-    } catch { documentError = "Drawing handoff recovery failed: " + error.localizedDescription }
+      pendingDestinationReplies += try await client.recoverPending()
+      presentRecoveredDestinationReplies()
+    } catch {
+      if !terminating { documentError = "Drawing handoff recovery failed: " + error.localizedDescription }
+    }
+  }
+  private func presentRecoveredDestinationReplies() {
+    guard !terminating else { return }
+    let replies = pendingDestinationReplies; pendingDestinationReplies = []
+    for reply in replies {
+      if case .refused = reply { documentError = "The drawing could not be prepared. Review it in AdaptivePlotter." }
+      if case .prepared = reply { documentError = nil; destinationStatus = "Preparation received from AdaptivePlotter. Review the preview before choosing Draw." }
+    }
   }
   func installDocumentHandling(library: DrawingLibrary, acquisition: PortraitStudioModel,
     reveal: @escaping (DrawingRef) -> Void) {
     self.library = library; self.acquisition = acquisition; revealDrawing = reveal
-    if let reference = pendingDrawingReveal {
-      pendingDrawingReveal = nil
-      if acquisition.sketches.selected?.reference == reference { reveal(reference) }
-    }
     drainDrawingDocuments()
   }
   func application(_ sender: NSApplication, open urls: [URL]) {
@@ -234,23 +243,43 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
   }
   func settleDrawingDocuments() async { await drawingDocumentTask?.value }
   private func drainDrawingDocuments() {
-    guard !terminating, drawingDocumentTask == nil, !pendingDrawingDocuments.isEmpty,
+    guard !terminating, drawingDocumentTask == nil,
+      pendingDrawingReveal != nil || !pendingDrawingDocuments.isEmpty,
       let library, let acquisition else { return }
     handoffs += 1
     drawingDocumentTask = Task {
       defer { finishHandoff(); drawingDocumentTask = nil }
-      while !pendingDrawingDocuments.isEmpty {
-        let url = pendingDrawingDocuments.removeFirst()
+      while !terminating && (pendingDrawingReveal != nil || !pendingDrawingDocuments.isEmpty) {
         do {
-          let refs = try await library.importDrawings(from: url)
-          guard let reference = refs.first else { throw DrawingExchangeError.malformed("Drawing document has no Drawing") }
-          try await acquisition.sketches.select(reference)
+          let reference: DrawingRef
+          if let pending = pendingDrawingReveal {
+            reference = pending
+          } else {
+            let url = pendingDrawingDocuments.removeFirst()
+            let refs = try await library.importDrawings(from: url)
+            guard let imported = refs.first else { throw DrawingExchangeError.malformed("Drawing document has no Drawing") }
+            reference = imported
+            pendingDrawingReveal = reference
+          }
+          // Import is durable independently of whether this window still owns
+          // presentation. Cold-load first, then adopt only while quit is open.
+          guard !terminating else { break }
+          if acquisition.sketches.selected?.reference != reference {
+            let drawing = try await library.drawing(reference)
+            guard !terminating else { break }
+            try acquisition.sketches.selectLoaded(drawing)
+          }
+          guard !terminating else { break }
           documentError = nil
           destinationStatus = "Drawing opened in Library."
-          if let revealDrawing { revealDrawing(reference) }
-          else { pendingDrawingReveal = reference }
+          guard let revealDrawing else { break }
+          pendingDrawingReveal = nil
+          revealDrawing(reference)
           restorePortfolioWindow?()
-        } catch { documentError = "Drawing could not be opened: " + error.localizedDescription }
+        } catch {
+          pendingDrawingReveal = nil
+          if !terminating { documentError = "Drawing could not be opened: " + error.localizedDescription }
+        }
       }
     }
   }
@@ -268,15 +297,18 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
     terminating = true
     Task {
       if await dojo?.shutdown() == false {
-        restorePortfolioWindow?()
         terminating = false
-        sender.reply(toApplicationShouldTerminate: false)
+        await drawingDocumentTask?.value
+        drainDrawingDocuments()
+        presentRecoveredDestinationReplies()
+        restorePortfolioWindow?()
+        replyToTermination(sender, false)
         return
       }
       if handoffs > 0 { await withCheckedContinuation { handoffWaiters.append($0) } }
       await acquisition?.shutdown()
       await library?.closeLibrary()
-      sender.reply(toApplicationShouldTerminate: true)
+      replyToTermination(sender, true)
     }
     return .terminateLater
   }

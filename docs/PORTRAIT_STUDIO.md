@@ -99,11 +99,11 @@ request cannot foreground or reveal another selection. Ordinary standalone Drawi
 import/open reveals its exact imported ref in the existing global Library route,
 including when the document arrives before owners or the view callback are ready.
 
-Prepare and document opening issue no Start/controller commands. Current exchange
-submission is unavailable; preparation is available for preview/readiness. Existing
-explicit **Draw** uses its existing run owner and has not become a durable exchange job.
-The future issuance cutover is separately authorized, not implemented here. A cached
-preparation response is a recorded snapshot; current submission facts must still match.
+Prepare and document opening issue no Start/controller commands. Explicit native
+**Draw** uses the existing Run owner and durably binds the exact request, Drawing,
+reviewed plan and one attempt before effects. File handoff remains Prepare-only.
+A cached preparation response is a recorded snapshot; current submission facts
+must still match. Recovery reconciles that attempt without another dispatch.
 
 A pending request is durable before handoff. If the open event/reply is lost, relaunch
 republishes it; the running destination's Prepare-only recovery can consume it without
@@ -211,6 +211,19 @@ binding counts do not prove physical attempts or ink. Stored environment is disp
 rather than borrowed from the current controller mode. Missing evidence remains
 unavailable. Existing global Stop remains usable across workspaces; active-run guards
 prevent editor/picker presentation from hiding it. No implicit project or Start occurs.
+
+For a job-bound raw attempt in AdaptivePlotter, **Export Run Result** returns that
+existing job's closed Drawing Exchange ZIP, including retained staged/interrupted
+or terminal evidence. It does not create a new attempt. Missing/corrupt evidence
+produces a visible refusal while recovery and possible-ink facts stay retained.
+
+Both Library browsers offer **Import Result** and export of an exact mounted
+result. The read-only inspector shows job/attempt identity, recorded frontiers,
+missing reasons and separately attributed annotations. Open an original image
+explicitly to preview it; unsupported or oversized previews keep the retained
+original available for export. Unknown annotations do not invent a physical
+interpretation. A returned result cannot authorize local retry, redraw or model
+activation. Existing sealed snapshots are immutable.
 
 ## What the artist learns
 

@@ -8,6 +8,141 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Drawing-object software completion
+
+Task `task-852e26361222475dbca131fbad91e7b1`, attempt
+`attempt-35ac811c6e634e58b700164b30d76838`, builds on adopted
+`28141c63bdde9fd6c5e6e7dd9310b966fb707530`. This receipt describes the
+current-format Drawing software cutover. Its recorded outcome definition is
+`c8f0bd8aa69a2fbd0865ffe09caabe588f40017de46a58442595546372aee4af`.
+Configured validation and local adoption
+remain authoritative in this task's normal Blackdog records. The desktop launcher
+handoff follows the source task. Neither end-user app was launched; no controller
+or camera was operated; no installation, production-data migration or remote Git
+operation was performed.
+
+Active authoring, browser/editing, retention and current-format file routes use
+Drawing. The remaining accepted native/source-free result, offline task and
+presentation adapters now use the existing Run, raw archive and Library owners.
+Unknown nominal pen width remains valid and adds no UI field or later duty.
+Historical files/images/connections are retained; historical import is deferred.
+
+The raw store has one file-backed selected-attempt export path, with exact intent,
+terminal bytes and complete original inventory. The unused terminal-only DTO,
+whole-history export method and forwarding wrapper were removed. Publication
+keeps candidate ZIPs private until existing job metadata chooses one. Duplicate,
+lost-ACK, interrupted-to-terminal and missing-file recovery retain exact lineage
+and acquire no dispatch permission. Original environment is captured in existing
+immutable preparation options; absent environment/clock facts stay unknown.
+
+Bulk result admission, CAS copying/verification, inspection and re-export release
+the shared Library actor. Its original catalog/journal/lease owner still performs
+metadata collision checks and SQL commit. Every installer synchronizes the object
+directory, including an all-existing concurrent duplicate. A positively identified
+failed result journal may be deferred by routine same-owner work; explicit remount
+resumes that exact transaction. Cold/explicit recovery validates its full bag.
+Recoverable SQLite FULL/BUSY/LOCKED qualification requires a completed transaction
+and intact owner/journal/metadata identity. Fatal authority errors remain visible.
+Close joins entered result work before releasing its lease.
+
+Both Library browsers import/export exact results and inspect them read-only.
+Known native originals, recorded frontiers, missing facts and separately attributed
+annotations remain distinct. Images load explicitly with bounded decoding. A
+supplement preserves the original sealed snapshot; a synthetic extension image
+cannot acquire original-camera attribution. Task export freezes the original
+index, exact selections, contracts, exclusions and grouped splits. Actual capture
+sessions and declared groups cannot cross splits. Positive selected snapshot proof
+is required for interruption labels; no residual decoder or model activation is
+introduced. Existing feature-only Flow feedback/training remains active; its
+async resolver now returns immutable assets to the same owning assembler.
+
+Required Drawing/calibration outlines remain visible independently of cosmetic
+Video Settings, with current frame/placement/sheet guards. Quit joins durable work
+while suppressing late presentation; canceled quit restores normal admission.
+Disconnected portrait archive/history/ordinal-training DTOs and exclusive tests
+were deleted after caller audit. Raw Stop, possible ink and no-redraw authority
+remain with their original owners.
+
+| Completed software observation | Actual result | Scope |
+| --- | --- | --- |
+| Normal `swift build` | passed, 115.082 s after outline repair | Both application products; no launch |
+| Strict integrated producers | 41 passed, zero skips | Issuance's 13 functions, native return, active-job control during bulk work, genuine SQLite FULL/CAS failures, duplicate durability, lease drain, raw transfer and task export |
+| Strict integrated consumers | 221 passed, three optional skips | Run/Draft/composition, Library integrity/recovery/process crash cuts, outlines, quit lifetime and actual cold native-result inspection |
+| Coherent task-forgery rerun | 8 passed, zero skips | Isolated provenance, eligibility, grouping and displaced-scope checks after removing superseded fixture wrappers |
+| Independent Python with actual carriers | 152 passed, two volume-dependent skips | 154 discovered; seven native and eight task ZIPs; directory case aliases cannot coexist on this volume, separate ZIP-collision controls run |
+| `make drawing-app-test` | 50 passed, one optional skip | Fresh-library author/browse/edit/reopen/exchange and existing navigation/Stop paths |
+| `make journey-test` | 10 passed, zero skips | Retained sequential causal journeys |
+| Separate-process destination smoke | 22 passed, zero skips; 68.062 s | Actual current helper/service/control files; no device executor |
+| Both DX-13 cutover scanners | passed | Actual captured preparation → shared Submit → same Runtime chain; full deletion gate |
+| Outline computation repair, strict | 32 passed, three optional rendering skips | Exact two-build four-mark batch and 100 absent-guide reads with zero Learning builds; frame/region and quit regressions |
+| Standalone CLI on actual large-native/task ZIPs | passed | Integrity verified; readiness/retry/physical-validity authority false |
+
+The strict runs used `-strict-concurrency=complete -warnings-as-errors` with normal
+scheduler/stack configuration. The final producer/consumer/reader input snapshots
+were unchanged throughout each run. The later isolated forgery correction changed
+two test files only; the process-helper repair changed one test file only.
+The subsequent outline repair changes one product file and its computation test;
+the strict repair row covers that delta. The normal build, Drawing app, journey
+and both cutover gates were repeated successfully afterward on unchanged inputs.
+Actual generated carrier hashes/sizes and fresh xUnit reports are retained under
+`drawing-cutover-completion` in the host evidence directory for this chat.
+
+The explicitly assigned non-author reviewer closed all sixteen selected product
+findings and the masked-negative test gap against source and retained regressions.
+The configured DOC/QUICK/DIFF result and final adoption are recorded separately by
+Blackdog. No source/test receipt establishes signed visible native interaction,
+full scale/10-GiB acceptance or physical behavior. New carriage-parking policy
+remains separately owned runtime work. Private candidate ZIPs, including losing
+candidates, are retained; their final-scale storage cost remains unmeasured.
+The independent reader leaves physical-plan mathematics, registration, clock
+synchronization and nonidentity source-to-execution compositor relations explicitly
+unsupported. Such limitations cannot grant independent physical training eligibility.
+Internally consistent carrier hashes do not authenticate an external issuer.
+
+Feedback history is preserved rather than overwritten: initial namespace/dependency
+and fixture compile failures, the non-idempotent candidate-directory bug, immutable
+fixture-write failures, correct divergent-seal rejection, shared-Library contention
+and durability/recovery cuts. A later process smoke stalled in a redundant
+Foundation `waitUntilExit` after child termination; its sampled worker was stopped
+and no aggregate pass inferred. Its bounded helper lifecycle repair preserves all
+protocol and replay assertions. Delivery is determined by final configured
+validation and verified adoption; these scoped observations do not substitute for
+that lifecycle.
+
+The first configured validation on clean candidate
+`a2abe9265bf1ef1e45de451e2656f3fff0f85673` passed DOC in 54.448 seconds,
+then timed out QUICK at the configured 1,800-second supervisor limit. DIFF was not
+reached and the fresh xUnit file contains no completed aggregate. Machine event
+`366111d8952c21897f0eb18fa853ab561c1f87d51adcf84f828b60d86ad627ec`
+retains that failed observation; all 952 present inputs remained unchanged.
+A worker sample showed active Flow feedback/catalog work at sampling, which does
+not establish completion or absence of regressions. Independent policy review found
+no separate thirty-minute acceptance criterion. The configured command ceiling is
+now 3,600 seconds; DOC/QUICK/DIFF commands, case selection, assertions, scheduler
+and stack settings remain unchanged. A genuine hang can consequently take longer
+to report. This supervisor adjustment is not a passing gate or a change to product
+responsiveness/scale budgets; a fresh complete configured receipt is required.
+
+The 3,600-second retry completed QUICK in 1,861.007 seconds and exposed a real
+assertion failure: 1,967 passed, one failed and 31 skipped (1,999 xUnit entries;
+the Swift `tests=1968` field excludes skips). DOC passed in 55.034 seconds; DIFF
+was not reached. Event
+`d0fce80717c1386c2f6ae27da1bd7da7c22fd57d1531bbfb71d6dfd6e8d9f393`
+and the complete XML remain failed evidence, with all 952 inputs unchanged.
+The sparse four-mark computation diagnostic observed three Learning builds rather
+than two. A narrow baseline reproduced it. The new outline-visibility read composed
+all learned overlays during Draft-facts capture, rebuilding Learning after semantic
+invalidation. This was a production layering regression, not a new accepted budget.
+The repair reads the actual frame guide's region membership, including absence,
+only when accepted, proposed and saved tip registrations are all absent. Registered
+paths retain the existing full overlay composition and every frame/edit/ownership
+guard. The exact two-build assertion, 64 segments, two owner reads, five probes,
+pen commands, possible-ink and terminal evidence checks remain intact. The added
+negative regression uses a current fixture frame with no map/guide and requires
+100 false visibility reads with zero Learning builds. The final focused strict
+check passed as recorded above; fresh full configured validation remains owned by
+the subsequent Blackdog receipt.
+
 ## DX-13 issuance software correction
 
 Task `task-ce89b70d1a7a440683f88e1dfc3a6ebc`, attempt
