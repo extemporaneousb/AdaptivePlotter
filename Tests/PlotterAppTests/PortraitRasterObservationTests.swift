@@ -186,17 +186,35 @@ struct PortraitRasterObservationTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let store = DrawingRunEvidenceStore(fileURL: directory.appendingPathComponent("ordinary-portrait.json"))
+    let evidence = DrawingRunEvidencePort(store: store)
+    let destination = try await DrawingRunServicePreparation(facts: facts, environment: .live)
+    await facts.installBinding(library: destination.library, collection: destination.collection,
+      evidence: evidence, archiveURL: store.fileURL)
     let runtime = PlotterDrawingRunRuntime(facts: facts, interpreter: interpreter,
-      camera: camera, vision: vision, evidence: DrawingRunEvidencePort(store: store),
-      clock: PortraitRasterObservationClock())
+      camera: camera, vision: vision, evidence: evidence,
+      clock: PortraitRasterObservationClock(), preparation: destination)
+    destination.install(runtime)
     _ = await runtime.restoreNoRedrawTruth(from: .absent, paper: paper, environment: .live)
     let projection = await runtime.synchronize(environment: .live)
     #expect(projection.readiness == .ready)
-    let submission = await runtime.submit(.init(projection: projection.projection, intent: .start))
-    let terminal = try #require(submission.snapshot.terminal)
+    let publications = await runtime.snapshots(environment: .live)
+    let acknowledged = await runtime.submit(.init(projection: projection.projection, intent: .start))
+    try #require(acknowledged.disposition == .applied)
+    // The original observer test awaited the entire Run. Follow this SAME
+    // owner's actual settlement publications without adding a workload timeout.
+    var settledPublication: PlotterDrawingRunSnapshot?
+    for await publication in publications {
+      if publication.terminal != nil, !publication.ownsWorkflow {
+        settledPublication = publication
+        break
+      }
+    }
+    let settled = try #require(settledPublication)
+    let terminal = try #require(settled.terminal)
     let record = terminal.record
     guard case .loaded(let archive) = await store.load() else {
       Issue.record("Actual Drawing Run record was not persisted")
+      await destination.close()
       return
     }
     #expect(archive.records == [record])
@@ -226,6 +244,7 @@ struct PortraitRasterObservationTests {
       if workload == .fullResolutionDenseCrosshatchFullBoundary {
         guard case .rejected(let rejection) = record.observation else {
           Issue.record("Full-Boundary dense raster did not retain its typed rejection")
+          await destination.close()
           return
         }
         #expect(rejection.reason == .algorithmFailure(code: "association-budget-exceeded"))
@@ -238,9 +257,10 @@ struct PortraitRasterObservationTests {
         #expect(record.executionFrontiers.commandedStrokeCount == UInt32(program.strokes.count))
         #expect(record.executionFrontiers.controllerCompletedStrokeCount == UInt32(program.strokes.count))
         #expect(record.executionFrontiers.inkVerifiedStrokeCount == 0)
-        #expect(!submission.snapshot.physicalEvidenceClaimed)
+        #expect(!settled.physicalEvidenceClaimed)
         rasterReceipt("Full-Boundary dense raster: \(rejectedPixels) detected pixels, \(segments) segments; "
           + "retained association-budget-exceeded under unchanged \(request.maximumAssociationEvaluationCount) budget")
+        await destination.close()
         return
       }
       let support = try await rasterSupportDiagnostic(request)
@@ -256,6 +276,7 @@ struct PortraitRasterObservationTests {
       if workload.expectsUnresolvedObservation, !support.unsupported.isEmpty {
         guard case .rejected(let rejection) = record.observation else {
           Issue.record("Unresolved geometry did not retain its typed rejection")
+          await destination.close()
           return
         }
         switch rejection.reason {
@@ -264,9 +285,11 @@ struct PortraitRasterObservationTests {
         }
         #expect(record.evidenceDisposition == .visionUnclear)
         #expect(record.executionFrontiers.inkVerifiedStrokeCount == 0)
+        await destination.close()
         return
       }
       Issue.record("\(diagnostic)")
+      await destination.close()
       return
     }
     #expect(record.evidenceDisposition == .attributable)
@@ -315,6 +338,7 @@ struct PortraitRasterObservationTests {
     #expect(candidate.fittedRMSMM < candidate.priorRMSMM)
     #expect(analysis.constraints.allSatisfy { $0.frames == request.frames
       && $0.recordID == record.recordID && $0.planContentHash == executionPlan.contentHash })
+    await destination.close()
   }
 
   private func crossingRequest(duplicated: Bool) throws -> PlannedDrawingObservationRequest {

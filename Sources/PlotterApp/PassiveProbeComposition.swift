@@ -52,7 +52,8 @@ struct PlotterApplicationRuntimeDrawingRunInterpreterPort: PlotterDrawingRunInte
   }
 
   func normalizePenUp(profile: PenActuationProfile) async -> PenOutcome {
-    await PlotterManualMotionComposition.settleNativePenCommand(
+    guard !Task.isCancelled else { return .refused(.freshStatusUnavailable("Drawing preparation stopped before requesting fresh controller status.")) }
+    return await PlotterManualMotionComposition.settleNativePenCommand(
       using: session,
       command: .raise,
       profile: profile
@@ -60,6 +61,7 @@ struct PlotterApplicationRuntimeDrawingRunInterpreterPort: PlotterDrawingRunInte
   }
 
   func travelToObservationPosition(_ request: RelativeJogRequest) async -> MotionOutcome {
+    guard !Task.isCancelled else { return .refused(.freshStatusUnavailable("Drawing preparation stopped before requesting fresh controller status.")) }
     switch await PlotterManualMotionComposition.beginNativeRelativeMotion(
       using: session,
       request: request
@@ -72,7 +74,8 @@ struct PlotterApplicationRuntimeDrawingRunInterpreterPort: PlotterDrawingRunInte
   }
 
   func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission {
-    await session.beginDrawingPlan(request, checkpointObserver: checkpointObserver)
+    guard !Task.isCancelled else { return drawingPlanStoppedBeforeAdmission(request) }
+    return await session.beginDrawingPlan(request, checkpointObserver: checkpointObserver)
   }
 
   func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome {
@@ -306,6 +309,7 @@ actor PersistentMachineSession: PlotterMachineSession {
   }
 
   func beginDrawingPlan(_ request: DrawingPlanRequest, checkpointObserver: (any DrawingPlanCheckpointObserver)?) async -> DrawingPlanAdmission {
+    guard !Task.isCancelled else { return drawingPlanStoppedBeforeAdmission(request) }
     guard let interpreter else {
       let progress = DrawingPlanProgressSnapshot(
         operationID: request.operationID,
@@ -421,4 +425,15 @@ actor PersistentMachineSession: PlotterMachineSession {
       return (nil, nil)
     }
   }
+}
+
+/// No controller command or physical cancellation settlement is claimed here.
+private func drawingPlanStoppedBeforeAdmission(_ request: DrawingPlanRequest) -> DrawingPlanAdmission {
+  let progress = DrawingPlanProgressSnapshot(operationID: request.operationID, planRevisionID: request.plan.revisionID,
+    plannedStrokeCount: request.plan.strokes.count,
+    plannedSegmentCount: request.plan.strokes.reduce(0) { $0 + max(0, $1.path.points.count - 1) },
+    commandedStrokeCount: 0, controllerCompletedStrokeCount: 0, submittedSegmentCount: 0,
+    controllerCompletedSegmentCount: 0, completedStrokeIDs: [], completedCheckpointIDs: [], activeStrokeID: nil, activeSegmentIndex: nil)
+  return .rejected(.refused(progress: progress,
+    reason: .initialPenRaise(.freshStatusUnavailable("Drawing preparation stopped before requesting fresh controller status."))))
 }

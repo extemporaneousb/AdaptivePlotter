@@ -10,12 +10,12 @@ extension DrawingLibrary {
     }
     return try DrawingLibraryDatabase(url: commonDatabaseURL, readOnly: true)
   }
-  package func commonSnapshot<T>(_ db: DrawingLibraryDatabase, _ operation: () throws -> T) throws -> T {
+  package func commonSnapshot<T>(_ db: DrawingLibraryDatabase, _ operation: (DrawingLibraryDatabase) throws -> T) throws -> T {
     try db.assertSelectedFile()
     let before = try DrawingLibraryFileState(db.url), generation = try db.generation
     try db.execute("BEGIN")
     defer { try? db.execute("ROLLBACK") }
-    let value = try operation()
+    let value = try operation(db)
     try db.assertSelectedFile()
     guard try DrawingLibraryFileState(db.url) == before, try db.generation == generation else { throw DrawingLibraryError.staleSelection }
     return value
@@ -25,7 +25,7 @@ extension DrawingLibrary {
   }
   public func drawing(_ ref: DrawingRef) throws -> Drawing {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.missing(ref) }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       guard try tableExists("dx_record", in: db), let stored = try db.scalar("SELECT digest FROM dx_record WHERE kind='drawing' AND namespace=? AND identity=?", [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]) else {
         throw DrawingLibraryError.missing(ref)
       }
@@ -128,7 +128,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500 else { throw DrawingLibraryError.invalidQuery }
     if let after, after.scope != scope { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase(), try tableExists("dx_drawing_summary",in:db) else { return .init(entries:[],next:nil) }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
       var predicate = "WHERE COALESCE(m.tombstoned,0)=0", values: [String?] = []

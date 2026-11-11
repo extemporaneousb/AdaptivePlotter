@@ -29,14 +29,14 @@ import Testing
       #expect(ticket.facts.planHash == ExchangeDigest(try #require(app.drawingDraftSnapshot.plan).contentHash))
       #expect(ticket.facts.draftRevision == app.drawingDraftSnapshot.projection.draftRevision.rawValue)
       guard case .description(let description) = try await app.drawingDestination.handle(.describe) else { Issue.record("Missing Describe"); return }
-      #expect(!description.executionAvailable)
+      #expect(description.executionAvailable && description.reason == nil)
       #expect(description.documentProfiles.contains(DrawingExchangeCodec.drawingProfile))
       #expect(description.representations == [DrawingExchangeCodec.strokeProfile])
       #expect(description.mediumMapping == .preserveAuthoredStyleAndCaptureCurrentApplicability)
       #expect(!description.acceptsOptionOverrides && !description.requiresNominalPenWidth)
       let key = DrawingRequestKey(namespace: UUID())
       guard case .decision(let decision) = try await app.drawingDestination.handle(.submit(key, ticket)) else { Issue.record("Missing refused job"); return }
-      #expect(decision.reason == .issuanceSeamUnavailable)
+      #expect(decision.reason == .nativePlotRequired)
       try await fixture.submit(.setRotationDegrees(5))
       let staleKey = DrawingRequestKey(namespace: key.namespace)
       #expect(try await app.drawingDestination.handle(.submit(staleKey, ticket)) == .refused(.stalePreview))
@@ -73,7 +73,7 @@ import Testing
       #expect(foregrounds == 2)
       #expect(window.route.workspace == .plotter && window.route.drawing == retained.reference)
       #expect(window.layout.isPresented(.drawing) && !window.reviewer)
-      #expect(app.drawingDestinationStatus == "Drawing prepared in the preview. Submission is unavailable.")
+      #expect(app.drawingDestinationStatus == "Drawing prepared in the preview. Review it before choosing Draw.")
       #expect(await fixture.planGate.request == nil)
       #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
       let missing = root.appendingPathComponent("missing.zip")
@@ -307,41 +307,29 @@ import Testing
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate()
-    app.drawingDestination = DrawingDestinationComposition.make(app,
-      returnDirectory: app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("destination-results"))
-    defer { gate.release(); DrawingDestinationArtifactObservation.shared.install(nil) }
+    let library = app.portraitStudio.sketches.library
+    defer { gate.release() }
     do {
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
       #expect(await app.prepareDestinationDrawing(try drawingTestValue(program: program)) == nil)
-      let ref = try #require(app.portraitStudio.projectedDrawing?.reference)
-      guard case .prepared(let ticket) = try await app.drawingDestination.handle(.prepare(ref)),
-        case .decision(let decision) = try await app.drawingDestination.handle(.submit(.init(namespace: UUID()), ticket)) else {
-        Issue.record("Missing genuine refusal"); await app.shutdown(); return
-      }
-      DrawingDestinationArtifactObservation.shared.install { job, boundary in
-        if job == decision.job.handle, boundary == .assemblyStarted { gate.hold() }
-      }
-      let export = Task { try await app.drawingDestination.handle(.exportResult(decision.job.handle)) }
-      try await gate.waitUntilEntered()
-      // This is the actual default Dojo call, with no custom validity closure.
+      // Hold the actual retained Drawing commit BEFORE the shared Prepare can
+      // project it. A concurrent export no longer owns the service's FIFO.
+      try await library.holdNextDrawingRetentionCommit(gate)
       let obsolete = Task { await app.prepareDestinationDrawing(try drawingTestValue(program: program)) }
-      let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-      while app.drawingDestination.inFlightOperationCount < 2, ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(5))
-      }
-      #expect(app.drawingDestination.inFlightOperationCount == 2)
+      try await gate.waitUntilEntered()
+      #expect(!gate.snapshot().mainThread)
       if draftChanged { try await fixture.submit(.setRotationDegrees(3)) }
       else { app.portraitStudio.clearDrawingSelection() }
       let expectedRevision = app.drawingDraftSnapshot.projection.draftRevision
       let expectedProjection = app.portraitStudio.projectedDrawing?.reference
       gate.release()
-      _ = try await export.value
       #expect(try await obsolete.value != nil)
+      await library.clearDestinationTicketCommitGate()
       #expect(app.drawingDraftSnapshot.projection.draftRevision == expectedRevision)
       #expect(app.portraitStudio.projectedDrawing?.reference == expectedProjection)
       #expect(await fixture.planGate.request == nil)
       await app.shutdown()
-    } catch { gate.release(); await app.shutdown(); throw error }
+    } catch { gate.release(); await library.clearDestinationTicketCommitGate(); await app.shutdown(); throw error }
   }
   @Test("Actual embedded caller lifetime preserves workspace-only navigation or panel closure", arguments: [false, true])
   func embeddedCallerLifetime(closePanel: Bool) async throws {
@@ -383,7 +371,8 @@ import Testing
       let desiredRoute = route
       gate.release()
       _ = try await export.value
-      #expect(try await handoff.value != nil)
+      let handoffFailure = try await handoff.value
+      #expect(handoffFailure != nil)
       #expect(destinationShows == 0 && route == desiredRoute)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == before)
       #expect(app.portraitStudio.projectedDrawing?.reference == ref)
@@ -415,7 +404,7 @@ import Testing
       try await fixture.submit(.setRotationDegrees(4))
       let current = app.drawingDraftSnapshot
       gate.release()
-      #expect(try await handoff.value != nil)
+      #expect(await handoff.value != nil)
       #expect(shows == 0 && window.route.workspace == .drawingStudio)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == current.projection.draftRevision)
       #expect(app.drawingDraftSnapshot.plan?.contentHash == current.plan?.contentHash)
@@ -467,7 +456,7 @@ import Testing
 
 }
 
-private final class DestinationArtifactGate: @unchecked Sendable {
+final class DestinationArtifactGate: @unchecked Sendable {
   private let condition = NSCondition()
   private var entered = false
   private var released = false
@@ -523,6 +512,17 @@ private extension DrawingLibrary {
   func holdNextDestinationTicketCommit(_ gate: DestinationArtifactGate) throws {
     let catalog = try commonCatalog()
     let sql = "SELECT COUNT(*) FROM domain_record WHERE kind='adaptiveplotter.destination.prepared'"
+    let before = Int(try catalog.database.scalar(sql) ?? "0") ?? 0
+    var armed = true
+    catalog.injectFault = { boundary in
+      guard armed, boundary == .beforeSQLCommit else { return }
+      let count = Int(try catalog.database.scalar(sql) ?? "0") ?? 0
+      if count > before { armed = false; gate.hold() }
+    }
+  }
+  func holdNextDrawingRetentionCommit(_ gate: DestinationArtifactGate) throws {
+    let catalog = try commonCatalog()
+    let sql = "SELECT COUNT(*) FROM dx_retention_intent"
     let before = Int(try catalog.database.scalar(sql) ?? "0") ?? 0
     var armed = true
     catalog.injectFault = { boundary in

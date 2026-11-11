@@ -35,7 +35,7 @@ extension PlotterApplicationRuntimeTests {
     #expect(app.artifactResetEpisodeSnapshot.savedLearning.appliedCheckpoint == nil)
     #expect(box.checkpoint == durableBefore)
     await gate.releaseFirstRequest()
-    await penTask.value
+    _ = await penTask.value
     let settled = app.testPlotterUIProjection(includesLearningPath: false).semantic
     #expect(settled.request(for: action.id) != nil)
     await app.shutdown()

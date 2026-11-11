@@ -17,7 +17,7 @@ struct DrawingReviewerLayoutTests {
     let plan = try fixture.makePlan(catalogItemID: .circle)
     let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: plan))
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(result.snapshot.terminal)
     let archive = await harness.evidence.archive
     #expect(DrawingReviewRawRows.resolve(run: terminal.runID, archive: archive).records.count == 1)

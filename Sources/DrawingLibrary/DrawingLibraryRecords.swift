@@ -59,7 +59,7 @@ package struct DrawingLibraryRecordBatch: Codable, Sendable {
 extension DrawingLibrary {
   public func record(_ key:DrawingLibraryRecordKey)throws->DrawingLibraryRecord? {
     guard let db=try commonReadDatabase(),try tableExists("domain_record",in:db) else { return nil }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       guard let raw=try db.scalar("SELECT payload FROM domain_record WHERE kind=? AND id=?",[key.kind,key.id.uuidString.lowercased()]) else { return nil }
       let value=try db.decode(DrawingLibraryRecord.self,raw)
       guard value.key==key else { throw DrawingLibraryError.invalidIdentity };return value
@@ -67,7 +67,7 @@ extension DrawingLibrary {
   }
   public func records(kind:String) throws -> [DrawingLibraryRecord] {
     guard let db=try commonReadDatabase(),try tableExists("domain_record",in:db) else { return [] }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       try db.rows("SELECT payload FROM domain_record WHERE kind=? ORDER BY id",[kind]).map { try db.decode(DrawingLibraryRecord.self,$0[0]) }
     }
   }
@@ -78,7 +78,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500, !kind.isEmpty else { throw DrawingLibraryError.invalidQuery }
     if let after, after.drawing != drawing || after.kind != kind { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       try assertSourceReference(.drawing(drawing), database: db)
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
@@ -96,7 +96,7 @@ extension DrawingLibrary {
   }
   public func asset(_ digest:ExchangeDigest,maximumBytes:Int=DrawingExchangeLimits.maximumProgramBytes)throws->Data {
     guard let db=try commonReadDatabase(),try tableExists("dx_object",in:db),let raw=try db.scalar("SELECT byte_length FROM dx_object WHERE digest=?",[digest.description]),let length=UInt64(raw),length<=UInt64(max(0,maximumBytes)) else { throw DrawingLibraryError.corruptAsset(digest) }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       let path="objects/sha256/"+digest.description
       return try VerifiedExchangeFiles(catalogRoot:directoryURL,inventory:[.init(path:path,storagePath:path,digest:digest,byteLength:length)]).record(digest,maximumBytes:maximumBytes)
     }

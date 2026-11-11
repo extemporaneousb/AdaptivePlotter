@@ -103,7 +103,7 @@ extension DrawingLibrary {
   /// No cached header can grant interpretation or choose another delivery.
   public func result(_ reference: DrawingLibraryResultRef) throws -> ValidatedExchangePackage {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Result is not mounted") }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       let files = try resultFiles(reference, database: db)
       let admitted = try ExchangeAdmission.validate(files: files, producerValidators: producerValidators, payloadValidators: payloadValidators)
       guard admitted.index.known?.kind == "result", ExchangeDigest.hash(admitted.index.originalJSON) == reference.indexDigest else { throw DrawingLibraryError.invalidIdentity }
@@ -125,7 +125,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500 else { throw DrawingLibraryError.invalidQuery }
     if let after, after.drawing != drawing { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       if let drawing, try tableExists("dx_record", in: db), let stored = try db.scalar("SELECT digest FROM dx_record WHERE kind='drawing' AND namespace=? AND identity=?", [drawing.issuer.uuidString.lowercased(), drawing.revision.uuidString.lowercased()]) {
         let actual = try ExchangeDigest(stored)
         guard actual == drawing.digest else { throw DrawingLibraryError.referenceConflict(drawing, actual: actual) }

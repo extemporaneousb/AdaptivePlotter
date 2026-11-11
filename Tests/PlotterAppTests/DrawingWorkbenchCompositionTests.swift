@@ -77,6 +77,15 @@ struct DrawingWorkbenchCompositionTests {
       Issue.record("Draw did not reject changed lower readiness: \(refusedDraw)")
       return
     }
+    // Refusal ACK precedes retirement of the same pending Stop owner. Observe
+    // its actual publication before asserting the settled unavailable surface;
+    // no synchronization or replacement UI snapshot repairs the refusal.
+    let settledRefusal = try await issuanceSettled(f.runRuntime)
+    #expect(settledRefusal.lastRefusal?.requestID.rawValue == readyDraw.id.rawValue)
+    try await waitUntil {
+      app.drawingRunSnapshot?.ownsWorkflow == false
+        && app.drawingRunSnapshot?.lastRefusal == settledRefusal.lastRefusal
+    }
     let failed = app.testPlotterUIProjection()
     let issue: PlotterDrawingRunReadinessIssue
     if case .unavailable(let value) = app.drawingRunSnapshot?.readiness { issue = value }
@@ -118,6 +127,7 @@ struct DrawingWorkbenchCompositionTests {
     } else { Issue.record("Actual held drawing lost its Stop capability with panels hidden") }
     await f.planGate.release(.completed)
     #expect(await run.value == .accepted(requestID: drawRequest.id))
+    try await f.waitForDrawingSettlement()
     let terminal = try #require(app.drawingRunSnapshot?.terminal)
     #expect(terminal.disposition == .succeeded)
     try await waitUntil { app.drawingDraftSnapshot.residualRecords.contains { $0.recordID == terminal.record.recordID } }
@@ -205,6 +215,7 @@ struct DrawingWorkbenchCompositionTests {
     await f.planGate.waitUntilStarted()
     await f.planGate.release(kind)
     _ = await task.value
+    try await f.waitForDrawingSettlement()
     let terminal = try #require(app.drawingRunSnapshot?.terminal)
     let state = app.drawingStudioPresentation.runState
     #expect(state.showsActiveRunStatus)
@@ -246,6 +257,7 @@ struct DrawingWorkbenchCompositionTests {
     _ = await app.submitPlotterUIRequest(stop)
     await f.planGate.release(.cancelled)
     _ = await task.value
+    try await f.waitForDrawingSettlement()
     let terminal = try #require(app.drawingRunSnapshot?.terminal)
     guard case .cancelled = terminal.record.executionDisposition else {
       Issue.record("Stop did not retain a cancelled attempt"); await app.shutdown(); return
@@ -580,4 +592,18 @@ private struct DrawingWorkbenchRuntimeClock: RuntimeClock {
   let clock: ComputationTestClock
   func nowNanoseconds() -> UInt64 { clock.read() }
   func sleep(nanoseconds _: UInt64) async throws { try Task.checkCancellation() }
+}
+
+@MainActor extension DrawingWorkbenchApplicationFixture {
+  /// Admission ACK precedes Run settlement. Observe the actual final runtime
+  /// and its UI publication without installing a replacement test snapshot.
+  func waitForDrawingSettlement() async throws {
+    let settled = try await issuanceSettled(runRuntime)
+    let terminal = try #require(settled.terminal)
+    try await waitUntil {
+      application.drawingRunSnapshot?.terminal == terminal
+        && application.drawingRunSnapshot?.ownsWorkflow == false
+        && application.drawingRunSnapshot?.jobPublicationRecoveryCapabilityID == nil
+    }
+  }
 }

@@ -163,12 +163,14 @@ validation/normal-adoption authority separate. Signed UI, accepted return snapsh
 full engine, scale/10-GiB and physical rollout remain unfinished.
 
 DX-12 is adopted at `5cbf791de3756fffb74412d2abfd78a549c22020`; its bounded
-configured software closure is recorded in Current Evidence. Production execution
-remains unavailable. `DOC-06` is the definition-only repository package;
-its [canonical contract](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#doc-06-drawing-issuance-definition)
-records pending **DX-13-ISSUANCE**, a later coupled Correction in the existing Run/raw/
-Library owners. This does not execute that package or authorize hardware. DX-14
-parking/outline presentation and DX-15 accepted snapshots remain later work.
+configured software closure is recorded in Current Evidence. `DOC-06` is the
+definition-only prerequisite; its
+[canonical contract](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#doc-06-drawing-issuance-definition)
+owns the coupled **DX-13-ISSUANCE** Correction in the existing Run/raw/Library owners.
+The implementation binds native Plot to that durable path; adoption and validation
+belong to the execution ledger and Current Evidence. DX-14 parking/outline
+presentation and DX-15 accepted snapshots remain later work. No hardware execution
+is authorized by this software change.
 The known DX-18 post-await quit-presentation guard followup is recorded separately
 in Current Evidence and does not reopen DX-12 here.
 
@@ -180,8 +182,10 @@ to `Sources/PlotterEpisodeModel/{PlotterDrawingDraft,PlotterDrawingRun}.swift`,
 corresponding tests/composition callers. Record package name/dependencies before
 execution; if ineligible, report a bounded blocker and continue independent DX work.
 Bind DrawingRef/digest, prepared plan and unique issuance to one RunID durably before
-physical effects. Current `start` allocates fresh RunID and intent dedup is run-scoped;
-prove reconciliation across that window instead of adding a second authority.
+physical effects. The raw staging owner now atomically chooses/finds the canonical
+intent/RunID, and only a newly-staged live continuation can dispatch. Pending Stop,
+accepted-link publication, lost-ack retry and restart use the same Run/Library owners;
+no second execution authority is added.
 Gate: simulated crashes before/after acceptance, issuance, RunID binding, intent,
 possible ink and run-link publication; repeated request never admits another run.
 Existing Start/Stop/readiness/recovery behavior remains authoritative. Recovery:

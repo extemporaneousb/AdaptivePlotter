@@ -193,7 +193,7 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
       let url = DrawingDestinationFiles.requestURL(root: client.root, client: delivery.client, delivery: delivery.id)
       if let openDestination {
         try await openDestination(url)
-        destinationStatus = "Opening the drawing preview in AdaptivePlotter. Submission is unavailable."
+        destinationStatus = "Opening the drawing preview in AdaptivePlotter. Review it before choosing Draw."
         return nil
       }
       guard let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.bullard.AdaptivePlotter") else {
@@ -202,7 +202,7 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
       let configuration = NSWorkspace.OpenConfiguration()
       configuration.activates = true
       try await NSWorkspace.shared.open([url], withApplicationAt: application, configuration: configuration)
-      destinationStatus = "Opening the drawing preview in AdaptivePlotter. Submission is unavailable."
+      destinationStatus = "Opening the drawing preview in AdaptivePlotter. Review it before choosing Draw."
       return nil
     } catch { return error.localizedDescription }
   }
@@ -214,7 +214,7 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
     do {
       for reply in try await client.recoverPending() {
         if case .refused = reply { documentError = "The drawing could not be prepared. Review it in AdaptivePlotter." }
-        if case .prepared = reply { documentError = nil; destinationStatus = "Preparation received from AdaptivePlotter. Review the preview. Submission is unavailable." }
+        if case .prepared = reply { documentError = nil; destinationStatus = "Preparation received from AdaptivePlotter. Review the preview before choosing Draw." }
       }
     } catch { documentError = "Drawing handoff recovery failed: " + error.localizedDescription }
   }

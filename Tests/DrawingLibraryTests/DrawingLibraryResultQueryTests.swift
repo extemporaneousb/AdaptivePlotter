@@ -78,8 +78,10 @@ struct DrawingLibraryResultQueryTests {
     let first = try await library.results(for: drawing.reference, limit: 1)
     #expect(first.entries.map(\.reference) == [references[1]])
     #expect(first.entries.first?.includedAsOf == dates[1])
-    let second = try await library.results(for: drawing.reference, limit: 1, after: #require(first.next))
-    let third = try await library.results(for: drawing.reference, limit: 1, after: #require(second.next))
+    let firstCursor = try #require(first.next)
+    let second = try await library.results(for: drawing.reference, limit: 1, after: firstCursor)
+    let secondCursor = try #require(second.next)
+    let third = try await library.results(for: drawing.reference, limit: 1, after: secondCursor)
     #expect(second.entries.map(\.reference) == [references[2]])
     #expect(third.entries.map(\.reference) == [references[0]])
     #expect(third.next == nil)
@@ -96,7 +98,7 @@ struct DrawingLibraryResultQueryTests {
       #expect(actual == drawing.reference.digest)
     }
     await #expect(throws: (any Error).self) {
-      try await library.results(for: wrong, limit: 1, after: #require(first.next))
+      try await library.results(for: wrong, limit: 1, after: firstCursor)
     }
     for invalid in [0, 501] {
       await #expect(throws: (any Error).self) { try await library.results(for: drawing.reference, limit: invalid) }
@@ -109,7 +111,7 @@ struct DrawingLibraryResultQueryTests {
     try another.write(to: input)
     _ = try await library.mountResult(from: input)
     await #expect(throws: (any Error).self) {
-      try await library.results(for: drawing.reference, limit: 1, after: #require(first.next))
+      try await library.results(for: drawing.reference, limit: 1, after: firstCursor)
     }
     await library.closeLibrary()
   }

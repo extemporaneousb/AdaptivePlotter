@@ -1357,7 +1357,7 @@ different planes.
 The common Drawing Library retains source acquisitions independently of rendering.
 Capture identity is independent of shared image bytes. Failed or cancelled
 rendering and temporary geometry eviction do not delete a committed photograph.
-The concrete `DrawingLibrary` actor owns strict schema-10 SQLite metadata and
+The concrete `DrawingLibrary` actor owns strict schema-12 SQLite metadata and
 immutable content-addressed assets. Selected Drawings use exact
 `{issuer, revision, digest}` references; equal geometry does not merge occurrences.
 Required source/input and edit-parent closure commits with the retained Drawing.
@@ -2093,6 +2093,23 @@ exclusive start admission, one exact Stop capability, settlement, RunID-bound
 review pin/unpin and new-run handoff, publication recovery, and no-redraw truth.
 A stale projection or changed plan/fact returns the exact authority, reason, and
 operator remedy; the UI cannot decide admission or issue lower effects itself.
+
+Explicit native Draw captures its original request identity and reviewed plan
+before any retention or preparation await. The same Run owner exposes pending
+ownership and Stop immediately. The shared Library commits the exact authored
+closure, frozen plan/options and pending job; the raw owner atomically stages one
+fully bound canonical intent/RunID. Exact staged-attempt proof and the durable
+accepted job/Run link precede every controller/Pen effect. Acceptance acknowledges
+that admission, not completed motion or deposited ink. Only the original live
+newly-staged continuation receives one consumed dispatch permission. Duplicate
+requests, lost acknowledgements and restart reconcile the same job/attempt without
+resubmitting motion. Unknown/corrupt raw state is uncertainty, never verified
+absence. Status and durable Cancel remain available during Run/publication waits;
+cancel acknowledgement is distinct from physical settlement. Shutdown closes the
+same Run admission latch synchronously before awaiting its retained tasks and lower
+handles. Publication recovery retains its exact cursor and can write evidence or
+repair job metadata only. File/import/automatic Prepare cannot create Plot authority.
+Unknown physical pen width remains valid without any new operator obligation.
 
 Run eligibility requires LIVE mode, a connected authorized idle controller,
 current paper-coverage evidence, and the exact reviewed EA-08A plan. The runtime

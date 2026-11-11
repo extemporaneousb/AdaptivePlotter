@@ -1,5 +1,7 @@
 import EpisodeCore
 import Foundation
+import os
+import PortraitCore
 import PlotterEpisodeModel
 import PlotterModel
 import PlotterRuntime
@@ -127,6 +129,8 @@ public protocol PlotterDrawingRunVisionPort: Sendable {
 /// Nominal bridge to the retained checksummed append-only evidence store.
 public protocol PlotterDrawingRunEvidencePort: Sendable {
   func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive
+  func stageIssuance(_ proposal: DrawingRunIssuanceProposal) async throws -> DrawingRunIssuanceStageReceipt
+  func lookupIssuance(_ binding: DrawingJobIssuance) async throws -> DrawingRunIssuanceStageReceipt?
   func installMedia(frame: StampedFrame, source: FrameSourceIdentity) async throws -> DrawingRunMediaReference
   func stageBaseline(runID: RunID, media: DrawingRunMediaReference) async throws -> DrawingRunEvidenceArchive
   func stageProgressFrame(runID: RunID, frame: DrawingRunProgressFrame) async throws -> DrawingRunEvidenceArchive
@@ -146,6 +150,7 @@ public enum PlotterDrawingRunPhase: Hashable, Sendable {
   case stagingBaseline
   case markingInkDispatchPossible
   case executingPlan
+  case stopping
   case positioningForPostObservation
   case capturingPostFrame
   case observingInk
@@ -230,6 +235,8 @@ public struct PlotterDrawingRunSnapshot: Hashable, Sendable {
   public let projection: PlotterDrawingRunProjectionReference
   public let phase: PlotterDrawingRunPhase
   public let activeRunID: RunID?
+  public let pendingRequestID: PlotterDrawingRunRequestID?
+  public var ownsWorkflow: Bool { activeRunID != nil || pendingRequestID != nil }
   public let planIdentity: PlotterDrawingRunPlanIdentity?
   /// Exact geometry sealed by the active owner, or its retained terminal record.
   /// This never borrows the currently editable draft.
@@ -247,6 +254,8 @@ public struct PlotterDrawingRunSnapshot: Hashable, Sendable {
   public let evidenceArchiveAvailability: PlotterDrawingRunEvidenceArchiveAvailability
   public let review: PlotterDrawingRunReviewState
   public let lastRefusal: PlotterDrawingRunRefusal?
+  public let jobPublicationRecoveryCapabilityID: PlotterDrawingRunPublicationRecoveryCapabilityID?
+  public let jobPublicationDetail: String?
   public let physicalEvidenceClaimed: Bool
   public let readiness: PlotterDrawingRunReadiness
 }
@@ -261,7 +270,53 @@ public struct PlotterDrawingRunSubmissionResult: Hashable, Sendable {
   public let snapshot: PlotterDrawingRunSnapshot
 }
 
+/// Immutable App bridge. It carries one original request, never an effect closure.
+public protocol PlotterDrawingRunIssuancePreparation: Sendable {
+  var requestStamp: ExchangeDigest { get }
+  func currentFacts() async -> PlotterDrawingRunExternalFacts
+  func prepareAndSubmit(pendingID: UUID, submission: PlotterDrawingRunSubmission) async throws -> DrawingDestinationReply
+}
+
 public actor PlotterDrawingRunRuntime {
+  /// Share only immutable payloads between value-state copies. Replacing a
+  /// payload allocates a new holder; no mutable lifecycle state is aliased.
+  private final class ImmutablePayload<Value: Sendable>: Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
+  }
+  private struct PendingRun: Sendable {
+    let id: UUID
+    let submission: PlotterDrawingRunSubmission
+    let preparation: any PlotterDrawingRunIssuancePreparation
+    let stopCapabilityID: PlotterDrawingRunStopCapabilityID
+    var cancellationRequested = false
+    var stoppingFromPhase: PlotterDrawingRunPhase?
+    private var capturedFacts: ImmutablePayload<PlotterDrawingRunExternalFacts>?
+    var initialFacts: PlotterDrawingRunExternalFacts? {
+      get { capturedFacts?.value }
+      set { capturedFacts = newValue.map(ImmutablePayload.init) }
+    }
+    var binding: DrawingJobIssuance?
+    // The neutral service may turn an admission error into a durable reply.
+    // Keep the semantic refusal on this same exact pending Run owner.
+    var refusal: PreEffectRefusal?
+    var publication: (any DrawingJobPublication)?
+    init(id: UUID, submission: PlotterDrawingRunSubmission,
+      preparation: any PlotterDrawingRunIssuancePreparation,
+      stopCapabilityID: PlotterDrawingRunStopCapabilityID) {
+      self.id = id; self.submission = submission; self.preparation = preparation
+      self.stopCapabilityID = stopCapabilityID
+    }
+  }
+  private struct AdmissionLatchState: Sendable {
+    var closed = false
+    var task: Task<Void, Never>?
+  }
+  private nonisolated let admissionLatch = OSAllocatedUnfairLock(initialState: AdmissionLatchState())
+  public nonisolated func closeAdmissionAndCancel() {
+    let task = admissionLatch.withLock { state in state.closed = true; return state.task }
+    task?.cancel()
+  }
   private struct ActiveRun: Sendable {
     let runID: RunID
     let requestID: UUID
@@ -289,6 +344,17 @@ public actor PlotterDrawingRunRuntime {
     }
   }
 
+  private struct JobPublicationContext: Sendable {
+    let binding: DrawingJobIssuance
+    let publication: any DrawingJobPublication
+  }
+  private struct JobPublicationRecoveryOwner: Sendable {
+    let capability: PlotterDrawingRunPublicationRecoveryCapabilityID
+    let binding: DrawingJobIssuance
+    let run: RunID
+    let publication: any DrawingJobPublication
+    let detail: String
+  }
   private struct PublicationRecoveryOwner: Hashable, Sendable {
     let capabilityID: PlotterDrawingRunPublicationRecoveryCapabilityID
     let recordID: DrawingEvidenceRecordID
@@ -296,7 +362,6 @@ public actor PlotterDrawingRunRuntime {
   }
 
   private struct PreEffectRefusal: Sendable {
-    let currentFacts: PlotterDrawingRunExternalFacts
     let owner: EpisodeAuthorityID
     let reason: PlotterDrawingRunRefusalReason
     let remedy: PlotterDrawingRunRemedy
@@ -307,6 +372,19 @@ public actor PlotterDrawingRunRuntime {
     var phase = PlotterDrawingRunPhase.idle
     var readiness = PlotterDrawingRunReadiness.synchronizing
     var active: ActiveRun?
+    var pending: PendingRun?
+    var retainedTask: Task<Void, Never>?
+    var lowerDrawingPlan: DrawingPlanOperation?
+    var stopTask: Task<JogCancelOutcome, Never>?
+    var nativeRequestID: PlotterDrawingRunRequestID?
+    var nativeRequestStamp: ExchangeDigest?
+    private var retainedNativeResult: ImmutablePayload<PlotterDrawingRunSubmissionResult>?
+    var nativeResult: PlotterDrawingRunSubmissionResult? {
+      get { retainedNativeResult?.value }
+      set { retainedNativeResult = newValue.map(ImmutablePayload.init) }
+    }
+    var admissionWaiters: [CheckedContinuation<PlotterDrawingRunSubmissionResult, Never>] = []
+    var dispatchPermission = false
     var progress: DrawingPlanProgressSnapshot?
     var terminal: PlotterDrawingRunTerminal?
     var noRedraw = PlotterDrawingRunNoRedrawState.archiveUnavailable(
@@ -325,7 +403,11 @@ public actor PlotterDrawingRunRuntime {
     var evidencePersistence = PlotterDrawingRunEvidencePersistence.none
     var evidenceArchiveAvailability = PlotterDrawingRunEvidenceArchiveAvailability.awaitingLoad
     var pendingRecord: DrawingRunEvidenceRecord?
-    var stagedIntent: DrawingRunIntent?
+    private var retainedStagedIntent: ImmutablePayload<DrawingRunIntent>?
+    var stagedIntent: DrawingRunIntent? {
+      get { retainedStagedIntent?.value }
+      set { retainedStagedIntent = newValue.map(ImmutablePayload.init) }
+    }
     var baselineMedia: [DrawingRunMediaReference] = []
     var terminalMedia: [DrawingRunMediaReference] = []
     var progressFrames: [DrawingRunProgressFrame] = []
@@ -336,9 +418,13 @@ public actor PlotterDrawingRunRuntime {
     var missingCoverageReason: String?
     var inkDispatchPossible = false
     var publicationRecoveryOwner: PublicationRecoveryOwner?
+    var jobPublicationRecoveryOwner: JobPublicationRecoveryOwner?
+    var jobPublicationContext: JobPublicationContext?
+    var jobSettlementPublished = false
     var review = PlotterDrawingRunReviewState.livePreview
     var lastRefusal: PlotterDrawingRunRefusal?
     var currentPlanIdentity: PlotterDrawingRunPlanIdentity?
+    init() {}
   }
 
   private enum Authority {
@@ -357,7 +443,8 @@ public actor PlotterDrawingRunRuntime {
   private let evidence: any PlotterDrawingRunEvidencePort
   private let clock: any RuntimeClock
   private var states: [PlotterEnvironment: SourceState] = [:]
-  private var admissionClosed = false
+  private var admissionClosed: Bool { admissionLatch.withLock { $0.closed } }
+  private let defaultPreparation: (any PlotterDrawingRunIssuancePreparation)?
   private var snapshotContinuations:
     [PlotterEnvironment: [UUID: AsyncStream<PlotterDrawingRunSnapshot>.Continuation]] = [:]
   private var quiescenceContinuations:
@@ -369,7 +456,8 @@ public actor PlotterDrawingRunRuntime {
     camera: any PlotterDrawingRunCameraPort,
     vision: any PlotterDrawingRunVisionPort,
     evidence: any PlotterDrawingRunEvidencePort,
-    clock: any RuntimeClock = SystemRuntimeClock()
+    clock: any RuntimeClock = SystemRuntimeClock(),
+    preparation: (any PlotterDrawingRunIssuancePreparation)? = nil
   ) {
     self.facts = facts
     self.interpreter = interpreter
@@ -377,12 +465,18 @@ public actor PlotterDrawingRunRuntime {
     self.vision = vision
     self.evidence = evidence
     self.clock = clock
+    self.defaultPreparation = preparation
+  }
+
+  private func readFacts(for environment: PlotterEnvironment) async -> PlotterDrawingRunExternalFacts {
+    if let preparation = states[environment]?.pending?.preparation { return await preparation.currentFacts() }
+    return await facts.drawingRunFacts(for: environment)
   }
 
   public func synchronize(
     environment: PlotterEnvironment
   ) async -> PlotterDrawingRunSnapshot {
-    let currentFacts = await facts.drawingRunFacts(for: environment)
+    let currentFacts = await readFacts(for: environment)
     var state = states[environment] ?? SourceState()
     if case .appending = state.evidencePersistence {
       return snapshot(state, environment: environment)
@@ -391,7 +485,7 @@ public actor PlotterDrawingRunRuntime {
     state.currentPlanIdentity = currentFacts.plan?.identity
     indexEquivalentPhysicalPlan(in: &state, facts: currentFacts)
     state.readiness = readiness(state: state, facts: currentFacts, controller: currentFacts.interpreter)
-    if state.active == nil, state.terminal == nil { state.phase = .idle }
+    if state.active == nil, state.pending == nil, state.terminal == nil { state.phase = .idle }
     guard snapshot(state, environment: environment) != previous else { return previous }
     advance(&state)
     states[environment] = state
@@ -404,7 +498,8 @@ public actor PlotterDrawingRunRuntime {
     environment: PlotterEnvironment
   ) -> PlotterDrawingRunSnapshot {
     var state = states[environment] ?? SourceState()
-    guard state.active == nil, !state.confirmingNoInk else {
+    guard state.active == nil, state.pending == nil, state.retainedTask == nil,
+      state.jobPublicationRecoveryOwner == nil, !state.confirmingNoInk else {
       return snapshot(state, environment: environment)
     }
     if case .appending = state.evidencePersistence {
@@ -478,7 +573,7 @@ public actor PlotterDrawingRunRuntime {
   public func beginShutdown(
     environment: PlotterEnvironment
   ) async -> PlotterDrawingRunSnapshot {
-    admissionClosed = true
+    closeAdmissionAndCancel()
     var state = states[environment] ?? SourceState()
     if var active = state.active {
       active.cancellationRequested = true
@@ -486,11 +581,13 @@ public actor PlotterDrawingRunRuntime {
       advance(&state)
       states[environment] = state
       _ = publish(state, environment: environment)
-      if state.phase == .positioningForBaseline || state.phase == .executingPlan
+      if state.pending == nil, state.phase == .positioningForBaseline || state.phase == .executingPlan
         || state.phase == .positioningForPostObservation {
         _ = await interpreter.requestStop(.shutdown)
       }
     }
+    if let pending = states[environment]?.pending { await cancelPending(pending, environment: environment) }
+    if let task = states[environment]?.retainedTask { await task.value }
     await waitForQuiescence(environment: environment)
     return snapshot(states[environment] ?? state, environment: environment)
   }
@@ -510,6 +607,9 @@ public actor PlotterDrawingRunRuntime {
     return pair.stream
   }
 
+  public func currentSnapshot(environment: PlotterEnvironment) -> PlotterDrawingRunSnapshot {
+    snapshot(states[environment] ?? SourceState(), environment: environment)
+  }
   public func snapshot(
     environment: PlotterEnvironment
   ) async -> PlotterDrawingRunSnapshot {
@@ -535,9 +635,18 @@ public actor PlotterDrawingRunRuntime {
   }
 
   public func submit(
-    _ submission: PlotterDrawingRunSubmission
+    _ submission: PlotterDrawingRunSubmission,
+    preparation: (any PlotterDrawingRunIssuancePreparation)? = nil
   ) async -> PlotterDrawingRunSubmissionResult {
     let environment = submission.projection.environment
+    if submission.intent == .start {
+      return await submitNative(submission, preparation: preparation ?? defaultPreparation)
+    }
+    if case .stop(let capability) = submission.intent,
+      let pending = states[environment]?.pending, pending.stopCapabilityID == capability {
+      await cancelPending(pending, environment: environment)
+      return .init(disposition: .applied, snapshot: snapshot(states[environment] ?? SourceState(), environment: environment))
+    }
     let existingState = states[environment] ?? SourceState()
     guard !admissionClosed else {
       return refuse(
@@ -548,7 +657,7 @@ public actor PlotterDrawingRunRuntime {
         remedy: .restartApplication
       )
     }
-    let currentFacts = await facts.drawingRunFacts(for: environment)
+    let currentFacts = await readFacts(for: environment)
     guard !admissionClosed else {
       return refuse(
         submission,
@@ -582,7 +691,7 @@ public actor PlotterDrawingRunRuntime {
     }
     switch submission.intent {
     case .start:
-      return await start(submission, currentFacts: currentFacts, state: state)
+      return refuse(submission, state: state, owner: Authority.run, reason: .exactPlanUnavailable, remedy: .reviewExactPlan)
     case .stop(let capabilityID):
       return await stop(submission, capabilityID: capabilityID, state: state)
     case .pinReview(let runID):
@@ -594,84 +703,321 @@ public actor PlotterDrawingRunRuntime {
     case .beginNewRun(let runID):
       return beginNewRun(submission, runID: runID, state: state)
     case .recoverPublication(let capabilityID):
-      return await recoverPublication(
-        submission,
-        capabilityID: capabilityID,
-        state: state
-      )
+      let result = await recoverPublication(submission, capabilityID: capabilityID, state: state)
+      await completeJobSettlement(environment: environment)
+      return .init(disposition: result.disposition, snapshot: snapshot(states[environment] ?? state, environment: environment))
     }
   }
 
-  private func start(
-    _ submission: PlotterDrawingRunSubmission,
-    currentFacts: PlotterDrawingRunExternalFacts,
-    state initialState: SourceState
-  ) async -> PlotterDrawingRunSubmissionResult {
-    let environment = currentFacts.environment
-    let controller = await interpreter.snapshot()
-    var currentState = states[environment] ?? initialState
-    indexEquivalentPhysicalPlan(in: &currentState, facts: currentFacts)
-    let currentReadiness = readiness(state: currentState, facts: currentFacts, controller: controller)
-    if case .unavailable(let issue) = currentReadiness {
-      return refuse(submission, state: currentState, owner: issue.owner,
-        reason: issue.reason, remedy: issue.remedy, detail: issue.detail)
+  public func replayNativeRequest(_ id: PlotterDrawingRunRequestID, stamp: ExchangeDigest,
+    environment: PlotterEnvironment) async -> PlotterDrawingRunSubmissionResult? {
+    guard let state = states[environment], state.nativeRequestID == id else { return nil }
+    guard state.nativeRequestStamp == stamp else {
+      return .init(disposition: .refused(.init(requestID: id,
+        projection: projection(state, environment: environment), owner: Authority.run,
+        reason: .staleProjection, remedy: .useCurrentProjection)), snapshot: snapshot(state, environment: environment))
     }
-    guard let plan = currentFacts.plan,
-      submission.projection.planIdentity == plan.identity else {
-      return refuse(submission, state: currentState, owner: Authority.draft,
-        reason: .exactPlanUnavailable, remedy: .reviewExactPlan,
-        detail: "Review the current drawing target before drawing.")
+    if let result = state.nativeResult { return result }
+    return await withCheckedContinuation { continuation in
+      var current = states[environment] ?? state
+      current.admissionWaiters.append(continuation); states[environment] = current
     }
-
-    let runID = RunID()
-    let active = ActiveRun(
-      runID: runID,
-      requestID: submission.requestID.rawValue,
-      plan: plan,
-      capturedEffectFacts: CapturedEffectFacts(currentFacts),
-      stopCapabilityID: PlotterDrawingRunStopCapabilityID()
-    )
-    var state = currentState
-    state.readiness = currentReadiness
-    state.active = active
-    state.phase = .validating
-    state.lastRefusal = nil
-    state.currentPlanIdentity = plan.identity
-    state.baselineFrame = nil
-    state.postFrame = nil
-    state.observation = nil
-    state.presentationObservation = nil
-    state.progress = nil
-    state.evidencePersistence = .none
-    state.stagedIntent = nil
-    state.baselineMedia = []
-    state.terminalMedia = []
-    state.progressFrames = []
-    state.terminalMediaBytes = [:]
-    state.mediaCoverage = nil
-    state.missingCoverageReason = nil
-    state.inkDispatchPossible = false
-    state.review = .livePreview
-    advance(&state)
-    states[environment] = state
-    _ = publish(state, environment: environment)
-
-    if let failure = await preEffectRefusal(for: active, requiresPenUp: false) {
-      return refuseBeforeFirstEffect(
-        submission,
-        active: active,
-        failure: failure
-      )
+  }
+  private func submitNative(_ submission: PlotterDrawingRunSubmission,
+    preparation: (any PlotterDrawingRunIssuancePreparation)?) async -> PlotterDrawingRunSubmissionResult {
+    let environment = submission.projection.environment
+    var state = states[environment] ?? SourceState()
+    if let preparation, state.nativeRequestID == submission.requestID,
+      state.nativeRequestStamp == preparation.requestStamp,
+      let replay = await replayNativeRequest(submission.requestID, stamp: preparation.requestStamp, environment: environment) { return replay }
+    guard !admissionClosed, state.pending == nil, state.active == nil, state.retainedTask == nil,
+      submission.projection == projection(state, environment: environment), let preparation else {
+      return refuse(submission, state: state, owner: Authority.run,
+        reason: admissionClosed ? .admissionClosed : (state.pending != nil || state.active != nil ? .activeRunOwnsWorkflow : .staleProjection),
+        remedy: admissionClosed ? .restartApplication : .useCurrentProjection)
     }
-    await run(active, initialFacts: currentFacts)
-    let settled = states[environment] ?? state
-    return PlotterDrawingRunSubmissionResult(
-      disposition: .applied,
-      snapshot: snapshot(settled, environment: environment)
-    )
+    // No facts/interpreter/retention await precedes this owner and exact Stop.
+    let pending = PendingRun(id: UUID(), submission: submission, preparation: preparation,
+      stopCapabilityID: PlotterDrawingRunStopCapabilityID())
+    state.pending = pending; state.nativeRequestID = submission.requestID
+    state.nativeRequestStamp = preparation.requestStamp; state.nativeResult = nil
+    state.phase = .validating; state.lastRefusal = nil
+    advance(&state); states[environment] = state; _ = publish(state, environment: environment)
+    let task = Task {
+      await withTaskCancellationHandler(operation: {
+        await self.performNative(pending.id, environment: environment)
+      }, onCancel: {
+        // This only signals the SAME runtime's retained cancellation owner.
+        // It neither drops the lower handle nor claims physical settlement.
+        Task { await self.drivePendingStop(pending.id, environment: environment) }
+      })
+    }
+    state = states[environment] ?? state; state.retainedTask = task; states[environment] = state
+    let closed = admissionLatch.withLock { latch in latch.task = task; return latch.closed }
+    if closed { task.cancel() }
+    return await withTaskCancellationHandler(operation: {
+      await withCheckedContinuation { continuation in
+        var current = states[environment] ?? state
+        if let result = current.nativeResult { continuation.resume(returning: result) }
+        else { current.admissionWaiters.append(continuation); states[environment] = current }
+      }
+    }, onCancel: { task.cancel() })
+  }
+  private func acknowledgeNative(_ environment: PlotterEnvironment, result: PlotterDrawingRunSubmissionResult) {
+    guard var state = states[environment] else { return }
+    state.nativeResult = result
+    let waiting = state.admissionWaiters; state.admissionWaiters.removeAll(); states[environment] = state
+    waiting.forEach { $0.resume(returning: result) }
+  }
+  private func pendingIsCurrent(_ id: UUID, environment: PlotterEnvironment) -> Bool {
+    !admissionClosed && !Task.isCancelled && states[environment]?.pending?.id == id
+      && states[environment]?.pending?.cancellationRequested == false
+  }
+  private func requireCurrentPendingFacts(_ id: UUID, environment: PlotterEnvironment,
+    expected: PlotterDrawingRunExternalFacts) async throws {
+    guard pendingIsCurrent(id, environment: environment) else { throw PreparationFailure.cancelled("Drawing preparation stopped.") }
+    let current = await readFacts(for: environment)
+    guard pendingIsCurrent(id, environment: environment) else { throw PreparationFailure.cancelled("Drawing preparation stopped.") }
+    if let failure = effectFactRefusal(captured: CapturedEffectFacts(expected), current: current) {
+      states[environment]?.pending?.refusal = failure
+      throw PreparationFailure.factRefusal(failure)
+    }
+  }
+  private func performNative(_ id: UUID, environment: PlotterEnvironment) async {
+    guard let pending = states[environment]?.pending, pending.id == id else { return }
+    do {
+      let currentFacts = await readFacts(for: environment)
+      guard pendingIsCurrent(id, environment: environment),
+        currentFacts.plan?.identity == pending.submission.projection.planIdentity else { throw PreparationFailure.cancelled("Drawing preparation changed.") }
+      let controller = await interpreter.snapshot()
+      guard pendingIsCurrent(id, environment: environment) else { throw PreparationFailure.cancelled("Drawing preparation was stopped.") }
+      var checking = states[environment] ?? SourceState(); checking.pending = nil
+      let readiness = readiness(state: checking, facts: currentFacts, controller: controller)
+      states[environment]?.readiness = readiness
+      if case .unavailable(let issue) = readiness { throw PreparationFailure.ownerRefusal(issue) }
+      guard case .ready = readiness else { throw PreparationFailure.refused("Drawing readiness is synchronizing.") }
+      // Only a genuinely new admissible attempt replaces these volatile
+      // per-attempt buffers. Raw history, failure recovery and no-redraw roots
+      // remain authoritative and are never cleared by a refused request.
+      var admitted = states[environment] ?? SourceState()
+      admitted.baselineFrame = nil; admitted.postFrame = nil
+      admitted.observation = nil; admitted.presentationObservation = nil; admitted.progress = nil
+      admitted.evidencePersistence = .none; admitted.pendingRecord = nil; admitted.stagedIntent = nil
+      admitted.baselineMedia = []; admitted.terminalMedia = []; admitted.progressFrames = []
+      admitted.terminalMediaBytes = [:]; admitted.mediaCoverage = nil; admitted.missingCoverageReason = nil
+      admitted.inkDispatchPossible = false; admitted.publicationRecoveryOwner = nil
+      admitted.jobPublicationContext = nil; admitted.jobSettlementPublished = false
+      admitted.review = .livePreview
+      admitted.pending?.initialFacts = currentFacts
+      advance(&admitted); states[environment] = admitted; _ = publish(admitted, environment: environment)
+      let reply = try await pending.preparation.prepareAndSubmit(pendingID: id, submission: pending.submission)
+      guard let state = states[environment] else { throw PreparationFailure.cancelled("Drawing owner closed.") }
+      if case .decision(let decision) = reply, decision.reason == nil {
+        acknowledgeNative(environment, result: .init(disposition: .applied, snapshot: snapshot(state, environment: environment)))
+        if let active = state.active, state.dispatchPermission, pendingIsCurrent(id, environment: environment) {
+          states[environment]?.dispatchPermission = false
+          await run(active, initialFacts: currentFacts)
+        } else if let active = state.active {
+          states[environment]?.dispatchPermission = false
+          await finishPreparationFailure(active, error: PreparationFailure.cancelled("Stop before dispatch."))
+        }
+      } else if let refusal = state.pending?.refusal {
+        throw PreparationFailure.factRefusal(refusal)
+      } else { throw PreparationFailure.refused("Drawing admission did not accept this request.") }
+    } catch {
+      if let active = states[environment]?.active {
+        await finishPreparationFailure(active, error: error)
+      }
+      if states[environment]?.nativeResult == nil {
+        let result: PlotterDrawingRunSubmissionResult
+        if case PreparationFailure.factRefusal(let failure) = error {
+          result = refuse(pending.submission, state: states[environment] ?? SourceState(), owner: failure.owner,
+            reason: failure.reason, remedy: failure.remedy)
+        } else if case PreparationFailure.ownerRefusal(let issue) = error {
+          result = refuse(pending.submission, state: states[environment] ?? SourceState(), owner: issue.owner,
+            reason: issue.reason, remedy: issue.remedy, detail: issue.detail)
+        } else {
+          result = refuse(pending.submission, state: states[environment] ?? SourceState(), owner: Authority.run,
+            reason: admissionClosed ? .admissionClosed : .staleProjection,
+            remedy: admissionClosed ? .restartApplication : .useCurrentProjection,
+            detail: (error as? DrawingDestinationRefusal) == .unsupportedDrawing ? "This drawing is not admitted for plotting." : nil)
+        }
+        acknowledgeNative(environment, result: result)
+      }
+    }
+    await completeJobSettlement(environment: environment)
+    if let stopTask = states[environment]?.stopTask { _ = await stopTask.value }
+    if var state = states[environment], state.pending?.id == id {
+      state.pending = nil; state.retainedTask = nil; state.dispatchPermission = false; state.stopTask = nil
+      if state.active == nil && state.terminal == nil { state.phase = .idle }
+      advance(&state); states[environment] = state; _ = publish(state, environment: environment)
+    }
+    admissionLatch.withLock { $0.task = nil }
+  }
+  /// Re-entry is only continuation of this runtime's exact retained pending
+  /// task. The service has released its short transition before invoking it.
+  public func continuePreparedIssuance(pendingID: UUID, binding: DrawingJobIssuance,
+    candidate: DrawingRunCandidateReference, publication: any DrawingJobPublication) async throws {
+    let environment = states.first(where: { $0.value.pending?.id == pendingID })?.key ?? .live
+    guard let pending = states[environment]?.pending, pending.id == pendingID,
+      let initialFacts = pending.initialFacts, let originalPlan = initialFacts.plan,
+      binding.key.request == pending.submission.requestID.rawValue,
+      candidate.authoredDrawing == binding.drawing, candidate.matches(originalPlan.program) else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    states[environment]?.pending?.binding = binding; states[environment]?.pending?.publication = publication
+    states[environment]?.jobPublicationContext = .init(binding: binding, publication: publication)
+    states[environment]?.jobSettlementPublished = false
+    do {
+      guard pendingIsCurrent(pendingID, environment: environment), !(try await publication.cancellationRequested(binding)) else { throw PreparationFailure.cancelled("Stop before raw stage.") }
+      let plan = PlotterDrawingRunPlan(draftRevision: originalPlan.identity.draftRevision,
+        program: originalPlan.program, placementID: originalPlan.placementID, plan: originalPlan.plan,
+        evidenceRole: originalPlan.evidenceRole, paperCoverage: originalPlan.paperCoverage,
+        registration: originalPlan.registration, candidate: candidate, materialProfile: originalPlan.materialProfile,
+        materialApplicability: originalPlan.materialApplicability, paperStock: originalPlan.paperStock)
+      let body = try await proposalBody(plan: plan, facts: initialFacts, requestID: pending.submission.requestID.rawValue)
+      guard pendingIsCurrent(pendingID, environment: environment) else { throw PreparationFailure.cancelled("Stop before proposal publication.") }
+      try await requireCurrentPendingFacts(pendingID, environment: environment, expected: initialFacts)
+      let proposal = try DrawingRunIssuanceProposal(body: body, binding: binding)
+      _ = try await publication.retainProposal(DrawingArtifactCoding.encoder().encode(proposal), for: binding)
+      guard pendingIsCurrent(pendingID, environment: environment), !(try await publication.cancellationRequested(binding)) else { throw PreparationFailure.cancelled("Stop before raw stage.") }
+      try await requireCurrentPendingFacts(pendingID, environment: environment, expected: initialFacts)
+      let staged = try await evidence.stageIssuance(proposal)
+      var state = states[environment] ?? SourceState()
+      state.stagedIntent = staged.intent; state.phase = .stagingIntent
+      if case .newlyStaged = staged.disposition {
+        state.active = ActiveRun(runID: staged.intent.runID, requestID: body.requestID, plan: plan,
+          capturedEffectFacts: CapturedEffectFacts(initialFacts), stopCapabilityID: pending.stopCapabilityID,
+          cancellationRequested: !pendingIsCurrent(pendingID, environment: environment))
+      } else {
+        state.evidencePersistence = .intentPublicationIncomplete(runID: staged.intent.runID, detail: "Existing staged attempt requires reconciliation; no dispatch permission was recovered.")
+      }
+      advance(&state); states[environment] = state; _ = publish(state, environment: environment)
+      try await publication.staged(binding, run: staged.intent.runID.rawValue)
+      try await facts.retainCandidateForAttempt(staged.intent)
+      _ = try await publication.acceptedLink(binding, run: staged.intent.runID.rawValue)
+      let cancelled = try await publication.cancellationRequested(binding)
+      guard !cancelled else { throw PreparationFailure.cancelled("Stop after accepted link.") }
+      try await requireCurrentPendingFacts(pendingID, environment: environment, expected: initialFacts)
+      if case .newlyStaged = staged.disposition { states[environment]?.dispatchPermission = true }
+    } catch {
+      if states[environment]?.stagedIntent?.issuance == binding { throw error }
+      do {
+        if try await evidence.lookupIssuance(binding) == nil {
+          _ = try await publication.refuseBeforeStage(binding, reason: Task.isCancelled || admissionClosed ? .cancelled : ((error as? DrawingDestinationRefusal) ?? .preparationUnavailable))
+        }
+      } catch { /* Unavailable storage or publication is uncertainty, not absence. */ }
+      throw error
+    }
+  }
+  private func proposalBody(plan: PlotterDrawingRunPlan, facts initialFacts: PlotterDrawingRunExternalFacts,
+    requestID: UUID) async throws -> DrawingRunIntentBody {
+    guard let bounds = initialFacts.acceptedMovementBounds, let position = initialFacts.interpreter?.machine.position else {
+      throw PreparationFailure.refused("Accepted movement bounds or controller position are unavailable.")
+    }
+    let observation = try DrawingRunObservationPlan(executionPlan: plan.plan, acceptedMovementBounds: bounds, currentPosition: position)
+    guard let snapshot = await interpreter.snapshot() else { throw PreparationFailure.refused("Controller snapshot is unavailable.") }
+    let recipe = try DrawingMotionPolicyContext.makeRecipe(plan: plan.plan,
+      travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+      drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+      penActuationProfile: initialFacts.penActuationProfile, probe: snapshot.machine.lastProbe, continuity: .continuousWithinStroke)
+    let context = try DrawingRunAttemptContext(program: plan.program, registration: plan.registration,
+      materialProfile: plan.materialProfile, materialApplicability: plan.materialApplicability, paperStock: plan.paperStock,
+      drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
+      penActuationProfile: initialFacts.penActuationProfile, paper: plan.paperCoverage.paper, candidate: plan.candidate, motionRecipe: recipe)
+    return try .init(requestID: requestID, plan: plan.plan, placementID: plan.placementID, role: plan.evidenceRole,
+      context: context, observationPlan: observation, recordedAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds()))
+  }
+  private func completeJobSettlement(environment: PlotterEnvironment) async {
+    guard let state = states[environment], !state.jobSettlementPublished,
+      let context = state.jobPublicationContext,
+      let terminal = state.terminal, terminal.record.attemptEvidence?.intent.issuance == context.binding,
+      case .persisted = state.evidencePersistence else { return }
+    let binding = context.binding, publication = context.publication
+    do {
+      try await publication.settle(binding, run: terminal.runID.rawValue)
+      acknowledgeJobSettlement(binding, run: terminal.runID.rawValue)
+    }
+    catch {
+      guard var current = states[environment], !current.jobSettlementPublished,
+        current.jobPublicationContext?.binding == binding,
+        current.terminal?.runID == terminal.runID,
+        current.terminal?.record.recordID == terminal.record.recordID,
+        case .persisted(let recordID, _) = current.evidencePersistence,
+        recordID == terminal.record.recordID else { return }
+      current.jobPublicationRecoveryOwner = .init(capability: .init(), binding: binding, run: terminal.runID,
+        publication: publication, detail: "The run evidence is saved; its job link still needs publication.")
+      advance(&current); states[environment] = current; _ = publish(current, environment: environment)
+    }
+  }
+  private func drivePendingStop(_ id: UUID, environment: PlotterEnvironment, force: Bool = false) async {
+    guard var state = states[environment], state.pending?.id == id else { return }
+    let physicalPhase = state.pending?.stoppingFromPhase ?? state.phase
+    if state.pending?.cancellationRequested == false {
+      state.pending?.stoppingFromPhase = physicalPhase
+      state.pending?.cancellationRequested = true; state.active?.cancellationRequested = true
+      state.phase = .stopping
+      advance(&state); states[environment] = state; _ = publish(state, environment: environment)
+    }
+    guard state.active != nil,
+      physicalPhase == .positioningForBaseline || physicalPhase == .executingPlan || physicalPhase == .positioningForPostObservation else { return }
+    if let prior = state.stopTask {
+      _ = await prior.value
+      if !force { return }
+    }
+    guard states[environment]?.pending?.id == id, states[environment]?.active?.runID == state.active?.runID else { return }
+    let interpreter = self.interpreter, intent: JogCancelIntent = admissionClosed ? .shutdown : .operatorStop
+    let task = Task { await interpreter.requestStop(intent) }
+    states[environment]?.stopTask = task
+    _ = await task.value
+  }
+  private func cancelPending(_ pending: PendingRun, environment: PlotterEnvironment) async {
+    states[environment]?.retainedTask?.cancel()
+    await drivePendingStop(pending.id, environment: environment)
+  }
+  public func cancelIssuance(_ binding: DrawingJobIssuance) async -> DrawingJobCancellation {
+    guard let entry = states.first(where: { $0.value.pending?.binding == binding }), let pending = entry.value.pending else {
+      return .init(acknowledged: true, settled: states.values.contains { $0.stagedIntent?.issuance == binding && $0.terminal != nil })
+    }
+    await cancelPending(pending, environment: entry.key)
+    return .init(acknowledged: true, settled: states[entry.key]?.terminal != nil)
+  }
+  public func acknowledgeJobSettlement(_ binding: DrawingJobIssuance, run: UUID) {
+    guard let environment = states.first(where: { $0.value.jobPublicationContext?.binding == binding })?.key,
+      var state = states[environment], let terminal = state.terminal,
+      terminal.runID.rawValue == run,
+      let intent = terminal.record.attemptEvidence?.intent,
+      intent.issuance == binding, intent.runID == terminal.runID,
+      terminal.record.runID == terminal.runID,
+      case .persisted(let recordID, _) = state.evidencePersistence,
+      recordID == terminal.record.recordID else { return }
+    if let recovery = state.jobPublicationRecoveryOwner {
+      guard recovery.binding == binding, recovery.run == terminal.runID else { return }
+    }
+    guard !state.jobSettlementPublished || state.jobPublicationRecoveryOwner != nil else { return }
+    // Only the Library terminal-link acknowledgement changes. Raw publication
+    // recovery, immutable attempt evidence and dispatch permission are untouched.
+    state.jobSettlementPublished = true; state.jobPublicationRecoveryOwner = nil
+    advance(&state); states[environment] = state; _ = publish(state, environment: environment)
+  }
+  public func lookupIssuance(_ binding: DrawingJobIssuance) async -> DrawingRawIssuanceLookup {
+    // A live original continuation may still be between Library reservation
+    // and raw stage. Never certify absence across that same-owner window.
+    if states.values.contains(where: { state in
+      guard let pending = state.pending else { return false }
+      return pending.submission.requestID.rawValue == binding.key.request
+        && (pending.binding == nil || pending.binding == binding)
+    }) { return .unknown }
+    do {
+      if let receipt = try await evidence.lookupIssuance(binding) {
+        try await facts.retainCandidateForAttempt(receipt.intent)
+        return .staged(receipt.intent.runID.rawValue, settled: receipt.archive.records.contains { $0.runID == receipt.intent.runID })
+      }
+      return .absent
+    } catch { return .unknown }
   }
 
   private enum PreparationFailure: Error {
+    case ownerRefusal(PlotterDrawingRunReadinessIssue)
+    case factRefusal(PreEffectRefusal)
     case cancelled(String)
     case refused(String)
     case ambiguous(String)
@@ -679,47 +1025,13 @@ public actor PlotterDrawingRunRuntime {
 
   private func run(_ owner: ActiveRun, initialFacts: PlotterDrawingRunExternalFacts) async {
     let environment = initialFacts.environment
-    let observationPlan: DrawingRunObservationPlan
-    let motionRecipe: DrawingMotionRecipe
-    do {
-      guard let bounds = owner.capturedEffectFacts.acceptedMovementBounds,
-        let position = initialFacts.interpreter?.machine.position else {
-        throw PreparationFailure.refused("Accepted movement bounds or controller position are unavailable.")
-      }
-      observationPlan = try DrawingRunObservationPlan(
-        executionPlan: owner.plan.plan, acceptedMovementBounds: bounds, currentPosition: position)
-      guard let currentSnapshot = await interpreter.snapshot() else {
-        throw PreparationFailure.refused("Controller snapshot is unavailable before motion policy capture.")
-      }
-      let machine = currentSnapshot.machine
-      motionRecipe = try DrawingMotionPolicyContext.makeRecipe(plan: owner.plan.plan,
-        travelFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
-        drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
-        penActuationProfile: owner.capturedEffectFacts.penActuationProfile,
-        probe: machine.lastProbe, continuity: .continuousWithinStroke)
-      let context = try DrawingRunAttemptContext(
-        program: owner.plan.program, registration: owner.plan.registration,
-        materialProfile: owner.plan.materialProfile, materialApplicability: owner.plan.materialApplicability,
-        paperStock: owner.plan.paperStock,
-        drawingFeedMMPerMinute: PlotterMotionThroughput.applicationXYFeedMMPerMinute,
-        penActuationProfile: owner.capturedEffectFacts.penActuationProfile,
-        paper: owner.plan.paperCoverage.paper, candidate: owner.plan.candidate, motionRecipe: motionRecipe)
-      let intent = try DrawingRunIntent(
-        runID: owner.runID, requestID: owner.requestID, plan: owner.plan.plan,
-        placementID: owner.plan.placementID, role: owner.plan.evidenceRole,
-        context: context, observationPlan: observationPlan,
-        recordedAt: RuntimeTimestamp(monotonicNanoseconds: clock.nowNanoseconds()))
-      update(owner, environment: environment) { $0.stagedIntent = intent; $0.phase = .stagingIntent }
-      _ = try await evidence.stageIntent(intent)
-      try await facts.retainCandidateForAttempt(intent)
-      if let refusal = await preEffectRefusal(for: owner, requiresPenUp: false) {
-        throw PreparationFailure.refused("Attempt facts changed before preparation: \(refusal.reason)")
-      }
-    } catch {
-      await finishPreparationFailure(owner, error: error)
-      return
+    guard let intent = states[environment]?.stagedIntent, intent.runID == owner.runID,
+      let observationPlan = intent.observationPlan, let motionRecipe = intent.context.motionRecipe else {
+      await finishPreparationFailure(owner, error: DrawingRunEvidenceError.invalidAttemptContext); return
     }
-
+    if let refusal = await preEffectRefusal(for: owner, requiresPenUp: false) {
+      await finishPreparationFailure(owner, error: PreparationFailure.refused("Attempt facts changed before preparation: \(refusal.reason)")); return
+    }
     setPhase(.normalizingPenUp, owner: owner, environment: environment)
     let penOutcome = await interpreter.normalizePenUp(profile: owner.capturedEffectFacts.penActuationProfile)
     guard isCurrent(owner, environment: environment) else { return }
@@ -805,7 +1117,17 @@ public actor PlotterDrawingRunRuntime {
     let outcome: DrawingPlanOutcome
     let frontier: DrawingRunRequestFrontier
     switch admission {
-    case .admitted(let operation): frontier = .admitted; outcome = await operation.outcome()
+    case .admitted(let operation):
+      // Keep the actual accepted lower owner even when admission returned after
+      // Stop/root closure. Cancellation of our waiter never settles this handle.
+      states[environment]?.lowerDrawingPlan = operation
+      if admissionClosed || Task.isCancelled || cancellationWasRequested(owner, environment: environment),
+        let pending = states[environment]?.pending {
+        await drivePendingStop(pending.id, environment: environment, force: true)
+      }
+      frontier = .admitted
+      outcome = await operation.outcome()
+      if states[environment]?.lowerDrawingPlan?.id == operation.id { states[environment]?.lowerDrawingPlan = nil }
     case .rejected(let rejected): frontier = .validated; outcome = rejected
     }
     guard isCurrent(owner, environment: environment) else { return }
@@ -1230,7 +1552,15 @@ public actor PlotterDrawingRunRuntime {
           _ = try await evidence.installMedia(frame: frame.frame, source: frame.source)
         }
       }
-      _ = try await evidence.stageIntent(attempt.intent)
+      if let binding = attempt.intent.issuance {
+        // Publication can only recover the already staged canonical attempt.
+        // Staging here could allocate a new RunID after a lost acknowledgement.
+        guard let receipt = try await evidence.lookupIssuance(binding),
+          receipt.intent == attempt.intent
+        else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      } else {
+        _ = try await evidence.stageIntent(attempt.intent)
+      }
       for baseline in attempt.baselines {
         _ = try await evidence.stageBaseline(runID: record.runID, media: baseline)
       }
@@ -1319,7 +1649,15 @@ public actor PlotterDrawingRunRuntime {
     facts currentFacts: PlotterDrawingRunExternalFacts, state initial: SourceState
   ) async -> PlotterDrawingRunSubmissionResult {
     let environment = submission.projection.environment
-    guard initial.active == nil, let terminal = initial.terminal, terminal.runID == runID,
+    if initial.active != nil || initial.pending != nil || initial.retainedTask != nil {
+      return refuse(submission, state: initial, owner: Authority.run,
+        reason: .activeRunOwnsWorkflow, remedy: .waitForActiveRun)
+    }
+    if initial.jobPublicationRecoveryOwner != nil {
+      return refuse(submission, state: initial, owner: Authority.evidence,
+        reason: .evidencePublicationInProgress, remedy: .retryEvidencePublication)
+    }
+    guard let terminal = initial.terminal, terminal.runID == runID,
       terminal.record.allowsNoInkConfirmation,
       terminal.record.paper == currentFacts.plan?.paperCoverage.paper,
       case .persisted = initial.evidencePersistence else {
@@ -1369,12 +1707,42 @@ public actor PlotterDrawingRunRuntime {
     }
   }
 
+  /// Metadata-only completion of an already committed paper replacement.
+  /// The retained artifact/reset effect verifies durability before calling;
+  /// ordinary public admission remains closed throughout shutdown.
+  package func completeCommittedPaperReplacement(_ submission: PlotterDrawingRunSubmission,
+    transition: PaperReplacementTransition) -> PlotterDrawingRunSubmissionResult {
+    let environment = submission.projection.environment
+    let state = states[environment] ?? SourceState()
+    guard environment == .live, submission.projection == projection(state, environment: environment),
+      case .beginNewRun(let runID) = submission.intent,
+      let terminal = state.terminal, terminal.runID == runID,
+      terminal.record.paper == transition.previous,
+      transition.current.instance != transition.previous.instance,
+      !state.confirmingNoInk, state.publicationRecoveryOwner == nil
+    else {
+      return refuse(submission, state: state, owner: Authority.run,
+        reason: .runIdentityMismatch, remedy: .useExactRunIdentity)
+    }
+    // Existing handoff guards retain every active/pending task and failed raw
+    // or job publication owner. This path cannot stage, mint permission or run.
+    return beginNewRun(submission, runID: runID, state: state)
+  }
+
   private func beginNewRun(
     _ submission: PlotterDrawingRunSubmission,
     runID: RunID,
     state initialState: SourceState
   ) -> PlotterDrawingRunSubmissionResult {
     let environment = submission.projection.environment
+    if initialState.active != nil || initialState.pending != nil || initialState.retainedTask != nil {
+      return refuse(submission, state: initialState, owner: Authority.run,
+        reason: .activeRunOwnsWorkflow, remedy: .waitForActiveRun)
+    }
+    if initialState.jobPublicationRecoveryOwner != nil {
+      return refuse(submission, state: initialState, owner: Authority.evidence,
+        reason: .evidencePublicationInProgress, remedy: .retryEvidencePublication)
+    }
     if case .appending = initialState.evidencePersistence {
       return refuse(
         submission,
@@ -1433,6 +1801,27 @@ public actor PlotterDrawingRunRuntime {
     state initialState: SourceState
   ) async -> PlotterDrawingRunSubmissionResult {
     let environment = submission.projection.environment
+    if let recovery = initialState.jobPublicationRecoveryOwner, recovery.capability == capabilityID {
+      do {
+        guard let receipt = try await evidence.lookupIssuance(recovery.binding), receipt.intent.runID == recovery.run else {
+          throw DrawingRunEvidenceError.invalidAttemptContext
+        }
+        try await facts.retainCandidateForAttempt(receipt.intent)
+        _ = try await recovery.publication.acceptedLink(recovery.binding, run: recovery.run.rawValue)
+        try await recovery.publication.settle(recovery.binding, run: recovery.run.rawValue)
+        var state = states[environment] ?? initialState
+        guard state.jobPublicationRecoveryOwner?.capability == capabilityID else {
+          return refuse(submission, state: state, owner: Authority.evidence, reason: .publicationRecoveryMismatch, remedy: .retryEvidencePublication)
+        }
+        state.jobPublicationRecoveryOwner = nil; state.jobSettlementPublished = true
+        advance(&state); states[environment] = state; let value = publish(state, environment: environment)
+        return .init(disposition: .applied, snapshot: value)
+      } catch {
+        return refuse(submission, state: states[environment] ?? initialState, owner: Authority.evidence,
+          reason: .evidencePublicationInProgress, remedy: .retryEvidencePublication,
+          detail: "The run job link still needs publication. No drawing was reissued.")
+      }
+    }
     guard case .failed(_, let currentCapabilityID, _) = initialState.evidencePersistence,
       currentCapabilityID == capabilityID,
       let record = initialState.pendingRecord,
@@ -1593,7 +1982,7 @@ public actor PlotterDrawingRunRuntime {
     for owner: ActiveRun,
     requiresPenUp: Bool = true
   ) async -> PreEffectRefusal? {
-    let firstFacts = await facts.drawingRunFacts(for: .live)
+    let firstFacts = await readFacts(for: .live)
     if let refusal = effectFactRefusal(owner: owner, current: firstFacts) {
       return refusal
     }
@@ -1602,7 +1991,6 @@ public actor PlotterDrawingRunRuntime {
       !cancellationWasRequested(owner, environment: .live)
     else {
       return PreEffectRefusal(
-        currentFacts: firstFacts,
         owner: Authority.run,
         reason: admissionClosed ? .admissionClosed : .activeRunOwnsWorkflow,
         remedy: admissionClosed ? .restartApplication : .waitForActiveRun
@@ -1610,7 +1998,7 @@ public actor PlotterDrawingRunRuntime {
     }
 
     let interpreterSnapshot = await interpreter.snapshot()
-    let currentFacts = await facts.drawingRunFacts(for: .live)
+    let currentFacts = await readFacts(for: .live)
     if let refusal = effectFactRefusal(owner: owner, current: currentFacts) {
       return refusal
     }
@@ -1619,7 +2007,6 @@ public actor PlotterDrawingRunRuntime {
       !cancellationWasRequested(owner, environment: .live)
     else {
       return PreEffectRefusal(
-        currentFacts: currentFacts,
         owner: Authority.run,
         reason: admissionClosed ? .admissionClosed : .activeRunOwnsWorkflow,
         remedy: admissionClosed ? .restartApplication : .waitForActiveRun
@@ -1627,7 +2014,6 @@ public actor PlotterDrawingRunRuntime {
     }
     guard Self.controllerIsReady(interpreterSnapshot, requiresPenUp: requiresPenUp) else {
       return PreEffectRefusal(
-        currentFacts: currentFacts,
         owner: Authority.interpreter,
         reason: .controllerUnavailable,
         remedy: .restoreControllerReadiness
@@ -1640,22 +2026,24 @@ public actor PlotterDrawingRunRuntime {
     owner: ActiveRun,
     current: PlotterDrawingRunExternalFacts
   ) -> PreEffectRefusal? {
-    let captured = owner.capturedEffectFacts
+    effectFactRefusal(captured: owner.capturedEffectFacts, current: current)
+  }
+
+  private func effectFactRefusal(captured: CapturedEffectFacts,
+    current: PlotterDrawingRunExternalFacts) -> PreEffectRefusal? {
     if current.environment != captured.environment {
       return PreEffectRefusal(
-        currentFacts: current,
         owner: Authority.run,
         reason: .effectEnvironmentChanged,
         remedy: .useCurrentProjection
       )
     }
     if current.physicalPositionUnavailableReason != nil {
-      return PreEffectRefusal(currentFacts: current, owner: Authority.learning,
+      return PreEffectRefusal(owner: Authority.learning,
         reason: .physicalPositionUnverified, remedy: .reestablishPositionFromCamera)
     }
     if current.interactiveLearningIsComplete != captured.interactiveLearningIsComplete {
       return PreEffectRefusal(
-        currentFacts: current,
         owner: Authority.learning,
         reason: .learningIncomplete,
         remedy: .restoreLearningAuthority
@@ -1663,7 +2051,6 @@ public actor PlotterDrawingRunRuntime {
     }
     if current.plan != captured.plan || current.acceptedMovementBounds != captured.acceptedMovementBounds {
       return PreEffectRefusal(
-        currentFacts: current,
         owner: Authority.draft,
         reason: .exactPlanChanged,
         remedy: .reviewExactPlan
@@ -1671,7 +2058,6 @@ public actor PlotterDrawingRunRuntime {
     }
     if current.paperCoverageIsCurrent != captured.paperCoverageIsCurrent {
       return PreEffectRefusal(
-        currentFacts: current,
         owner: Authority.paper,
         reason: .paperCoverageNotCurrent,
         remedy: .assertCurrentPaperCoverage
@@ -1679,7 +2065,6 @@ public actor PlotterDrawingRunRuntime {
     }
     if current.penActuationProfile != captured.penActuationProfile {
       return PreEffectRefusal(
-        currentFacts: current,
         owner: Authority.interpreter,
         reason: .penActuationProfileChanged,
         remedy: .reviewPenActuationProfile
@@ -1688,61 +2073,16 @@ public actor PlotterDrawingRunRuntime {
     return nil
   }
 
-  private func refuseBeforeFirstEffect(
-    _ submission: PlotterDrawingRunSubmission,
-    active: ActiveRun,
-    failure: PreEffectRefusal
-  ) -> PlotterDrawingRunSubmissionResult {
-    let environment = submission.projection.environment
-    guard var state = states[environment], state.active?.runID == active.runID else {
-      return refuse(
-        submission,
-        state: states[environment] ?? SourceState(),
-        owner: failure.owner,
-        reason: failure.reason,
-        remedy: failure.remedy
-      )
-    }
-    state.active = nil
-    state.phase = .idle
-    state.currentPlanIdentity = failure.currentFacts.plan?.identity
-    state.readiness = readiness(state: state, facts: failure.currentFacts,
-      controller: failure.currentFacts.interpreter)
-    state.progress = nil
-    state.baselineFrame = nil
-    state.postFrame = nil
-    state.observation = nil
-    state.presentationObservation = nil
-    state.evidencePersistence = .none
-    state.pendingRecord = nil
-    state.publicationRecoveryOwner = nil
-    advance(&state)
-    let refusal = PlotterDrawingRunRefusal(
-      requestID: submission.requestID,
-      projection: projection(state, environment: environment),
-      owner: failure.owner,
-      reason: failure.reason,
-      remedy: failure.remedy
-    )
-    state.lastRefusal = refusal
-    states[environment] = state
-    _ = publish(state, environment: environment)
-    return PlotterDrawingRunSubmissionResult(
-      disposition: .refused(refusal),
-      snapshot: snapshot(state, environment: environment)
-    )
-  }
-
   private func revalidate(_ owner: ActiveRun, requiringControllerReady: Bool) async -> Bool {
     await revalidationFailure(owner, requiringControllerReady: requiringControllerReady) == nil
   }
 
   private func revalidationFailure(_ owner: ActiveRun, requiringControllerReady: Bool) async -> String? {
-    let current = await facts.drawingRunFacts(for: .live)
+    let current = await readFacts(for: .live)
     guard !admissionClosed, isCurrent(owner, environment: .live),
       !cancellationWasRequested(owner, environment: .live) else { return "Run stopped or superseded." }
     let actualInterpreter = await interpreter.snapshot()
-    let settledFacts = await facts.drawingRunFacts(for: .live)
+    let settledFacts = await readFacts(for: .live)
     guard !admissionClosed, isCurrent(owner, environment: .live),
       !cancellationWasRequested(owner, environment: .live) else { return "Run stopped or superseded." }
     for value in [current, settledFacts] {
@@ -1857,7 +2197,7 @@ public actor PlotterDrawingRunRuntime {
   /// Read-only retention of the available terminal view. Failure and Stop must
   /// never travel or initiate another camera acquisition to improve coverage.
   private func preserveAvailableTerminalFrame(_ owner: ActiveRun) async {
-    let current = await facts.drawingRunFacts(for: .live)
+    let current = await readFacts(for: .live)
     guard isCurrent(owner, environment: .live) else { return }
     let available: DisplayedFrame?
     if let frame = current.displayedFrame,
@@ -1959,11 +2299,12 @@ public actor PlotterDrawingRunRuntime {
       projection: projection(state, environment: environment),
       phase: state.phase,
       activeRunID: state.active?.runID,
+      pendingRequestID: state.pending?.submission.requestID,
       planIdentity: state.active?.plan.identity ?? state.currentPlanIdentity,
       retainedExecutionPlan: state.active?.plan.plan ?? state.terminal?.record.plan.executionPlan ?? unresolvedPlan,
       progress: state.progress,
       executionDisposition: state.terminal?.record.executionDisposition ?? state.pendingRecord?.executionDisposition,
-      stopCapabilityID: state.active?.stopCapabilityID,
+      stopCapabilityID: state.active?.stopCapabilityID ?? state.pending?.stopCapabilityID,
       terminal: state.terminal,
       noRedraw: state.noRedraw,
       baselineFrame: state.baselineFrame,
@@ -1974,6 +2315,8 @@ public actor PlotterDrawingRunRuntime {
       evidenceArchiveAvailability: state.evidenceArchiveAvailability,
       review: state.review,
       lastRefusal: state.lastRefusal,
+      jobPublicationRecoveryCapabilityID: state.jobPublicationRecoveryOwner?.capability,
+      jobPublicationDetail: state.jobPublicationRecoveryOwner?.detail,
       physicalEvidenceClaimed: environment == .live
         && state.terminal?.disposition == .succeeded,
       readiness: lifecycleReadiness(state) ?? state.readiness
@@ -2039,7 +2382,7 @@ public actor PlotterDrawingRunRuntime {
         continuation.yield(value)
       }
     }
-    if state.active == nil,
+    if state.active == nil, state.pending == nil, state.retainedTask == nil,
       let continuations = quiescenceContinuations.removeValue(forKey: environment)
     {
       for continuation in continuations.values {
@@ -2050,10 +2393,10 @@ public actor PlotterDrawingRunRuntime {
   }
 
   private func waitForQuiescence(environment: PlotterEnvironment) async {
-    guard states[environment]?.active != nil else { return }
+    guard states[environment]?.active != nil || states[environment]?.pending != nil || states[environment]?.retainedTask != nil else { return }
     let continuationID = UUID()
     await withCheckedContinuation { continuation in
-      guard states[environment]?.active != nil else {
+      guard states[environment]?.active != nil || states[environment]?.pending != nil || states[environment]?.retainedTask != nil else {
         continuation.resume()
         return
       }
@@ -2076,7 +2419,9 @@ public actor PlotterDrawingRunRuntime {
     owner: ActiveRun,
     environment: PlotterEnvironment
   ) {
-    update(owner, environment: environment) { $0.phase = phase }
+    update(owner, environment: environment) { state in
+      state.phase = state.pending?.cancellationRequested == true && phase != .appendingEvidence ? .stopping : phase
+    }
   }
 
   private func isCurrent(
@@ -2274,9 +2619,13 @@ public actor PlotterDrawingRunRuntime {
       return .unavailable(.init(owner: Authority.run, reason: .admissionClosed,
         remedy: .restartApplication, detail: "The application is shutting down."))
     }
-    if state.active != nil {
+    if state.active != nil || state.pending != nil {
       return .unavailable(.init(owner: Authority.run, reason: .activeRunOwnsWorkflow,
         remedy: .waitForActiveRun, detail: "The current drawing is still running. Stop it or wait for completion."))
+    }
+    if state.jobPublicationRecoveryOwner != nil {
+      return .unavailable(.init(owner: Authority.evidence, reason: .evidencePublicationInProgress,
+        remedy: .retryEvidencePublication, detail: "The run job link still needs publication."))
     }
     if state.terminal != nil {
       return .unavailable(.init(owner: Authority.run, reason: .terminalRequiresNewRunHandoff,

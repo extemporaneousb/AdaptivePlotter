@@ -24,7 +24,7 @@ struct PortraitCaptureTests {
     #expect(!cancellationReturned)
     await acquirer.release()
     await cancel.value
-    await capture.value
+    _ = await capture.value
     #expect(model.portfolioPhoto == nil)
     #expect(model.currentProgram == nil)
   }
@@ -52,7 +52,7 @@ struct PortraitCaptureTests {
     try await waitForBurstState { !model.isCapturing }
     await acquirer.release()
     await cancellation.value
-    await capture.value
+    _ = await capture.value
     #expect(model.portfolioPhoto == nil)
     #expect(!model.screenIlluminationActive)
   }

@@ -1,4 +1,5 @@
 import PortraitLibrary
+import PortraitCore
 import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
@@ -23,7 +24,7 @@ final class PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFact
   func drawingRunFacts(
     for environment: PlotterEnvironment
   ) async -> PlotterDrawingRunExternalFacts {
-    guard let application else {
+    guard let application, application.drawingDestinationRecoveryAdmissionIsOpen else {
       return PlotterDrawingRunExternalFacts(
         environment: environment,
         interactiveLearningIsComplete: false,
@@ -34,7 +35,12 @@ final class PlotterApplicationRuntimeDrawingRunFactSource: PlotterDrawingRunFact
         penActuationProfile: .initialDefaults
       )
     }
-    return await application.currentDrawingRunFacts(for: environment)
+    let facts = await application.currentDrawingRunFacts(for: environment)
+    guard application.drawingDestinationRecoveryAdmissionIsOpen else {
+      return .init(environment: environment, interactiveLearningIsComplete: false, plan: nil,
+        paperCoverageIsCurrent: false, displayedFrame: nil, interpreter: nil, penActuationProfile: .initialDefaults)
+    }
+    return facts
   }
 }
 
@@ -149,6 +155,16 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort {
     return await observeArchive(try await store.annotateReview(note))
   }
 
+  func stageIssuance(_ proposal: DrawingRunIssuanceProposal) async throws -> DrawingRunIssuanceStageReceipt {
+    let receipt = try await store.stageIssuance(proposal)
+    stagedPortraitBinding = (receipt.intent, receipt.archive)
+    return receipt
+  }
+  func lookupIssuance(_ binding: DrawingJobIssuance) async throws -> DrawingRunIssuanceStageReceipt? {
+    let receipt = try await store.lookupIssuance(binding)
+    if let receipt { stagedPortraitBinding = (receipt.intent, receipt.archive) }
+    return receipt
+  }
   func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive {
     let archive = try await store.stageIntent(intent)
     if intent.role == .ordinaryDrawing, intent.context.candidate != nil,

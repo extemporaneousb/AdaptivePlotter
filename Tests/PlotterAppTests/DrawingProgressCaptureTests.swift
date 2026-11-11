@@ -36,7 +36,7 @@ struct DrawingProgressCaptureTests {
       }
       return values
     }
-    let running = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let running = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
     let capturing = await harness.runtime.snapshot(environment: .live)
     let status = DrawingStudioExecutionPresentation(snapshot: capturing, phaseDetail: "Capturing final photo")
@@ -107,7 +107,7 @@ struct DrawingProgressCaptureTests {
     let gate = DrawingRunHoldGate()
     await harness.camera.holdCapture(ordinal: 2, at: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let running = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let running = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
     let active = await harness.runtime.snapshot(environment: .live)
     _ = await harness.runtime.submit(.init(projection: active.projection,
@@ -136,7 +136,7 @@ struct DrawingProgressCaptureTests {
       cameraFrames: [fixture.baselineFrame] + stages + [fixture.completionFrame, fixture.postFrame])
     await harness.interpreter.enableProgressCheckpoints()
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
     #expect(attempt.progressFrames.map { $0.progress.completedStrokeIDs.count } == [2, 3])
     #expect(attempt.missingCoverageReason?.contains("Progress photo after 1 strokes") == true)
@@ -153,7 +153,7 @@ struct DrawingProgressCaptureTests {
     await harness.interpreter.enableProgressCheckpoints()
     await harness.evidence.rejectMediaFrames([stages[0].frame.id])
     let ready = await harness.runtime.synchronize(environment: .live)
-    let failed = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let failed = await harness.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(failed.snapshot.terminal)
     #expect(terminal.disposition == .publicationIncomplete)
     #expect(terminal.record.attemptEvidence?.progressFrames.count == 3)

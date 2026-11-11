@@ -23,11 +23,13 @@ struct DrawingReviewDeletionTests {
       await f.planGate.release(.possibleInk)
       let draw = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
       #expect(await app.submitPlotterUIRequest(draw) == .accepted(requestID: draw.id))
+      try await f.waitForDrawingSettlement()
       let terminal = try #require(app.drawingRunSnapshot?.terminal)
       let record = terminal.record
       try await waitUntil { app.drawingReviewRecords.contains(record) }
-      let drawing = try #require(app.portraitStudio.projectedDrawing)
-      let ref = try #require(drawing.reference)
+      let binding = try #require(record.attemptEvidence?.intent.issuance)
+      let ref = binding.drawing
+      let drawing = try await app.portraitStudio.library.drawing(ref)
       let attempt = try #require(record.attemptEvidence)
       let reference = try #require(attempt.intent.context.candidate)
       #expect(reference.candidateID == ref.digest.description)

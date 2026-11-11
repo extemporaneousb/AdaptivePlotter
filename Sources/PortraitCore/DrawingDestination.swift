@@ -5,15 +5,15 @@ import PlotterModel
 public struct DrawingDestinationDescription: Codable, Equatable, Sendable {
   public let engine: UUID
   public let executionAvailable: Bool
-  public let reason: DrawingDestinationRefusal
+  public let reason: DrawingDestinationRefusal?
   public let documentProfiles: [String]
   public let representations: [String]
   public let mediumMapping: DrawingDestinationMediumMapping
   public let preparedOptions: [DrawingDestinationOption]
   public let acceptsOptionOverrides: Bool
   public let requiresNominalPenWidth: Bool
-  public init(engine: UUID) {
-    self.engine = engine; executionAvailable = false; reason = .issuanceSeamUnavailable
+  public init(engine: UUID, executionAvailable: Bool = false) {
+    self.engine = engine; self.executionAvailable = executionAvailable; reason = executionAvailable ? nil : .issuanceSeamUnavailable
     documentProfiles = ["adaptiveplotter.exchange/1", DrawingExchangeCodec.drawingProfile]
     representations = [DrawingExchangeCodec.strokeProfile]
     mediumMapping = .preserveAuthoredStyleAndCaptureCurrentApplicability
@@ -33,19 +33,25 @@ public enum DrawingDestinationOption: String, Codable, Sendable {
 @MainActor public struct DrawingPreparationContext {
   public let mayBegin: @MainActor () -> Bool
   public let isStillCurrent: @MainActor () -> Bool
+  public let nativePreparation: DrawingPreparation?
   public init(mayBegin: @escaping @MainActor () -> Bool = { true },
-    isStillCurrent: @escaping @MainActor () -> Bool = { true }) {
+    isStillCurrent: @escaping @MainActor () -> Bool = { true },
+    nativePreparation: DrawingPreparation? = nil) {
     self.mayBegin = mayBegin; self.isStillCurrent = isStillCurrent
+    self.nativePreparation = nativePreparation
   }
 }
 public enum DrawingDestinationRefusal: String, Codable, Error, Sendable {
   case issuanceSeamUnavailable = "issuance-seam-unavailable"
+  case nativePlotRequired = "native-plot-required"
   case preparationUnavailable = "preparation-unavailable"
+  case unsupportedDrawing = "unsupported-drawing"
   case stalePreview = "stale-preview"
   case requestConflict = "request-conflict"
   case unknownJob = "unknown-job"
   case invalidDelivery = "invalid-delivery"
-  case nonDeviceOwner = "non-device-owner"
+  case cancelled = "cancelled"
+  case interrupted = "interrupted"
   case alreadySettled = "already-settled"
 }
 public struct DrawingRequestKey: Codable, Hashable, Sendable {
@@ -106,11 +112,11 @@ public struct DrawingJobDecision: Codable, Equatable, Sendable {
   public let requestDigest: ExchangeDigest
   public let job: JobReceiptRef
   public let ticket: DrawingPreparedTicket
-  public let reason: DrawingDestinationRefusal
+  public let reason: DrawingDestinationRefusal?
   public let receipt: Data
   public let phase: DrawingJobPhase
   public init(key: DrawingRequestKey, requestDigest: ExchangeDigest, job: JobReceiptRef,
-    ticket: DrawingPreparedTicket, reason: DrawingDestinationRefusal, receipt: Data, phase: DrawingJobPhase = .refused) {
+    ticket: DrawingPreparedTicket, reason: DrawingDestinationRefusal?, receipt: Data, phase: DrawingJobPhase = .refused) {
     self.key = key; self.requestDigest = requestDigest; self.job = job; self.ticket = ticket
     self.reason = reason; self.receipt = receipt; self.phase = phase
   }
@@ -128,6 +134,7 @@ public enum DrawingDestinationReply: Codable, Equatable, Sendable {
   case description(DrawingDestinationDescription)
   case prepared(DrawingPreparedTicket)
   case decision(DrawingJobDecision)
+  case pending(DrawingPendingJob)
   case refused(DrawingDestinationRefusal)
   /// Cancel acknowledgement is distinct from settlement. Refusals are already terminal.
   case cancellation(acknowledged: Bool, settled: Bool)

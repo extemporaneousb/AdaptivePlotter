@@ -54,11 +54,11 @@ let package = Package(
     .systemLibrary(name: "CSQLite"),
     .target(
       name: "PlotterRuntime",
-      dependencies: ["PlotterModel", "CSQLite"]
+      dependencies: ["PlotterModel", "PortraitCore", "CSQLite"]
     ),
     .target(
       name: "PlotterEpisodeRuntime",
-      dependencies: ["EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterRuntime"]
+      dependencies: ["EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterRuntime", "PortraitCore"]
     ),
     .target(
       name: "PlotterUI",

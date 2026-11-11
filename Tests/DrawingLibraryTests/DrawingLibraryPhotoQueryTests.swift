@@ -69,9 +69,10 @@ struct DrawingLibraryPhotoQueryTests {
     }
     try FileManager.default.moveItem(at: held, to: artwork)
     let first = try await library.photos(limit: 1)
+    let firstCursor = try #require(first.next)
     let extra = try DrawingLibraryPhotoFixture()
     try await extra.publish(to: library)
-    await #expect(throws: (any Error).self) { try await library.photos(limit: 1, after: #require(first.next)) }
+    await #expect(throws: (any Error).self) { try await library.photos(limit: 1, after: firstCursor) }
     await library.closeLibrary()
   }
 
@@ -93,6 +94,7 @@ struct DrawingLibraryPhotoQueryTests {
       try await library.commitRecords([], closure: .init(input: input)); refs.append(input.reference)
     }
     let first = try await library.inputs(for: fixture.photo.reference, limit: 1)
+    let firstCursor = try #require(first.next)
     var actual: [ImageInputRef] = []
     var cursor: DrawingLibraryInputCursor?
     repeat {
@@ -103,7 +105,7 @@ struct DrawingLibraryPhotoQueryTests {
     #expect(actual == refs.sorted { inputKey($0) < inputKey($1) } && cursor == nil)
     let another = try DrawingLibraryPhotoFixture()
     try await another.publish(to: library)
-    await #expect(throws: (any Error).self) { try await library.inputs(for: another.photo.reference, limit: 1, after: #require(first.next)) }
+    await #expect(throws: (any Error).self) { try await library.inputs(for: another.photo.reference, limit: 1, after: firstCursor) }
     let wrong = PhotoRef(issuer: fixture.photo.reference.issuer, revision: fixture.photo.reference.revision, digest: .hash(Data("wrong digest".utf8)))
     await #expect(throws: (any Error).self) { try await library.inputs(for: wrong) }
     for invalid in [0, 501] {

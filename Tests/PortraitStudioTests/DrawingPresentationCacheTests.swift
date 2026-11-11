@@ -14,12 +14,12 @@ struct DrawingPresentationCacheTests {
     let gate = PresentationReadGate(FlowDojoFixture.image(1))
     defer { gate.release() }
     let cache = FlowPresentationImageCache()
-    let first = Task { await cache.load(identity: "exact-source", read: { await gate.read() }) }
+    let first = Task { @MainActor in await cache.load(identity: "exact-source", read: { await gate.read() }).map(ObjectIdentifier.init) }
     try await gate.waitForStarts(1)
-    let second = Task { await cache.load(identity: "exact-source", read: { await gate.read() }) }
+    let second = Task { @MainActor in await cache.load(identity: "exact-source", read: { await gate.read() }).map(ObjectIdentifier.init) }
     await Task.yield(); gate.release()
     let a = try #require(await first.value), b = try #require(await second.value)
-    #expect(a === b && cache.decodeCount == 1)
+    #expect(a == b && cache.decodeCount == 1)
     #expect(gate.starts == 1)
     let smaller = try #require(await cache.load(data: FlowDojoFixture.image(1), identity: "exact-source", maximumDimension: 20))
     var rect = NSRect(origin: .zero, size: smaller.size)
@@ -50,19 +50,19 @@ struct DrawingPresentationCacheTests {
     let gate = PresentationReadGate(FlowDojoFixture.image(3))
     defer { gate.release() }
     let cache = FlowPresentationImageCache(maximumInflight: 2)
-    let requests = (0..<6).map { index in Task { await cache.load(identity: "request-\(index)", read: { await gate.read() }) } }
+    let requests = (0..<6).map { index in Task { @MainActor in await cache.load(identity: "request-\(index)", read: { await gate.read() }) != nil } }
     try await gate.waitForStarts(2)
     #expect(cache.statistics["inflight"] == 2)
     requests[0].cancel()
     gate.release()
     for request in requests { _ = await request.value }
-    #expect(await requests[0].value == nil)
+    #expect(await requests[0].value == false)
     #expect(cache.statistics["peakInflight"] == 2 && cache.statistics["inflight"] == 0)
 
     let oldGate = PresentationReadGate(FlowDojoFixture.image(4))
     defer { oldGate.release() }
-    let old = (0..<2).map { index in Task {
-      await cache.load(identity: "superseded-\(index)", read: { await oldGate.read() })
+    let old = (0..<2).map { index in Task { @MainActor in
+      await cache.load(identity: "superseded-\(index)", read: { await oldGate.read() }) != nil
     } }
     try await oldGate.waitForStarts(2)
     // A canceled read deliberately ignores cancellation until explicitly released.
@@ -71,7 +71,7 @@ struct DrawingPresentationCacheTests {
     #expect(cache.statistics["inflight"] == 2)
     let currentGate = PresentationReadGate(FlowDojoFixture.image(5))
     defer { currentGate.release() }
-    let current = Task { await cache.load(identity: "superseded-0", read: { await currentGate.read() }) }
+    let current = Task { @MainActor in await cache.load(identity: "superseded-0", read: { await currentGate.read() }) != nil }
     await Task.yield()
     #expect(currentGate.starts == 0)
     #expect(cache.statistics["inflight"] == 2)
@@ -79,8 +79,8 @@ struct DrawingPresentationCacheTests {
     try await currentGate.waitForStarts(1)
     #expect(cache.statistics["peakInflight"] == 2)
     currentGate.release()
-    _ = try #require(await current.value)
-    for request in old { #expect(await request.value == nil) }
+    #expect(await current.value)
+    for request in old { #expect(await request.value == false) }
     #expect(cache.statistics["entries"] == 1 && cache.statistics["inflight"] == 0)
   }
 

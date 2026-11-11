@@ -199,13 +199,22 @@ package final class PortraitSketchCollection {
     let durable = try await library.drawing(reference)
     guard durable.program == drawing.program else { throw DrawingExchangeError.mismatchedParent }
     let proof = try PortraitEvidenceSource.proveStagedAttempt(intent, archive: archive, url: archiveURL)
+    if let existing = try await library.record(.init(kind: PortraitDrawingAttemptBinding.kind, id: intent.runID.rawValue)) {
+      let bound = try PortraitDrawingAttemptBinding.decode(existing, for: reference)
+      guard bound.archive == archive.archiveID, bound.run == intent.runID.rawValue,
+        bound.request == intent.requestID else { throw DrawingExchangeError.mismatchedParent }
+      // Preserve the ORIGINAL pre-motion generation. Later baseline/terminal
+      // publication changes the current manifest, not that immutable binding.
+      try proof.assertUnchanged()
+      return
+    }
     let record = PortraitDrawingAttemptBinding(profile: PortraitDrawingAttemptBinding.kind, drawing: reference,
       archive: archive.archiveID, run: intent.runID.rawValue, request: intent.requestID,
       stagedGeneration: proof.generation)
     let payload = try DrawingArtifactCoding.encoder().encode(record)
     try proof.assertUnchanged()
     try await library.commitRecords([.init(kind: PortraitDrawingAttemptBinding.kind, id: intent.runID.rawValue,
-      payload: payload, drawings: [reference])], intent: .init(id: intent.requestID))
+      payload: payload, drawings: [reference])], intent: .init(id: intent.issuance == nil ? intent.requestID : intent.runID.rawValue))
     try proof.assertUnchanged()
   }
   package func shutdown() async {

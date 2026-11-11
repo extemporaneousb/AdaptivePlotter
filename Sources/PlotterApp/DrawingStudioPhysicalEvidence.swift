@@ -14,7 +14,7 @@ extension Drawing {
     }
     guard let digest = try? PlotterModel.Digest(bytes: bytes) else { return nil }
     let candidate = DrawingRunCandidateReference(candidateID: ref.digest.description,
-      contentHash: digest, sourceProgram: program)
+      contentHash: digest, sourceProgram: program, authoredDrawing: ref)
     return candidate.matches(executionProgram) ? candidate : nil
   }
 }
@@ -45,21 +45,28 @@ extension PlotterApplicationRuntime {
   }
 
   private func retainStagedDrawing(_ intent: DrawingRunIntent) async throws {
-    guard let drawing = authoredDrawing(for: intent.context.program), let ref = drawing.reference,
-      let candidate = intent.context.candidate,
-      drawing.executionReference(for: intent.context.program) == candidate,
-      drawingDraftSnapshot.program == intent.context.program, drawingDraftSnapshot.plan == intent.plan,
-      !Task.isCancelled else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    let drawing: Drawing
+    if let binding = intent.issuance { drawing = try await portraitStudio.sketches.library.drawing(binding.drawing) }
+    else {
+      guard let authored = authoredDrawing(for: intent.context.program) else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      drawing = authored
+    }
+    guard let ref = drawing.reference, let candidate = intent.context.candidate,
+      drawing.executionReference(for: intent.context.program) == candidate else { throw DrawingRunEvidenceError.invalidAttemptContext }
     guard case .loaded(let archive) = await drawingEvidencePort.loadForPortraitBinding(intent),
       archive.attempts.contains(where: { $0.intent == intent }) else {
       throw DrawingRunEvidenceError.invalidAttemptContext
     }
     func assertCurrent() throws {
-      guard !Task.isCancelled, drawingDraftSnapshot.program == intent.context.program,
-        drawingDraftSnapshot.plan == intent.plan,
-        let current = authoredDrawing(for: intent.context.program), current.reference == ref,
-        current.executionReference(for: intent.context.program) == candidate else {
-        throw DrawingRunEvidenceError.invalidAttemptContext
+      if let binding = intent.issuance {
+        guard binding.drawing == ref, candidate.authoredDrawing == ref,
+          binding.physicalPlanID == intent.plan.revisionID,
+          binding.physicalPlanHash.description == intent.plan.contentHash.description else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      } else {
+        guard !Task.isCancelled, drawingDraftSnapshot.program == intent.context.program,
+          drawingDraftSnapshot.plan == intent.plan,
+          let current = authoredDrawing(for: intent.context.program), current.reference == ref,
+          current.executionReference(for: intent.context.program) == candidate else { throw DrawingRunEvidenceError.invalidAttemptContext }
       }
     }
     try assertCurrent()

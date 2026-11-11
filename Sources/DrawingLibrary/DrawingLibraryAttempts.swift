@@ -41,7 +41,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500 else { throw DrawingLibraryError.invalidQuery }
     if let after, after.drawing != drawing { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) {
+    return try commonSnapshot(db) { db in
       try assertSourceReference(.drawing(drawing), database: db)
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }

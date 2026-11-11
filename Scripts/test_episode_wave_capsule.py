@@ -355,15 +355,19 @@ class EpisodeWaveCapsuleTests(unittest.TestCase):
                     capsule.validated_contract(self.root, validate_live_gates=False)
 
     def test_drawing_issuance_frontier_requires_exact_evidence(self) -> None:
-        evidence_path = self.root / "docs/CURRENT_EVIDENCE.md"
-        evidence = evidence_path.read_text(encoding="utf-8")
-        heading = "## Wave admission blockers"
-        prefix, frontier = evidence.split(heading, 1)
-        phrase = "DOC-06 Drawing issuance definition candidate"
-        self.assertIn(phrase, frontier)
-        evidence_path.write_text(prefix + heading + frontier.replace(phrase, "physical boundary", 1), encoding="utf-8")
+        contract, rows, _gates, _blockers = capsule.validated_contract(self.root, validate_live_gates=False)
+        # This negative fixture tests the pending software frontier regardless
+        # of whether the repository itself has completed that package.
+        rows["DOC-06"]["status"] = "complete"
+        rows["DX-13-ISSUANCE"]["status"] = "pending"
+        evidence = (self.root / "docs/CURRENT_EVIDENCE.md").read_text(encoding="utf-8")
+        start = evidence.index("## Wave admission blockers")
+        end = evidence.index("\n## ", start + 4)
+        frontier = "## Wave admission blockers\n\nDOC-06 Drawing issuance definition candidate. `DOC-06` is complete; `DX-13-ISSUANCE` remains pending. No DX-13 Swift execution or physical acceptance is claimed.\n\n| Package | Blocker | Required input or canonical correction |\n| --- | --- | --- |\n"
+        fixture = evidence[:start] + frontier + evidence[end:]
+        contract.validate_wave_frontier(rows, fixture)
         with self.assertRaisesRegex(ValueError, "Drawing issuance frontier lacks evidence"):
-            capsule.validated_contract(self.root, validate_live_gates=False)
+            contract.validate_wave_frontier(rows, fixture.replace("DOC-06 Drawing issuance definition candidate", "physical boundary"))
 
     def test_coupled_definition_cannot_silently_change(self) -> None:
         path = self.root / "docs/EPISODE_ARCHITECTURE_EXECUTION_PLAN.md"

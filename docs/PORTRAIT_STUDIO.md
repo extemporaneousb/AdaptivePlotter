@@ -403,8 +403,11 @@ unknown width adds no required field or setup step.
 
 In AdaptivePlotter continue with ordinary Drawing placement, material/paper setup
 and explicit **Draw**. Export, import, choosing, pruning, fitting and activation
-never move hardware or alter mechanical Learning. Later edits cannot mutate placed
-or executed geometry.
+never move hardware or alter mechanical Learning. Explicit Draw retains the exact
+original request, Drawing and reviewed plan under one durable job and Run attempt.
+Stop is available while preparation is pending. A retry or recovered acknowledgement
+reconciles that attempt and never starts another drawing. Later edits cannot mutate
+placed or executed geometry.
 
 The existing raw DrawingEvidence owner retains execution, possible-ink and
 no-redraw authority. The authoring library records an exact DrawingRef association

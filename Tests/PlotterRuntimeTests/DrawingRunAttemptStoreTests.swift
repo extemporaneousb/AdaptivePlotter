@@ -545,7 +545,7 @@ struct DrawingRunAttemptStoreTests {
     guard case .loaded(let restored) = await restarted.load() else { Issue.record("Legacy upgrade failed"); return }
     #expect(restored == armed)
     let envelope = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-    #expect(envelope["schemaVersion"] as? Int == 3)
+    #expect(envelope["schemaVersion"] as? Int == 4)
     let count = await restarted.componentBytesEncoded
     try await restarted.stageIntent(input.intent)
     #expect(await restarted.componentBytesEncoded == count)
@@ -587,8 +587,13 @@ struct DrawingRunAttemptStoreTests {
     try await current.annotateReview(DrawingReviewNote(scope: scope, text: "Possible dispatch; inspection retained"))
     let annotated = try await current.dismissAttemptReview(runID: input.intent.runID)
     let protectedBytes = try Data(contentsOf: url)
-    #expect(throws: DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(3)) {
+    #expect(throws: DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(4)) {
       try schemaTwoReaderEnvelopeVersion(protectedBytes)
+    }
+    // Schema three also predates exact Drawing job issuance. It must refuse
+    // this envelope before an old writer can drop those bound intent fields.
+    #expect(throws: DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(4)) {
+      try schemaThreeReaderEnvelopeVersion(protectedBytes)
     }
     let restarted = DrawingRunEvidenceStore(fileURL: url)
     guard case .loaded(let protected) = await restarted.load() else {
@@ -608,6 +613,16 @@ struct DrawingRunAttemptStoreTests {
     struct HistoricalEnvelope: Decodable { let schemaVersion: UInt16 }
     let version = try JSONDecoder().decode(HistoricalEnvelope.self, from: bytes).schemaVersion
     guard [1, 2].contains(version) else {
+      throw DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(version)
+    }
+    return version
+  }
+
+  /// Frozen admission gate from the pre-issuance schema-three reader.
+  private func schemaThreeReaderEnvelopeVersion(_ bytes: Data) throws -> UInt16 {
+    struct HistoricalEnvelope: Decodable { let schemaVersion: UInt16 }
+    let version = try JSONDecoder().decode(HistoricalEnvelope.self, from: bytes).schemaVersion
+    guard [1, 2, 3].contains(version) else {
       throw DrawingRunEvidenceStoreRejection.unsupportedEnvelopeSchema(version)
     }
     return version

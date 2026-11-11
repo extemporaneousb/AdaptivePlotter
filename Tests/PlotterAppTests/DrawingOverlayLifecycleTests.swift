@@ -77,6 +77,7 @@ struct DrawingOverlayLifecycleTests {
       await f.planGate.release(.possibleInk)
       let draw = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
       #expect(await app.submitPlotterUIRequest(draw) == .accepted(requestID: draw.id))
+      try await f.waitForDrawingSettlement()
       _ = try #require(await f.planGate.request)
       let terminal = try #require(app.drawingRunSnapshot?.terminal)
       try #require(terminal.disposition == .possibleInk)

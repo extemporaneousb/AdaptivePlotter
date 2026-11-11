@@ -222,23 +222,26 @@ struct LibraryExchangeCatalogTests {
     let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at:root) }
     let store = DrawingLibrary(directoryURL:root.appendingPathComponent("library"))
     let admitted = try DX04Fixture.admitted(parent:root)
-    let catalog = try await store.commonCatalog(), db = catalog.database
-    let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
-    _ = try await store.publishFixture(admitted)
-    func updateDelta(_ title: String) async throws -> Int {
-      let before = Int(try db.scalar("SELECT total_changes()") ?? "0")!
-      try await store.updateFixtureMetadata(.init(reference:ref,title:title,retentionReasons:["chosen"],tombstoned:true))
-      return Int(try db.scalar("SELECT total_changes()") ?? "0")! - before
+    func verify(store: isolated DrawingLibrary) throws {
+      let catalog = try store.commonCatalog(), db = catalog.database
+      let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
+      _ = try store.publishFixture(admitted)
+      func updateDelta(_ title: String, owner: isolated DrawingLibrary) throws -> Int {
+        let before = Int(try db.scalar("SELECT total_changes()") ?? "0")!
+        try owner.updateFixtureMetadata(.init(reference:ref,title:title,retentionReasons:["chosen"],tombstoned:true))
+        return Int(try db.scalar("SELECT total_changes()") ?? "0")! - before
+      }
+      #expect(try updateDelta("Small", owner: store) == 2)
+      try store.seedMetadataFixture(ref)
+      #expect(try updateDelta("Large", owner: store) == 2)
+      let cached = try store.commonCatalog()
+      #expect(cached === catalog) // A reconstruction would repeat integrity/recovery scans.
+      #expect(try catalog.metadata(ref)?.title == "Large")
+      let ownerDB = try store.libraryDatabase()
+      let actorGeneration = try ownerDB.generation, expectedGeneration = try db.generation
+      #expect(actorGeneration == expectedGeneration)
     }
-    #expect(try await updateDelta("Small") == 2)
-    try await store.seedMetadataFixture(ref)
-    #expect(try await updateDelta("Large") == 2)
-    let cached = try await store.commonCatalog()
-    #expect(cached === catalog) // A reconstruction would repeat integrity/recovery scans.
-    #expect(try catalog.metadata(ref)?.title == "Large")
-    let ownerDB = try await store.libraryDatabase()
-    let actorGeneration = try ownerDB.generation, expectedGeneration = try db.generation
-    #expect(actorGeneration == expectedGeneration)
+    try await verify(store: store)
   }
 
   @Test("Explicit backup generation restores titles, retention and tombstones after catalog loss")
@@ -247,20 +250,27 @@ struct LibraryExchangeCatalogTests {
     let library = root.appendingPathComponent("library"), store = DrawingLibrary(directoryURL: library)
     let admitted = try DX04Fixture.admitted(parent: root)
     let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
-    var catalog: LibraryExchangeCatalog? = try await store.commonCatalog()
-    let transaction = try await store.publishFixture(admitted).transactionID
-    let expected = LibraryExchangeMetadata(reference: ref, title: "Kept title", retentionReasons: ["chosen", "plot-submitted"], tombstoned: true)
-    try await store.updateFixtureMetadata(expected)
-    let generation = try await store.createMetadataBackup()
-    catalog = nil; await store.closeLibrary()
-    try FileManager.default.removeItem(at: library.appendingPathComponent("drawing-library.sqlite"))
-    #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite")) }
-    try LibraryExchangeCatalog.restore(root: library, generationID: generation.generationID)
-    let restoredOwner = DrawingLibrary(directoryURL: library)
-    let restored = try await restoredOwner.commonCatalog()
-    #expect(try restored.metadata(ref) == expected)
-    #expect(try restored.publish(admitted).transactionID == transaction)
-    try restored.database.integrityCheck()
+    func verify(store: isolated DrawingLibrary) async throws {
+      var catalog: LibraryExchangeCatalog? = try store.commonCatalog()
+      let transaction = try store.publishFixture(admitted).transactionID
+      let expected = LibraryExchangeMetadata(reference: ref, title: "Kept title", retentionReasons: ["chosen", "plot-submitted"], tombstoned: true)
+      try store.updateFixtureMetadata(expected)
+      let generation = try store.createMetadataBackup()
+      _ = try #require(catalog)
+      catalog = nil; store.closeLibrary()
+      try FileManager.default.removeItem(at: library.appendingPathComponent("drawing-library.sqlite"))
+      #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite")) }
+      try LibraryExchangeCatalog.restore(root: library, generationID: generation.generationID)
+      let restoredOwner = DrawingLibrary(directoryURL: library)
+      func verifyRestored(store: isolated DrawingLibrary) throws {
+        let restored = try store.commonCatalog()
+        #expect(try restored.metadata(ref) == expected)
+        #expect(try restored.publish(admitted).transactionID == transaction)
+        try restored.database.integrityCheck()
+      }
+      try await verifyRestored(store: restoredOwner)
+    }
+    try await verify(store: store)
   }
 
 
@@ -275,25 +285,29 @@ struct LibraryExchangeCatalogTests {
     let library = root.appendingPathComponent("library"), store = DrawingLibrary(directoryURL: library)
     let admitted = try DX04Fixture.admitted(parent: root)
     let ref = LibraryExchangeReference.drawing(try #require(admitted.index.known?.roots.first))
-    var catalog: LibraryExchangeCatalog? = try await store.commonCatalog()
-    _ = try await store.publishFixture(admitted, metadata: [.init(reference: ref, title: "Selected backup B")])
-    let generation = try await store.createMetadataBackup()
-    try await store.updateFixtureMetadata(.init(reference: ref, title: "Displaced connection A"))
-    let sql = library.appendingPathComponent("drawing-library.sqlite")
-    let displaced = try DrawingLibraryDatabase(url: sql, readOnly: true)
-    let revisionA = try displaced.generation.revision
-    catalog = nil; await store.closeLibrary()
-    try LibraryExchangeCatalog.restore(root: library, generationID: generation.generationID)
-    let selected = try DrawingLibraryDatabase(url: sql, readOnly: true)
-    let revisionB = try selected.generation.revision
-    #expect(revisionA != revisionB)
-    print("DX04_READONLY_RESTORE_GENERATIONS oldRevision=\(revisionA) selectedRevision=\(revisionB)")
-    do { print("DX04_DISPLACED_RAW_GENERATION=\(try displaced.generation.revision)") }
-    catch { print("DX04_DISPLACED_RAW_GENERATION_ERROR type=\(type(of: error)) error=\(error)") }
-    #expect(throws: (any Error).self) { try displaced.assertSelectedFile() }
-    #expect(throws: (any Error).self) { _ = try displaced.scalar("SELECT value FROM state WHERE key='revision'") }
-    try selected.assertSelectedFile()
-    #expect(try selected.generation.revision == revisionB)
+    func verify(store: isolated DrawingLibrary) throws {
+      var catalog: LibraryExchangeCatalog? = try store.commonCatalog()
+      _ = try store.publishFixture(admitted, metadata: [.init(reference: ref, title: "Selected backup B")])
+      let generation = try store.createMetadataBackup()
+      try store.updateFixtureMetadata(.init(reference: ref, title: "Displaced connection A"))
+      let sql = library.appendingPathComponent("drawing-library.sqlite")
+      let displaced = try DrawingLibraryDatabase(url: sql, readOnly: true)
+      let revisionA = try displaced.generation.revision
+      _ = try #require(catalog)
+      catalog = nil; store.closeLibrary()
+      try LibraryExchangeCatalog.restore(root: library, generationID: generation.generationID)
+      let selected = try DrawingLibraryDatabase(url: sql, readOnly: true)
+      let revisionB = try selected.generation.revision
+      #expect(revisionA != revisionB)
+      print("DX04_READONLY_RESTORE_GENERATIONS oldRevision=\(revisionA) selectedRevision=\(revisionB)")
+      do { print("DX04_DISPLACED_RAW_GENERATION=\(try displaced.generation.revision)") }
+      catch { print("DX04_DISPLACED_RAW_GENERATION_ERROR type=\(type(of: error)) error=\(error)") }
+      #expect(throws: (any Error).self) { try displaced.assertSelectedFile() }
+      #expect(throws: (any Error).self) { _ = try displaced.scalar("SELECT value FROM state WHERE key='revision'") }
+      try selected.assertSelectedFile()
+      #expect(try selected.generation.revision == revisionB)
+    }
+    try await verify(store: store)
   }
 
   @Test("A live cached owner refuses selected SQL loss or replacement before staging new assets")
@@ -302,14 +316,18 @@ struct LibraryExchangeCatalogTests {
       let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at:root) }
       let library = root.appendingPathComponent("library"),store = DrawingLibrary(directoryURL:library)
       let admitted = try DX04Fixture.admitted(parent:root)
-      var catalog: LibraryExchangeCatalog? = try await store.commonCatalog()
-      let sql = library.appendingPathComponent("drawing-library.sqlite")
-      try FileManager.default.moveItem(at:sql,to:library.appendingPathComponent("retained-original.sqlite"))
-      if replacement { try Data("replacement".utf8).write(to:sql) }
-      #expect(throws:(any Error).self) { _ = try #require(catalog).publish(admitted) }
-      await #expect(throws:(any Error).self) { _ = try await store.libraryDatabase() }
-      #expect(try FileManager.default.contentsOfDirectory(atPath:library.appendingPathComponent("exchange-staging").path).isEmpty)
-      catalog = nil; await store.closeLibrary()
+      func verify(store: isolated DrawingLibrary) throws {
+        var catalog: LibraryExchangeCatalog? = try store.commonCatalog()
+        let sql = library.appendingPathComponent("drawing-library.sqlite")
+        try FileManager.default.moveItem(at:sql,to:library.appendingPathComponent("retained-original.sqlite"))
+        if replacement { try Data("replacement".utf8).write(to:sql) }
+        #expect(throws:(any Error).self) { _ = try #require(catalog).publish(admitted) }
+        #expect(throws:(any Error).self) { _ = try store.libraryDatabase() }
+        #expect(try FileManager.default.contentsOfDirectory(atPath:library.appendingPathComponent("exchange-staging").path).isEmpty)
+        _ = try #require(catalog)
+        catalog = nil; store.closeLibrary()
+      }
+      try await verify(store: store)
     }
   }
 
@@ -336,19 +354,27 @@ struct LibraryExchangeCatalogTests {
     let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let library = root.appendingPathComponent("library"), alias = root.appendingPathComponent("alias")
     let store = DrawingLibrary(directoryURL: library)
-    var borrowed: DrawingLibraryDatabase? = try await store.libraryDatabase()
-    try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: library)
-    #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: alias.appendingPathComponent("drawing-library.sqlite")) }
-    _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite"), readOnly: true)
-    _ = try DrawingLibraryDatabase(url: root.appendingPathComponent("other/drawing-library.sqlite"))
-    await store.closeLibrary()
-    #expect(borrowed != nil)
-    var proof = try #require(borrowed).writerLease
-    #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite"), writerLease: proof) }
-    #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite")) }
-    borrowed = nil; proof = nil
-    let successor = DrawingLibrary(directoryURL: library)
-    _ = try await successor.libraryDatabase()
+    func verify(store: isolated DrawingLibrary) async throws {
+      // The raw connection outlives closeLibrary(), while remaining confined
+      // to this original owner's executor rather than escaping to the test.
+      var borrowed: DrawingLibraryDatabase? = try store.libraryDatabase()
+      try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: library)
+      #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: alias.appendingPathComponent("drawing-library.sqlite")) }
+      _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite"), readOnly: true)
+      _ = try DrawingLibraryDatabase(url: root.appendingPathComponent("other/drawing-library.sqlite"))
+      store.closeLibrary()
+      #expect(borrowed != nil)
+      var proof = try #require(borrowed).writerLease
+      #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite"), writerLease: proof) }
+      #expect(throws: (any Error).self) { _ = try DrawingLibraryDatabase(url: library.appendingPathComponent("drawing-library.sqlite")) }
+      borrowed = nil; proof = nil
+      let successor = DrawingLibrary(directoryURL: library)
+      func verifySuccessor(store: isolated DrawingLibrary) throws {
+        _ = try store.libraryDatabase()
+      }
+      try await verifySuccessor(store: successor)
+    }
+    try await verify(store: store)
   }
 }
 

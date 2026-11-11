@@ -19,7 +19,7 @@ import PlotterModel
         return try application.preparedDestinationDrawing(ref, engine: engine)
       }, current: { [weak application] facts in
         try application?.preparedDestinationDrawing(facts.drawing, engine: facts.destination)?.facts
-      })
+      }, control: DrawingRunDestinationControl(runtime: application.drawingRunRuntime))
   }
 }
 enum DrawingDestinationPreparationOutcome: Sendable {
@@ -151,4 +151,143 @@ typealias DrawingDestinationReveal = @MainActor (DrawingPreparedTicket) -> Bool
       photoResult(failure)
     }
   }
+}
+
+import PlotterEpisodeModel
+import PlotterEpisodeRuntime
+import PlotterRuntime
+import PlotterUI
+
+/// Immutable native capability captured by the actual public sink. Mutable
+/// pending/cancel/dispatch state lives only in PlotterDrawingRunRuntime.
+@MainActor struct NativeDrawingIssuancePreparation: PlotterDrawingRunIssuancePreparation {
+  weak var application: PlotterApplicationRuntime?
+  let runtime: PlotterDrawingRunRuntime
+  let original: PlotterDrawingRunSubmission
+  let draft: PlotterDrawingDraftSnapshot
+  let facts: PlotterDrawingDraftExternalFacts
+  let drawing: Drawing?
+  let selectionEpoch: UInt64
+  let collectionSelectionEpoch: UInt64
+  nonisolated let requestStamp: ExchangeDigest
+
+  init(application: PlotterApplicationRuntime, runtime: PlotterDrawingRunRuntime,
+    original: PlotterDrawingRunSubmission, requestStamp: ExchangeDigest) {
+    self.application = application; self.runtime = runtime; self.original = original; self.requestStamp = requestStamp
+    draft = application.drawingDraftSnapshot; facts = application.drawingDraftExternalFacts
+    selectionEpoch = application.portraitStudio.selectionEpoch
+    collectionSelectionEpoch = application.portraitStudio.sketches.selectionEpoch
+    if let selected = application.portraitStudio.projectedDrawing, selected.program == draft.authoredProgram {
+      // A retained unsupported Drawing must never be replaced by a builtin
+      // source-free receipt merely because it has renderable geometry.
+      drawing = selected
+    } else if let execution = draft.program, let existing = application.authoredDrawing(for: execution) { drawing = existing }
+    else if let authored = draft.authoredProgram { drawing = try? application.sourceFreeDrawing(authored) }
+    else { drawing = nil }
+  }
+  nonisolated static func stamp(_ request: PlotterUIRequest) -> ExchangeDigest {
+    let parts = [request.id.rawValue.uuidString, String(request.uiRevision.rawValue), request.actionID.rawValue, "drawingRun.start"]
+      + request.runtimeRevisions.sorted { $0.owner < $1.owner }.flatMap { [$0.owner, $0.token] }
+    return .hash(Data(parts.map { "\($0.utf8.count):" + $0 }.joined().utf8))
+  }
+  func matchesCurrent() -> Bool {
+    guard let application, application.drawingDestinationRecoveryAdmissionIsOpen,
+      application.drawingFrameEditRunUnavailableReason == nil,
+      application.portraitStudio.selectionEpoch == selectionEpoch,
+      application.portraitStudio.sketches.selectionEpoch == collectionSelectionEpoch,
+      application.drawingDraftSnapshot.authoredProgram == draft.authoredProgram,
+      application.drawingDraftSnapshot.program == draft.program,
+      application.drawingDraftSnapshot.plan == draft.plan,
+      application.drawingDraftSnapshot.placementID == draft.placementID,
+      application.drawingDraftSnapshot.drawBorder == draft.drawBorder else { return false }
+    let a = facts.revisions, b = application.drawingDraftExternalFacts.revisions
+    // Own pending/active publication changes runInProgress and Draft revision.
+    // Every actual source/placement/material/paper/calibration pin remains exact.
+    return a.environment == b.environment && a.placementGuide == b.placementGuide
+      && a.interactiveLearningIsComplete == b.interactiveLearningIsComplete
+      && a.registrationRevisionID == b.registrationRevisionID && a.opticalConfiguration == b.opticalConfiguration
+      && a.drawableRegion == b.drawableRegion && a.drawingBorderBounds == b.drawingBorderBounds
+      && a.toolAssemblyRevision == b.toolAssemblyRevision && a.paper == b.paper
+      && a.materialContextHash == b.materialContextHash
+      && a.drawingArchiveIsAvailable == b.drawingArchiveIsAvailable
+      && facts.cameraSource == application.drawingDraftExternalFacts.cameraSource
+      && facts.cameraConfigurationID == application.drawingDraftExternalFacts.cameraConfigurationID
+  }
+  func currentFacts() async -> PlotterDrawingRunExternalFacts {
+    guard let application, matchesCurrent() else { return unavailableFacts() }
+    let current = await application.currentDrawingRunFacts(for: original.projection.environment)
+    guard matchesCurrent(), let plan = current.plan, plan.plan == draft.plan,
+      let identity = original.projection.planIdentity else { return unavailableFacts() }
+    let frozen = PlotterDrawingRunPlan(draftRevision: identity.draftRevision, program: plan.program,
+      placementID: plan.placementID, plan: plan.plan, evidenceRole: plan.evidenceRole, paperCoverage: plan.paperCoverage,
+      registration: plan.registration, candidate: plan.candidate, materialProfile: plan.materialProfile,
+      materialApplicability: plan.materialApplicability, paperStock: plan.paperStock)
+    return .init(environment: current.environment, interactiveLearningIsComplete: current.interactiveLearningIsComplete,
+      plan: frozen, paperCoverageIsCurrent: current.paperCoverageIsCurrent, displayedFrame: current.displayedFrame,
+      interpreter: current.interpreter, penActuationProfile: current.penActuationProfile,
+      physicalPositionUnavailableReason: current.physicalPositionUnavailableReason, acceptedMovementBounds: current.acceptedMovementBounds)
+  }
+  private func unavailableFacts() -> PlotterDrawingRunExternalFacts {
+    .init(environment: original.projection.environment, interactiveLearningIsComplete: false, plan: nil,
+      paperCoverageIsCurrent: false, displayedFrame: nil, interpreter: nil, penActuationProfile: .initialDefaults)
+  }
+  func prepareAndSubmit(pendingID: UUID, submission: PlotterDrawingRunSubmission) async throws -> DrawingDestinationReply {
+    guard let drawing else { throw DrawingDestinationRefusal.preparationUnavailable }
+    guard drawing.capabilities.supported.contains(.plot) else { throw DrawingDestinationRefusal.unsupportedDrawing }
+    guard submission == original, matchesCurrent(), let application,
+      let plan = draft.plan, let identity = original.projection.planIdentity else { throw DrawingDestinationRefusal.stalePreview }
+    let retained = try await application.portraitStudio.sketches.retain(drawing, reason: "plot")
+    guard matchesCurrent(), let ref = retained.reference else { throw DrawingDestinationRefusal.stalePreview }
+    let identityPair = try await application.drawingDestination.nativeIdentity()
+    guard matchesCurrent() else { throw DrawingDestinationRefusal.stalePreview }
+    // Options are frozen at the original click. Busy/readiness publication is
+    // not encoded as a new external requirement or parsed from presentation.
+    let encoder = DrawingArtifactCoding.encoder()
+    let provenance = try encoder.encode(NativeApplicability(environment: facts.revisions.environment,
+      tool: facts.revisions.toolAssemblyRevision, paper: facts.revisions.paper,
+      registration: facts.revisions.registrationRevisionID, material: facts.revisions.materialContextHash?.description))
+    let options = DrawingDestinationOptions(drawBorder: draft.drawBorder,
+      sheetPlacementIsCurrent: draft.sheetPlacementIsCurrent, paperCoverageIsCurrent: draft.paperCoverageIsCurrent,
+      readiness: "native-request", applicability: .hash(provenance))
+    let preparation = try DrawingPreparation(drawing: ref, destination: identityPair.engine,
+      draftRevision: identity.draftRevision.rawValue, plan: plan, options: options)
+    let context = DrawingPreparationContext(isStillCurrent: { matchesCurrent() }, nativePreparation: preparation)
+    guard case .prepared(let ticket) = try await application.drawingDestination.handle(.prepare(ref), context: context) else {
+      throw DrawingDestinationRefusal.preparationUnavailable
+    }
+    guard matchesCurrent() else { throw DrawingDestinationRefusal.stalePreview }
+    let adapter = NativeDrawingAdmission(preparation: self, pendingID: pendingID, drawing: retained)
+    return try await application.drawingDestination.handle(.submit(.init(namespace: identityPair.namespace,
+      request: original.requestID.rawValue), ticket), admission: adapter)
+  }
+  private struct NativeApplicability: Encodable {
+    let environment: PlotterEnvironment
+    let tool: ToolAssemblyRevision
+    let paper: PaperRevisionContext
+    let registration: LearningArtifactRevisionID?
+    let material: String?
+  }
+}
+@MainActor private struct NativeDrawingAdmission: DrawingDestinationIssuanceAdmission {
+  let preparation: NativeDrawingIssuancePreparation
+  let pendingID: UUID
+  let drawing: Drawing
+  func isCurrent(_ ticket: DrawingPreparedTicket) async -> Bool {
+    preparation.matchesCurrent() && drawing.reference == ticket.facts.drawing
+      && preparation.draft.plan?.revisionID == ticket.facts.planID
+      && preparation.draft.plan?.contentHash.description == ticket.facts.planHash.description
+  }
+  func admit(_ binding: DrawingJobIssuance, publication: any DrawingJobPublication) async throws {
+    guard let program = preparation.draft.program, let candidate = drawing.executionReference(for: program) else {
+      throw DrawingDestinationRefusal.preparationUnavailable
+    }
+    try await preparation.runtime.continuePreparedIssuance(pendingID: pendingID, binding: binding,
+      candidate: candidate, publication: publication)
+  }
+}
+private struct DrawingRunDestinationControl: DrawingDestinationJobControl {
+  let runtime: PlotterDrawingRunRuntime
+  func cancel(_ binding: DrawingJobIssuance) async -> DrawingJobCancellation { await runtime.cancelIssuance(binding) }
+  func lookup(_ binding: DrawingJobIssuance) async -> DrawingRawIssuanceLookup { await runtime.lookupIssuance(binding) }
+  func publishedSettlement(_ binding: DrawingJobIssuance, run: UUID) async { await runtime.acknowledgeJobSettlement(binding, run: run) }
 }

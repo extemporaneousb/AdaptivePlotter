@@ -91,16 +91,39 @@ retain exact revisions and their closure. Rank retains features and previews
 without making unselected geometry permanent.
 
 `PortraitCore.DrawingDestination` supplies neutral typed control values. The
-`PortraitLibrary` destination service serializes admission across awaits and stores
-compact identities/tickets/decisions/pending mappings through the same DrawingLibrary
-writer/CAS. Its local file adapters share the contract. PlotterApp supplies actual
-projection-bound Prepare/live-fact adapters; production Submit refuses the unavailable
-issuance seam and cannot call legacy Start. View-owned restoration/reveal callbacks
-keep selection/layout out of the service. Root shutdown closes metadata admission,
-settles existing physical effects, then joins metadata workers/recovery before Library
-teardown. `DrawingDestinationHarness` depends on DrawingLibrary, PortraitCore,
+`PortraitLibrary` destination service serializes short metadata transitions through
+the same DrawingLibrary writer/CAS. Exact namespace/request/digest mappings retain
+the Drawing/input/parent closure, frozen plan/options and typed pending issuance.
+It releases that transition boundary before Run admission or artifact export, so
+Status and Cancel can proceed during those waits. PlotterApp captures the original
+projection-bound request UUID and immutable `NativeDrawingIssuancePreparation`
+before awaits. Its nominal per-call admission carries shared Submit back to the
+same `PlotterDrawingRunRuntime`; Core/Library import no PlotterUI types. File and
+automatic ingress remain Prepare-only and cannot create native Plot capability.
+
+The Run owner publishes pending ownership and exact Stop before retention or
+preparation awaits, and retains the task through settlement. Its existing raw
+`DrawingRunEvidenceStore` atomically chooses or finds the canonical intent/RunID
+for the full `DrawingJobIssuance` binding. The existing portrait adapter verifies
+the exact staged manifest leaf before the Library accepted receipt and Run link
+commit. Only the original live newly-staged continuation consumes dispatch
+permission; duplicate, uncertain or recovered staging never recreates it. Terminal
+publication verifies that existing canonical intent and replays only evidence
+persistence. Retry/startup reconciliation repairs metadata without dispatch.
+Root shutdown synchronously closes this same Run owner's admission/cancellation
+latch before its first await, then joins lower handles, retained tasks and metadata
+workers before Library teardown. Stop publishes a stopping revision while retaining
+the prior physical phase for exact lower cancellation and late-handle joining.
+Only a genuinely new admissible attempt resets volatile media/coverage buffers;
+raw history, recovery cursors and no-redraw roots remain retained. An already
+committed paper replacement finishes its exact metadata-only terminal handoff
+through the same Run owner while dispatch admission remains closed. The existing
+artifact/reset effect verifies its operation and persisted checkpoint; no new
+persistence or execution authority is introduced. View-owned restoration/reveal
+callbacks retain selection/layout ownership. `DrawingDestinationHarness` depends on DrawingLibrary, PortraitCore,
 PortraitLibrary and PlotterModel; it is a disposable non-device protocol executable,
-not another app or production executor. No Runtime/Episode authority transfer occurs.
+not another app or production executor. Its refusal-only process smoke does not
+exercise accepted dispatch or establish physical behavior.
 
 `PortraitStudioUI` owns `FlowDojoModel`, the shared Explore/Prune/Rank/Fit & deploy
 views, the serial `FlowDojoRenderer` actor, preview generation and

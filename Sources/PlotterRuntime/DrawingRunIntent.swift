@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import PlotterModel
+import PortraitCore
 
 /// C2 identity crosses the App boundary without importing its candidate archive.
 public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
@@ -10,13 +11,14 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
   public let sourceProgram: DrawingProgram
   /// Absent on legacy/native references; synthesized optional encoding omits nil.
   public let origin: DrawingOriginReference?
+  public let authoredDrawing: DrawingRef?
   public init(candidateID: String, contentHash: PlotterModel.Digest, sourceProgram: DrawingProgram,
-    origin: DrawingOriginReference? = nil) {
+    origin: DrawingOriginReference? = nil, authoredDrawing: DrawingRef? = nil) {
     self.candidateID = candidateID
     self.contentHash = contentHash
     self.programContentHash = sourceProgram.contentHash
     self.sourceProgram = sourceProgram
-    self.origin = origin
+    self.origin = origin; self.authoredDrawing = authoredDrawing
   }
 
   /// The one known compositor preserves all artwork stroke identities and maps
@@ -27,7 +29,10 @@ public struct DrawingRunCandidateReference: Codable, Hashable, Sendable {
     let drawingIdentity = candidateID == "drawing-" + contentHash.description
       && contentHash == programContentHash
     let identityMatches: Bool
-    if let origin {
+    if let authoredDrawing {
+      identityMatches = candidateID == authoredDrawing.digest.description
+        && contentHash.description == authoredDrawing.digest.description
+    } else if let origin {
       identityMatches = (try? origin.validate()) != nil
         && candidateID == origin.drawingID && contentHash == origin.identityHash
         && origin.programHash == programContentHash
@@ -164,8 +169,7 @@ public struct DrawingRunAttemptContext: Codable, Hashable, Sendable {
 }
 
 /// Durable preparation only; it is never an instruction to restore or replay motion.
-public struct DrawingRunIntent: Codable, Hashable, Sendable {
-  public let runID: RunID
+public struct DrawingRunIntentBody: Codable, Hashable, Sendable {
   public let requestID: UUID
   public let plan: ExecutionPlanRevision
   public let placementID: UUID
@@ -173,16 +177,13 @@ public struct DrawingRunIntent: Codable, Hashable, Sendable {
   public let context: DrawingRunAttemptContext
   public let observationPlan: DrawingRunObservationPlan?
   public let recordedAt: RuntimeTimestamp
-
-  public init(runID: RunID, requestID: UUID, plan: ExecutionPlanRevision,
-    placementID: UUID, role: BorderValidationEvidenceRole, context: DrawingRunAttemptContext,
+  public init(requestID: UUID, plan: ExecutionPlanRevision, placementID: UUID,
+    role: BorderValidationEvidenceRole, context: DrawingRunAttemptContext,
     observationPlan: DrawingRunObservationPlan? = nil, recordedAt: RuntimeTimestamp) throws {
-    self.runID = runID; self.requestID = requestID; self.plan = plan
-    self.placementID = placementID; self.role = role; self.context = context
-    self.observationPlan = observationPlan; self.recordedAt = recordedAt
+    self.requestID = requestID; self.plan = plan; self.placementID = placementID
+    self.role = role; self.context = context; self.observationPlan = observationPlan; self.recordedAt = recordedAt
     try validate()
   }
-
   func validate() throws {
     try context.validate()
     if let recipe = context.motionRecipe {
@@ -218,6 +219,66 @@ public struct DrawingRunIntent: Codable, Hashable, Sendable {
         == (try DrawingMaterialApplicability.registrationHash(context.registration)) else {
       throw DrawingRunEvidenceError.invalidAttemptContext
     }
+  }
+}
+public struct DrawingRunIssuanceProposal: Codable, Hashable, Sendable {
+  public let body: DrawingRunIntentBody
+  public let binding: DrawingJobIssuance
+  public init(body: DrawingRunIntentBody, binding: DrawingJobIssuance) throws {
+    try body.validate()
+    guard body.plan.revisionID == binding.physicalPlanID,
+      body.plan.contentHash.description == binding.physicalPlanHash.description,
+      body.requestID == binding.key.request,
+      let candidate = body.context.candidate, candidate.authoredDrawing == binding.drawing,
+      candidate.matches(body.context.program) else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    self.body = body; self.binding = binding
+  }
+}
+public struct DrawingRunIntent: Codable, Hashable, Sendable {
+  public let runID: RunID
+  public let body: DrawingRunIntentBody
+  public let issuance: DrawingJobIssuance?
+  public var requestID: UUID { body.requestID }
+  public var plan: ExecutionPlanRevision { body.plan }
+  public var placementID: UUID { body.placementID }
+  public var role: BorderValidationEvidenceRole { body.role }
+  public var context: DrawingRunAttemptContext { body.context }
+  public var observationPlan: DrawingRunObservationPlan? { body.observationPlan }
+  public var recordedAt: RuntimeTimestamp { body.recordedAt }
+  public init(runID: RunID, body: DrawingRunIntentBody, issuance: DrawingJobIssuance? = nil) throws {
+    try body.validate(); self.runID = runID; self.body = body; self.issuance = issuance
+    if let issuance { _ = try DrawingRunIssuanceProposal(body: body, binding: issuance) }
+  }
+  public init(runID: RunID, requestID: UUID, plan: ExecutionPlanRevision,
+    placementID: UUID, role: BorderValidationEvidenceRole, context: DrawingRunAttemptContext,
+    observationPlan: DrawingRunObservationPlan? = nil, recordedAt: RuntimeTimestamp) throws {
+    try self.init(runID: runID, body: .init(requestID: requestID, plan: plan, placementID: placementID,
+      role: role, context: context, observationPlan: observationPlan, recordedAt: recordedAt))
+  }
+  func validate() throws {
+    try body.validate()
+    if let issuance { _ = try DrawingRunIssuanceProposal(body: body, binding: issuance) }
+  }
+  private enum CodingKeys: String, CodingKey {
+    case runID, requestID, plan, placementID, role, context, observationPlan, recordedAt, issuance
+  }
+  public init(from decoder: any Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    try self.init(runID: c.decode(RunID.self, forKey: .runID),
+      body: .init(requestID: c.decode(UUID.self, forKey: .requestID), plan: c.decode(ExecutionPlanRevision.self, forKey: .plan),
+        placementID: c.decode(UUID.self, forKey: .placementID), role: c.decode(BorderValidationEvidenceRole.self, forKey: .role),
+        context: c.decode(DrawingRunAttemptContext.self, forKey: .context),
+        observationPlan: c.decodeIfPresent(DrawingRunObservationPlan.self, forKey: .observationPlan),
+        recordedAt: c.decode(RuntimeTimestamp.self, forKey: .recordedAt)),
+      issuance: c.decodeIfPresent(DrawingJobIssuance.self, forKey: .issuance))
+  }
+  public func encode(to encoder: any Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(runID, forKey: .runID); try c.encode(requestID, forKey: .requestID)
+    try c.encode(plan, forKey: .plan); try c.encode(placementID, forKey: .placementID)
+    try c.encode(role, forKey: .role); try c.encode(context, forKey: .context)
+    try c.encodeIfPresent(observationPlan, forKey: .observationPlan); try c.encode(recordedAt, forKey: .recordedAt)
+    try c.encodeIfPresent(issuance, forKey: .issuance)
   }
 }
 

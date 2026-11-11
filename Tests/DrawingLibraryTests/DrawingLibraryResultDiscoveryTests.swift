@@ -158,8 +158,10 @@ struct DrawingLibraryResultDiscoveryTests {
     let first = try await library.results(limit: 1)
     #expect(first.entries.map(\.reference) == Array(expected.prefix(1)))
     let perDrawing = try await library.results(for: primary.reference, limit: 1)
-    await #expect(throws: (any Error).self) { try await library.results(after: #require(perDrawing.next)) }
-    await #expect(throws: (any Error).self) { try await library.results(for: primary.reference, after: #require(first.next)) }
+    let perDrawingCursor = try #require(perDrawing.next)
+    let firstCursor = try #require(first.next)
+    await #expect(throws: (any Error).self) { try await library.results(after: perDrawingCursor) }
+    await #expect(throws: (any Error).self) { try await library.results(for: primary.reference, after: firstCursor) }
     let artwork = root.appendingPathComponent("library/objects")
     let held = root.appendingPathComponent("held")
     try FileManager.default.moveItem(at: artwork, to: held)

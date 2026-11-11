@@ -312,7 +312,9 @@ struct PlotterApplicationRuntimeView: View {
         selectCamera: { await selectCamera(.portrait) }, photoSelected: { ref in
           if let ref { libraryRoute.wrappedValue.selectPhoto(ref) }
         })
-        .environment(\.portraitActionTelemetry, WorkbenchRequestTelemetry.nativeActionHandled)
+        .environment(\.portraitActionTelemetry, { identifier in
+          WorkbenchRequestTelemetry.nativeActionHandled(identifier)
+        })
         .padding(12)
         .task(id: application.observationConfigurationProjection.selectedCameraID) {
           await application.portraitStudio.discover(excluding: application.observationConfigurationProjection.selectedCameraID)

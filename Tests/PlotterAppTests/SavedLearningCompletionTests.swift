@@ -217,6 +217,7 @@ extension SavedLearningCompletionTests {
         await f.planGate.release(.completed)
       }
       #expect(await run.value == .accepted(requestID: start.id))
+      try await f.waitForDrawingSettlement()
       let terminal = try #require(app.drawingRunSnapshot?.terminal)
       // Full-Boundary Fit reaches beyond this saved tip calibration's measured
       // applicability. Completed controller commands cannot supply ink proof.
@@ -448,6 +449,7 @@ extension SavedLearningCompletionTests {
     await f.planGate.release(.completed)
     let start = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
     #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+    try await f.waitForDrawingSettlement()
     let record = try #require(app.drawingRunSnapshot?.terminal?.record)
     let oldPaper = app.currentPaperRevisionContext
     let activeRegistration = app.tipCameraRegistration
@@ -471,6 +473,12 @@ extension SavedLearningCompletionTests {
     #expect(checkpoint.semanticIdentity.paperInstance == app.currentPaperRevisionContext.instance)
     #expect(checkpoint.tipCalibration?.registration == activeRegistration)
     #expect(archive.records.contains(record))
+    let closed = await f.runRuntime.currentSnapshot(environment: .live)
+    let effects = await f.machine.requestedDrawingStrokes
+    let refused = await f.runRuntime.submit(.init(projection: closed.projection, intent: .start))
+    if case .refused(let refusal) = refused.disposition { #expect(refusal.reason == .admissionClosed) }
+    else { Issue.record("Committed metadata settlement reopened Drawing Run admission") }
+    #expect(await f.machine.requestedDrawingStrokes == effects)
   }
 
   @Test("paper publication holds source controller and repeated-sheet mutations until one commit")

@@ -8,7 +8,259 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## DX-13 issuance software correction
+
+Task `task-ce89b70d1a7a440683f88e1dfc3a6ebc`, attempt
+`attempt-cd958d8b696642e4830f7f2c8bf2da9e`, resumes saved implementation on
+`85e41dd4c0df84cc7aab2df6eae7f348fea8f419`. All thirteen required gates passed on
+clean committed software candidate `82fcef804d4a66fce9408f1fc85f2c5534d5bc1d` while its ledger remained
+pending. The completion-only records below travel through the same normal Blackdog
+landing. Package `DX-13-ISSUANCE` complete; migration remains incomplete.
+The immutable outcome definition is
+`4827a921566056c45fe7c0391c6775b0d5b50494584edf1ece8b56a2c78d511f`.
+
+| Validation | Result | Scope |
+| --- | --- | --- |
+| `DX12-PREREQUISITE` | passed — adopted ancestor and bounded lifecycle receipt verified | `5cbf791de3756fffb74412d2abfd78a549c22020`; prior software evidence, no fresh physical acceptance |
+| `BUILD` | passed — `swift build` | Exact clean software candidate |
+| `DRAW-ISSUANCE` | passed — 13/13 test functions across all three nonempty fixed suites | Actual Run/raw/service/native boundaries, crash cuts, lost ACK, Stop/shutdown, publication and no second dispatch |
+| `DRAW-RUN` | passed — 33/33 test functions | Exact refusal identities/remedies, raw evidence, no-redraw, Stop and recovery |
+| `DRAW-DRAFT` | passed — 46/46 test functions | Existing Draft ownership/currentness and unchanged geometry policy |
+| `COMPOSITION` | passed — 11/11 test functions | Production-root projection, Learning ordering, cancellation/joins and shutdown |
+| `AFFECTED-CONSUMERS` | passed — `sh Scripts/check_episode_cutover.sh DX-13-ISSUANCE --consumer-only` | Actual nominal native preparation/shared Submit/same Runtime chain |
+| `DELETE` | passed — `sh Scripts/check_episode_cutover.sh DX-13-ISSUANCE` | Fake acceptance and unbound authored Start removed; canonical raw stage and exact portrait proof retained |
+| `DOC` | passed — configured `make docs-check` | As-built canonical documentation and repository contracts on the tested software candidate |
+| `DIFF` | passed — configured `git diff --check` | Normal configured candidate check; completion-only DOC/DIFF required before adoption |
+| `QUICK` | passed — configured `make quick-test`; 1944 passing cases | Normal serial suite; 29 optional skips, zero failures/errors; actual fresh xUnit output retained |
+| `JOURNEY` | passed — 10/10 test functions via `make journey-test` | Normal retained sequential causal journeys |
+| `ISSUANCE-STRICT` | passed — 13/13 test functions across all three nonempty fixed suites | Exact focused strict-concurrency=complete and warnings-as-errors command; global STRICT not claimed |
+
+Configured machine event `cc76395d6f16fc70fe3bab62401b126d4108bc82bdac940d2a33b392332ffe86` records the normal DOC/QUICK/DIFF
+commands on the above candidate. All 954 inputs remained unchanged for every
+required invocation. Blackdog's receipt owns internal command timing, return codes
+and output-retention metadata; no missing internal output or XML is reconstructed,
+and fresh xUnit output reports actual QUICK case counts, including optional skips. Direct focused commands retain raw
+stdout/stderr and nonzero suite accounting. Only Current Evidence, execution-ledger
+completion text and the checker completion/checksum constants may change afterward;
+all runtime/product/test/build inputs remain byte-identical. Final completion-only
+DOC/DIFF and pin comparison are required before canonical adoption.
+The first completion-only DOC check failed on a stale required ledger checksum
+(0.947 seconds, all 954 completion inputs unchanged). Updating that completion
+constant changes no checker logic; the final DOC/DIFF checks and exact input-delta
+proof must pass before landing.
+
+The correction uses the existing Library journal/CAS, Run runtime, raw staged
+intent and exact portrait-proof owners. The original native UI UUID/model request
+and immutable Drawing/plan/options bindings survive retention, preparation and
+shared Submit. Run pending ownership and Stop precede fallible awaits. Atomic raw
+stage chooses/finds the one canonical RunID; accepted receipt/Run-link publication
+and exact staged-leaf proof precede effects. Only the original live newly-staged
+continuation can consume dispatch permission. Short serialized metadata transitions
+keep Status/Cancel separate from run/export waits. Retry and startup reconcile
+existing metadata/attempts and never recreate dispatch permission. File/automatic
+Prepare has no native Plot capability. Fake non-device acceptance and unbound
+native Start are removed in the software candidate.
+
+The resumed publication repair verifies the existing issuance receipt and exact
+full canonical intent before terminal evidence append. Missing, mismatched or
+corrupt lookup retains publication failure/recovery; recovery never stages another
+RunID. Nonjob intent replay, media, baseline, progress and final append remain under
+the existing raw owner. Same-sheet possible-ink/no-redraw and lower Stop/settlement
+remain authoritative. Unknown physical pen width adds no field or user duty.
+
+The prior run-feedback-5 remains an interrupted failed observation, not an aggregate
+pass. The first resumed narrow Run invocation compiled but exposed a typed
+pen-profile refusal regression and a test joining shutdown before releasing its
+held fact acquisition. It was interrupted after 151.056 seconds; all 951 captured
+inputs were unchanged. Its partial buffered output contains 20 passing test headers
+and refusal assertion issues; it supplies no completed aggregate result. The
+shutdown fixture must release the held dependency concurrently and then verify
+retained-owner joining, rather than equating cancellation with settlement.
+
+The first resumed issuance-suite compile failed on a new fixture's RHS `try` in
+an `&&` expression (256.175 seconds, 954 inputs unchanged); no cases ran. The
+scanner's 22 fixtures and both actual cutover scopes passed on the frozen source.
+A first standalone Python scanner invocation created bytecode artifacts; only
+those three generated files were removed, and a bytecode-disabled rerun verified
+all 954 inputs unchanged. Preliminary docs-check passed (13/9/52/6 Python cases)
+with all 954 inputs unchanged. The next issuance compile failed because a new
+duplicate-attempt fixture omitted required empty-record/revision arguments
+(143.648 seconds, 954 inputs unchanged). The subsequent invocation compiled and
+ran all three fixed suites: 12 test functions, three assertion issues. Every Run/raw
+issuance function passed. The native fixture incorrectly expected one total record
+rather than preserving its pre-existing Learning Border record plus the new Run;
+the pre-SQL cut incorrectly expected no job despite a retained durable journal.
+Those failed observations remain retained; they are not package passes. These
+observations precede final candidate gates. The corrected preliminary issuance
+invocation then passed all 12 test functions across the three nonempty fixed suites
+(69.680 seconds including compilation, 954 inputs unchanged).
+
+The first clean committed software candidate was
+`e6c0bb04c386eba93535b3edde5a65572c67a2d5`. Its BUILD and DRAW-ISSUANCE passed;
+DRAW-RUN completed 33 test functions with six assertion issues (48.391 seconds,
+954 inputs unchanged). Typed pen-profile refusal was still lost across the neutral
+service reply; the changed-plan harness retained the initial preparation, and the
+checksummed-archive fixture treated admission acknowledgement as terminal settlement
+before reconstructing a job through the intentionally nonjob API. The gate sequence stopped before later gates and before QUICK.
+This partial candidate is failed history, not final package validation.
+The repaired affected Run invocation passed all 33 functions (94.988 seconds
+including compilation, 954 inputs unchanged). The same pending Run owner now
+retains its compact typed refusal across neutral service replies; per-call test
+preparation freezes the current exact Drawing/plan, and archive verification reopens
+the actual canonical staged/sealed store after settlement.
+The corrected clean candidate `95155fe9eb3360851f63d69fd29e0a7b4e573624`
+passed BUILD, issuance (12 functions), Run (33), Draft (46), composition (11) and
+both cutover scopes with all 954 inputs unchanged. Configured event
+`697da30b44f6d4d856f0b4609ab02aaa52ef3f78fe73fef4c494a3926c1d22db`
+passed DOC but QUICK returned failure after 1,493.643 seconds; DIFF did not run.
+Blackdog retained command results/timing/byte counts, not assertion output. This
+remains failed history. A retained affected-consumer invocation then completed 34
+functions with 33 issues, exposing remaining acknowledgement-versus-settlement
+fixtures and a pending Stop cancellation publication/revision defect. No later gate
+or completion was inferred from the failed configured run.
+The first affected-consumer adaptation stopped at a raster-fixture access error
+before cases ran. After that fixture used the existing snapshot stream to join the
+same Run without a new workload timeout, the combined invocation completed 120
+functions with 11 issues (416.803 seconds, 954 inputs unchanged). Its real raster
+workloads retained their measurement limits. Remaining failures identified an
+obsolete export-wide FIFO test barrier, evidence-media fields leaking into a second
+attempt, and an already committed paper replacement whose metadata handoff was
+blocked by shutdown admission. These observations remain nonpassing until their
+narrow existing-owner repairs and required candidate gates complete.
+The repaired lifecycle scope then passed 45 functions (264.339 seconds including
+compilation, 954 inputs unchanged), covering clean per-attempt buffers and exact
+metadata-only completion of a committed replacement during closed admission. The
+existing retained reset effect verifies its operation and persisted checkpoint;
+ordinary Run Start remains refused after shutdown. A real terminal-job SQL fault
+also verifies publication recovery blocks paper/reset before durable mutation.
+Extending that same case to the post-SQL cut exposed a lost terminal-ACK marker
+that did not clear through service recovery (one failing function, 29.335 seconds,
+954 inputs unchanged). Its repair acknowledges only an already-durable settled
+job to the exact persisted live Run and must remain idempotent and effect-free.
+That exact before/after-SQL case then passed both cuts (one function, 34.847
+seconds including compilation, 954 inputs unchanged). Settled-record retry now
+acknowledges only the exact already-persisted Run without artwork/proof scans of
+historical completed jobs, new publication or effects. Repeated acknowledgement
+has no revision churn, and a late failed ACK cannot downgrade acknowledged state.
+The next clean candidate includes these bounded repairs; every required gate must
+be refreshed before completion. Its configured QUICK uses only the Makefile's
+supported xUnit reporting option to retain actual diagnostics.
+Clean candidate `8942675ea6735fc5fbb51ab05b3523750d88dd25` passed BUILD,
+issuance (13 functions), Run (33), Draft (46), composition (11), and both scans.
+Configured event `e856ec42fb954a883f43b04f89139fe661aeb681a9fba8b2265a56844cd82200`
+passed DOC; QUICK completed 1,973 xUnit cases with 1,941 passes, 29 optional skips,
+three failures and zero errors, and DIFF did not run. All 954 inputs remained
+unchanged. The three failures were the transient pending-refusal presentation
+assertion and two stale outer-envelope version-three assertions; product source
+already writes envelope four to protect issuance/full-ref fields. Observing actual
+same-owner retirement and preserving exact old-reader rejection/upgrade assertions
+against version four then passed all three affected functions (28.099 seconds,
+954 inputs unchanged). No production behavior or required assertion was weakened.
+
+Clean candidate `cdd32056e3f757669e544d96ff3302f3ed91b8c1` passed BUILD,
+issuance (13), Run (33), Draft (46), composition (11), both cutover scopes and
+JOURNEY (10 test functions), with all 954 inputs unchanged. Configured event
+`599d65fb2e160c98ca8ae3509e5ac11d2d6f97cbd2f715a8ea56b1d2553303a6`
+passed DOC, QUICK and DIFF; actual fresh xUnit output records 1,944 passes,
+29 optional skips, zero failures and zero errors. The subsequent exact focused
+strict-concurrency command failed during compilation before cases ran: the
+DrawingLibrary synchronous snapshot helper exposes an actor-isolation diagnostic
+for its non-Sendable SQLite connection and captured operation. Thus this candidate
+is not a completed package pass. The snapshot repair must preserve synchronous
+same-owner access, transaction rollback and selected-file/generation validation;
+no Sendable suppression or concurrency-warning relaxation is authorized. All
+required gates must be refreshed on the resulting frozen candidate.
+The narrow repair supplies the transaction connection as the synchronous operation
+argument instead of capturing it beside the helper argument. All twenty callers
+use that same connection; SQL bodies, BEGIN/deferred ROLLBACK, selected-file and
+generation checks remain unchanged. It adds no await, Sendable conformance or
+warning suppression.
+
+Clean candidate `3df5c271a8d1eb618775e76254dd085301436634` passed the Library
+compilation under the exact focused strict flags, then failed compilation in the
+raw store's generic component-reuse `map` capture before cases ran (19.720 seconds,
+all 954 inputs unchanged). No required gate pass is inferred. Replacing that
+closure with a synchronous ordered loop preserves old-component equality/reuse,
+component installation and failure propagation without a Sendable or warning
+suppression. The final strict gate must pass before the full candidate refresh.
+
+Clean candidate `225e51b4daa90f8b22f22609302a85006d0ea0a2` compiled the raw
+component repair under the exact focused strict flags, then failed in the Flow
+feedback builder's async local feature helper before cases ran (33.021 seconds,
+all 954 inputs unchanged). Its mutable local asset buffers must remain on the
+existing FlowPortfolioStore actor instead of crossing to a nonisolated local async
+function. No required pass is inferred from compilation progress. The repair adds
+an explicit isolated FlowPortfolioStore parameter to that local helper and passes
+the same owner at all four calls. Feature/root/supporting-asset validation, awaits,
+asset insertion and publication ordering remain unchanged.
+
+Clean candidate `8c484618fbf840772cd8ab5e792f48db6588d0d7` compiled that Flow
+repair under the exact focused strict flags, then failed before cases ran on the
+Studio telemetry environment's non-Sendable callback default and an unnecessary
+`await` on a test probe initializer (25.709 seconds, 954 inputs unchanged). The
+callback must express its existing MainActor execution contract with a Sendable
+function type; removing the redundant initializer await changes no test assertions
+or settlement waits. The separately recorded cosmetic quit/UI race remains outside
+this package. These compile failures are not gate passes.
+
+Clean candidate `e045502b3ec1b3728537b0bf6b99c6342b5f8e30` compiled the callback
+type and test initializer changes under the exact strict flags, then failed at the
+sole native telemetry injection's implicit method-reference conversion (82.742
+seconds, 954 inputs unchanged). An explicit noncapturing closure at that same
+injection preserves the direct MainActor handler call and supplies the declared
+Sendable function type without dispatch or another operation owner. No tests ran
+and no strict pass is inferred.
+
+Clean candidate `6b909091d73bdb975566935b4d9d9dc1b03b0861` compiled production
+under the exact focused strict flags, then failed in catalog tests that returned
+non-Sendable SQLite/catalog handles across the DrawingLibrary actor boundary
+(132.035 seconds, all 954 inputs unchanged). The fixture assertions must execute
+with the same isolated owner; cache identity, two-row mutation, generation,
+backup/restore, displaced-file refusal and retained lease-after-close checks remain
+required. No test cases ran and no required strict pass is inferred. The repair
+keeps raw-handle assertions in local isolated DrawingLibrary scenarios; restored
+and successor handles stay on their respective owners and return Void. All sixteen
+test functions, sixty expectations and eighteen requirements remain; only actor
+entry and redundant await syntax changes.
+
+Clean candidate `69f79f30c198f99d81e3eacf57731b4cb0e82946` passed the exact
+focused strict command: all thirteen issuance test functions across all three fixed
+suites, 86.263 seconds including compilation, all 954 inputs unchanged. Its normal
+production build also passed (95.038 seconds). Normal issuance compilation then
+failed before cases ran because default flags infer the test probe initializer as
+MainActor-isolated while complete strict flags rejected its former await (52.169
+seconds, 954 inputs unchanged). Explicit `await MainActor.run` construction provides
+the same real actor hop under both modes, preserving all assertions and waits.
+The required gate refresh stopped at this compile failure; no aggregate candidate
+pass or completion is inferred.
+
+As-built routing review changed Product Contract, Swift Architecture, Drawing
+Exchange, vocabulary, Roadmap, operator protocol and Portrait Studio for the actual
+issuance ownership. README and document routing remain accurate; the Learning button
+transition inventory and attended runbook retain their separate existing owners and
+acceptance boundaries and require no change. No competing plan/report is checked in.
+
+Adopted-source prerequisite: `5cbf791de3756fffb74412d2abfd78a549c22020` is an
+ancestor. Its retained DX-12 lifecycle receipt records target `main`, normal
+adoption and bounded software closure, including event
+`e60e7261dc374508ff54e7c5d0c364fa1fa738e818e60a110dcb64aa799bd80c`.
+That prior receipt proves neither current issuance nor physical acceptance.
+
+Retained resumed command/process/stdout/stderr and full input pins:
+`/Users/bullard/.codex/visualizations/2026/11/11/01a1c91d-f9e2-7b43-9fe1-e62b381500ef/dx13-issuance/`.
+Required commands use no stack/scheduler overrides; their passes do not prove the
+earlier stack-guard class generally resolved. Software and existing lower-fake observations do not prove physical behavior,
+mechanical safety, signed/native interaction, deployment, accepted portable result
+snapshots (DX-15), remaining scale/10-GiB work or migration completion. Historical
+files/images/connections remain preserved with import deferred. No controller,
+camera, hardware motion, application launch/restart/install, deployment, production
+data migration or remote Git operation is part of this package.
+
 ## DOC-06 Drawing issuance definition candidate
+
+Historical definition-stage receipt. DOC-06 was normally adopted at
+`85e41dd4c0df84cc7aab2df6eae7f348fea8f419`; current DX-13 software evidence appears
+above. Candidate-stage wording below preserves the observations at that time.
 
 Definition-only task `task-7666d0443b0748318f5aa9e4b468726e` starts from adopted
 `5cbf791de3756fffb74412d2abfd78a549c22020`, tree
@@ -11327,6 +11579,7 @@ Detailed scope and limitations remain in the named evidence sections.
 
 | Package | Blackdog task | Gate results | Evidence section |
 | --- | --- | --- | --- |
+| DX-13-ISSUANCE | `task-ce89b70d1a7a440683f88e1dfc3a6ebc` | `DX12-PREREQUISITE=passed`, `BUILD=passed`, `DRAW-ISSUANCE=passed`, `DRAW-RUN=passed`, `DRAW-DRAFT=passed`, `COMPOSITION=passed`, `AFFECTED-CONSUMERS=passed`, `DELETE=passed`, `DOC=passed`, `DIFF=passed`, `QUICK=passed`, `JOURNEY=passed`, `ISSUANCE-STRICT=passed` | DX-13 issuance software correction |
 | DOC-06 | `task-7666d0443b0748318f5aa9e4b468726e` | `DOC=passed`, `DIFF=passed` | DOC-06 Drawing issuance definition candidate |
 | DOC-00 | `TASK-C86132F1` | `ARCHIVED=passed` | Historical: initial canonical episode migration documentation |
 | DOC-01 | `TASK-F2387A9A` | `DOC=passed`, `DIFF=passed`, `CRITIC=passed` | Episode migration execution readiness |
@@ -11386,12 +11639,13 @@ or canonical correction. The selector stops at that first eligible row; it
 never skips ahead to later work. An empty table means Current Evidence adds no
 admission blocker beyond the canonical ledger and live Blackdog claims.
 
-DOC-06 Drawing issuance definition candidate is complete as repository evidence.
-`DOC-06` is complete; `DX-13-ISSUANCE` remains pending and is the next software
-frontier only after DOC-06 normal adoption. No DX-13 Swift execution or physical acceptance is claimed. After that
-software package completes, `VAL-01` remains pending and requires separate
-attended-physical authorization; the historical signed FIX-10 validation candidate
-and `GATE-02` predicates are unchanged. Current Evidence adds no separate blocker.
+`DOC-06` is complete and adopted. DX-13-ISSUANCE software complete; its exact
+candidate gates and same-landing deletion evidence are recorded above. No ordinary
+software or gate package is eligible before `VAL-01`. `VAL-01` remains pending and
+requires separate attended-physical authorization: this is an attended-physical
+authorization boundary, not a launchable wave. The historical signed FIX-10 candidate
+and `GATE-02` physical predicates remain unchanged. Current Evidence adds no separate
+blocker; software/lower-fake checks prove neither native interaction nor physical ink.
 
 | Package | Blocker | Required input or canonical correction |
 | --- | --- | --- |

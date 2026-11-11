@@ -1441,7 +1441,7 @@ final class PlotterApplicationRuntime:
     let restored = tipCameraRegistration.flatMap { try? SparseTipBatchMarkPlan.selectedWorkingRegion(for: $0) }
     let reason: String?
     if !overlayPreferenceState.enabled.contains(.drawingRegion) { reason = "Show Drawing Region in Video Settings to edit." }
-    else if drawingRunStartSubmissionIsPending || drawingRunIsActive { reason = "Wait for drawing to finish, or use Stop." }
+    else if drawingRunIsActive { reason = "Wait for drawing to finish, or use Stop." }
     else if drawingFrameEditSession != nil { reason = "Apply or Cancel drawing positioning first." }
     else if !tipCalibrationRuntime.workingRegionIsEditable { reason = "Finish the current calibration or resolve possible ink first." }
     else if pointSelectionEpisodeProjection.exactPointSelection.request != nil { reason = "Finish the current point selection first." }
@@ -1812,7 +1812,7 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private let penInteractionRuntime: PlotterPenInteractionRuntime
   @ObservationIgnored private let boundaryRuntime: PlotterBoundaryRuntime
   @ObservationIgnored private let drawingDraftRuntime: PlotterDrawingDraftRuntime
-  @ObservationIgnored private let drawingRunRuntime: PlotterDrawingRunRuntime
+  @ObservationIgnored let drawingRunRuntime: PlotterDrawingRunRuntime
   @ObservationIgnored private let incidentPackageUIService: PlotterIncidentPackageUIService
   @ObservationIgnored private let observationPreferences: any PlotterObservationPreferencePort
   @ObservationIgnored let speechEffectRuntime: PlotterSpeechEffectRuntime
@@ -2802,15 +2802,7 @@ final class PlotterApplicationRuntime:
     }
   }
 
-  // App ingress exclusion only: Run continues to own admission and execution.
-  private var drawingRunStartSubmissionIsPending = false {
-    didSet {
-      guard oldValue != drawingRunStartSubmissionIsPending else { return }
-      markSemanticPresentationChanged()
-    }
-  }
-
-  private var drawingFrameEditRunUnavailableReason: String? {
+  var drawingFrameEditRunUnavailableReason: String? {
     if tipCalibrationRuntime.workingRegionEdit != nil {
       return "Apply or Cancel the working-region edit before drawing."
     }
@@ -2857,7 +2849,7 @@ final class PlotterApplicationRuntime:
     if isSparseTipRegionContext { return "Finish calibration before positioning artwork." }
     if !overlayPreferenceState.enabled.contains(.drawingRegion) { return "Show Drawing Region in Video Settings to position artwork." }
     if pointSelectionEpisodeProjection.exactPointSelection.request != nil { return "Finish the current point selection first." }
-    if drawingRunStartSubmissionIsPending || drawingRunIsActive { return "Wait for drawing to finish, or use Stop." }
+    if drawingRunIsActive { return "Wait for drawing to finish, or use Stop." }
     if tipCalibrationRuntime.workingRegionEdit != nil { return "Apply or Cancel the region edit first." }
     if !drawingTargetIsVisible { return "Show Drawing to position it." }
     if tipCameraRegistration == nil { return "Complete tip calibration first." }
@@ -2881,7 +2873,7 @@ final class PlotterApplicationRuntime:
 
   func beginDrawingFrameEdit(id: UUID, on frame: DisplayedFrame) async -> Bool {
     guard applicationAdmissionIsOpen, drawingPositioningUnavailableReason == nil, drawingStudioPresentation.canvas.placement.placementIsEnabled,
-      !drawingRunStartSubmissionIsPending, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
+      !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
       drawingDraftSnapshot.isTargetVisible, drawingDraftSnapshot.frame != nil,
       pointSelectionEpisodeProjection.exactPointSelection.request == nil,
       let optical = try? cameraOpticalConfiguration(for: frame),
@@ -2897,13 +2889,13 @@ final class PlotterApplicationRuntime:
     previous?.cancel()
     await previous?.value
     guard drawingFrameEditSession?.id == id, !Task.isCancelled,
-      !drawingRunStartSubmissionIsPending, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
+      !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
       session.matches(drawingDraftSnapshot.projection) else {
       if drawingFrameEditSession?.id == id { drawingFrameEditSession = nil }
       return false
     }
     let prepared = await drawingDraftRuntime.synchronize(drawingDraftExternalFacts)
-    guard drawingFrameEditSession?.id == id, !drawingRunStartSubmissionIsPending, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
+    guard drawingFrameEditSession?.id == id, !drawingRunIsActive, tipCalibrationRuntime.workingRegionEdit == nil,
       session.matches(prepared.projection),
       prepared.projection.externalFacts == drawingDraftExternalFacts.revisions else {
       if drawingFrameEditSession?.id == id { drawingFrameEditSession = nil }
@@ -3055,7 +3047,7 @@ final class PlotterApplicationRuntime:
 
   private var drawingRunIsActive: Bool {
     guard let snapshot = drawingRunSnapshot else { return false }
-    return snapshot.activeRunID != nil || snapshot.phase == .appendingEvidence
+    return snapshot.ownsWorkflow || snapshot.phase == .appendingEvidence
   }
 
   private var drawingRunRequiresNewPlan: Bool {
@@ -3110,6 +3102,9 @@ final class PlotterApplicationRuntime:
   }
 
   var paperManagementUnavailableReason: String? {
+    if drawingRunSnapshot?.jobPublicationRecoveryCapabilityID != nil {
+      return "Retry the drawing's pending job publication before changing paper."
+    }
     if case .appending = drawingRunSnapshot?.evidencePersistence {
       return "Wait for Drawing evidence to finish saving before replacing paper."
     }
@@ -3132,8 +3127,8 @@ final class PlotterApplicationRuntime:
     if case .intentPublicationIncomplete = run?.evidencePersistence {
       hasUnresolvedAttempt = true
     } else { hasUnresolvedAttempt = false }
-    let runOwnsPlan = run?.activeRunID != nil || run?.terminal != nil || hasUnresolvedAttempt
-    let editingIsEnabled = !runOwnsPlan && !drawingRunStartSubmissionIsPending
+    let runOwnsPlan = run?.ownsWorkflow == true || run?.terminal != nil || hasUnresolvedAttempt
+    let editingIsEnabled = !runOwnsPlan
       && tipCalibrationRuntime.workingRegionEdit == nil
     let placement = DrawingStudioPlacementPresentation(
       centerCameraPixel: draft.centerCameraPixel,
@@ -3152,12 +3147,13 @@ final class PlotterApplicationRuntime:
       runProjection: run?.projection,
       runState: drawingStudioRunState(run),
       noInkRetryRunID: run.flatMap { snapshot in
-        guard snapshot.activeRunID == nil,
+        guard !snapshot.ownsWorkflow, snapshot.jobPublicationRecoveryCapabilityID == nil,
           let terminal = snapshot.terminal, terminal.record.allowsNoInkConfirmation,
           terminal.record.paper == currentPaperRevisionContext else { return nil }
         return terminal.runID
       },
       noInkRetryIsEnabled: run.map {
+        guard !$0.ownsWorkflow, $0.jobPublicationRecoveryCapabilityID == nil else { return false }
         if case .persisted = $0.evidencePersistence { return true }
         return false
       } ?? false,
@@ -3186,20 +3182,21 @@ final class PlotterApplicationRuntime:
     guard let snapshot else {
       return .unavailable(reason: "Drawing Run is synchronizing the exact EA-08A plan.")
     }
-    if let capabilityID = snapshot.stopCapabilityID, snapshot.activeRunID != nil {
+    if let capabilityID = snapshot.stopCapabilityID, snapshot.ownsWorkflow {
       return .running(
         capabilityID: capabilityID,
         detail: drawingRunPhaseDetail(snapshot.phase)
       )
     }
-    if snapshot.activeRunID != nil {
+    if snapshot.ownsWorkflow {
       return .processing(detail: drawingRunPhaseDetail(snapshot.phase))
     }
     if let reason = drawingFrameEditRunUnavailableReason {
       return .unavailable(reason: reason)
     }
-    if drawingRunStartSubmissionIsPending {
-      return .unavailable(reason: "Drawing Run is admitting the current drawing.")
+    if let recoveryCapabilityID = snapshot.jobPublicationRecoveryCapabilityID {
+      return .publicationFailed(recoveryCapabilityID: recoveryCapabilityID,
+        detail: snapshot.jobPublicationDetail ?? "The run job link still needs publication.")
     }
     if case .failed(_, let recoveryCapabilityID, let detail) =
       snapshot.evidencePersistence
@@ -3250,6 +3247,7 @@ final class PlotterApplicationRuntime:
     case .positioningForBaseline: "Moving to the exact observation pose."
     case .capturingBaseline: "Capturing the exact pre-drawing frame."
     case .executingPlan: "Executing the checkpointed drawing plan."
+    case .stopping: "Stopping the drawing and waiting for its owned work to settle."
     case .capturingPostFrame: "Drawing done. Capturing the final photo."
     case .observingInk: "Vision is comparing intended and observed ink."
     case .appendingEvidence: "Appending immutable run evidence before publication."
@@ -3328,7 +3326,7 @@ final class PlotterApplicationRuntime:
   func currentDrawingRunFacts(
     for environment: PlotterEnvironment
   ) async -> PlotterDrawingRunExternalFacts {
-    guard environment == manualMotionEnvironment else {
+    guard applicationAdmissionIsOpen, environment == manualMotionEnvironment else {
       return PlotterDrawingRunExternalFacts(
         environment: environment,
         interactiveLearningIsComplete: false,
@@ -3341,6 +3339,10 @@ final class PlotterApplicationRuntime:
     }
     let capturedFacts = drawingDraftExternalFacts
     let draft = await drawingDraftRuntime.synchronize(capturedFacts)
+    guard applicationAdmissionIsOpen else {
+      return .init(environment: environment, interactiveLearningIsComplete: false, plan: nil,
+        paperCoverageIsCurrent: false, displayedFrame: nil, interpreter: nil, penActuationProfile: currentPenActuationProfile)
+    }
     installDrawingDraftSnapshot(draft)
     // Projection consumes the existing published controller truth. Drawing
     // Run start/pre-effect admission obtains its own fresh lower snapshot;
@@ -3383,51 +3385,16 @@ final class PlotterApplicationRuntime:
   }
 
   @discardableResult
-  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission) async -> PlotterDrawingRunSubmissionResult? {
+  func submitDrawingRun(_ submission: PlotterDrawingRunSubmission, preparation: NativeDrawingIssuancePreparation? = nil) async -> PlotterDrawingRunSubmissionResult? {
     guard applicationAdmissionIsOpen else { return nil }
-    let startsRun = submission.intent == .start
-    // Match the authored value before considering a source-free fallback. The
-    // execution program can also contain placement or border composition.
-    if startsRun, let projected = portraitStudio.projectedDrawing,
-      projected.program == drawingDraftSnapshot.authoredProgram,
-      !projected.capabilities.supported.contains(.plot) {
-      drawingEvidenceError = "This drawing is not admitted for plotting."
-      return nil
-    }
-    if startsRun {
-      guard drawingFrameEditSession == nil, tipCalibrationRuntime.workingRegionEdit == nil,
-        !drawingRunStartSubmissionIsPending else { return nil }
-      drawingRunStartSubmissionIsPending = true
-    }
-    defer { if startsRun { drawingRunStartSubmissionIsPending = false } }
-    if startsRun, let execution = drawingDraftSnapshot.program,
-      authoredDrawing(for: execution) == nil {
-      let captured = drawingDraftSnapshot
-      let selectionEpoch = portraitStudio.selectionEpoch
-      let priorProjection = portraitStudio.projectedDrawing?.reference
-      guard let program = captured.authoredProgram else { return nil }
-      do {
-        let retained = try await portraitStudio.sketches.retain(sourceFreeDrawing(program), reason: "plot")
-        guard applicationAdmissionIsOpen, !Task.isCancelled,
-          drawingDraftSnapshot.projection.draftRevision == captured.projection.draftRevision,
-          drawingDraftSnapshot.authoredProgram == program,
-          drawingDraftSnapshot.program == execution,
-          drawingDraftSnapshot.plan == captured.plan,
-          portraitStudio.selectionEpoch == selectionEpoch else { return nil }
-        try await portraitStudio.projectDrawing(retained, isStillCurrent: {
-          applicationAdmissionIsOpen && !Task.isCancelled
-            && drawingDraftSnapshot.projection.draftRevision == captured.projection.draftRevision
-            && drawingDraftSnapshot.authoredProgram == program
-            && drawingDraftSnapshot.program == execution && drawingDraftSnapshot.plan == captured.plan
-            && portraitStudio.projectedDrawing?.reference == priorProjection
-        })
-      } catch {
-        drawingEvidenceError = error.localizedDescription
-        return nil
-      }
-    }
-    // Submit the original request once. Retention never refreshes a stale capability.
-    let result = await drawingRunRuntime.submit(submission)
+    // Start enters Run pending ownership before retention or preparation.
+    // Non-start controls retain their existing same-runtime route.
+    let result: PlotterDrawingRunSubmissionResult
+    if submission.intent == .start {
+      let native = preparation ?? NativeDrawingIssuancePreparation(application: self, runtime: drawingRunRuntime,
+        original: submission, requestStamp: .hash(Data(submission.requestID.rawValue.uuidString.utf8)))
+      result = await drawingRunRuntime.submit(submission, preparation: native)
+    } else { result = await drawingRunRuntime.submit(submission) }
     guard applicationAdmissionIsOpen else { return result }
     installDrawingRunSnapshot(result.snapshot)
     guard case .applied = result.disposition else { return result }
@@ -3480,7 +3447,7 @@ final class PlotterApplicationRuntime:
     guard snapshot != drawingRunSnapshot else { return }
     let previousPersistence = drawingRunSnapshot?.evidencePersistence
     drawingRunSnapshot = snapshot
-    if drawingRunIsActive { drawingFrameEditSession = nil }
+    if snapshot.activeRunID != nil { drawingFrameEditSession = nil }
     if let post = snapshot.postFrame,
       let observation = snapshot.presentationObservation
     {
@@ -4318,6 +4285,9 @@ final class PlotterApplicationRuntime:
   }
 
   private var artifactResetLowerOwnerBlocker: String? {
+    if drawingRunSnapshot?.jobPublicationRecoveryCapabilityID != nil {
+      return "Retry the drawing's pending job publication before resetting Learning."
+    }
     if let reason = savedLearningRecoveryUnavailableReason { return reason }
     if let boundary = currentBoundarySnapshot?.projection {
       if boundary.publicationRecoveryCapabilityID != nil {
@@ -5875,6 +5845,22 @@ final class PlotterApplicationRuntime:
     _ request: PlotterUIRequest,
     learningTransitionID: PlotterLearningTransitionID?
   ) async -> PlotterUIRequestDisposition {
+    let nativeSubmission: PlotterDrawingRunSubmission? = if request.intent == .drawingRun(.start),
+      let snapshot = drawingRunSnapshot {
+      PlotterDrawingRunSubmission(requestID: .init(rawValue: request.id.rawValue), projection: snapshot.projection, intent: .start)
+    } else { nil }
+    let nativePreparation = nativeSubmission.map { NativeDrawingIssuancePreparation(application: self,
+      runtime: drawingRunRuntime, original: $0, requestStamp: NativeDrawingIssuancePreparation.stamp(request)) }
+    if applicationAdmissionIsOpen, let preparation = nativePreparation,
+      let replay = await drawingRunRuntime.replayNativeRequest(.init(rawValue: request.id.rawValue),
+        stamp: preparation.requestStamp, environment: preparation.original.projection.environment) {
+      if case .refused(let refusal) = replay.disposition {
+        return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+          currentUIRevision: currentPlotterUIProjection?.revision ?? request.uiRevision,
+          currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(), remedy: drawingRunRefusalDetail(refusal))
+      }
+      return .accepted(requestID: request.id)
+    }
     let selectedProjection: (projection: PlotterUIProjection, semanticRevision: UInt64?)? =
       if request.actionID == PlotterAppUIActionID.observationRegion,
         let currentVideoPreviewProjection,
@@ -6097,10 +6083,10 @@ final class PlotterApplicationRuntime:
           remedy: "Wait for Drawing Run projection synchronization."
         )
       }
-      guard let result = await submitDrawingRun(PlotterDrawingRunSubmission(
-        projection: drawingRunSnapshot.projection,
+      guard let result = await submitDrawingRun(nativeSubmission ?? PlotterDrawingRunSubmission(
+        requestID: .init(rawValue: request.id.rawValue), projection: drawingRunSnapshot.projection,
         intent: intent
-      )) else {
+      ), preparation: nativePreparation) else {
         return plotterUIRefusal(request, reason: .retainedOwnerRefused,
           currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(),
           remedy: drawingFrameEditRunUnavailableReason
@@ -11251,6 +11237,12 @@ final class PlotterApplicationRuntime:
       startupState = .cancelled
       return
     }
+    do { try await drawingDestination.recoverPendingJobs() }
+    catch { drawingEvidenceError = "Drawing job recovery is incomplete: " + error.localizedDescription }
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      startupState = .cancelled
+      return
+    }
     await refreshSerialDevices()
     guard applicationAdmissionIsOpen, !Task.isCancelled else {
       startupState = .cancelled
@@ -12873,6 +12865,7 @@ final class PlotterApplicationRuntime:
     // model episode before the first suspension. Feature owners close before
     // the task is joined, so a suspended request cannot outlive its owner.
     admissionState = .closing
+    drawingRunRuntime.closeAdmissionAndCancel()
     drawingDestination.closeAdmission()
     retainedWorkbenchVoiceController?.setEnabled(false)
     startupState = .cancelled
@@ -15541,10 +15534,13 @@ extension PlotterApplicationRuntime {
           return .refused("Paper identity changed while replacement was being prepared.")
         }
         let snapshot = await drawingRunRuntime.snapshot(environment: manualMotionEnvironment)
-        guard !drawingRunIsActive else {
+        guard !drawingRunIsActive, !snapshot.ownsWorkflow else {
           return .refused(
             "Paper identity cannot change until the current drawing run and evidence capture settle."
           )
+        }
+        guard snapshot.jobPublicationRecoveryCapabilityID == nil else {
+          return .refused("Retry the drawing's pending job publication before changing paper.")
         }
         switch snapshot.evidencePersistence {
         case .appending, .failed, .intentPublicationIncomplete:
@@ -15555,8 +15551,9 @@ extension PlotterApplicationRuntime {
         await tipCalibrationRuntime.cancelAttempt()
         return .completed(.paperReplacementSettled(plan))
 
-      case .applyInMemoryPaperReplacement(_, let plan):
-        guard paperReplacementIsFresh(plan) else {
+      case .applyInMemoryPaperReplacement(let operationID, let plan):
+        guard artifactResetRuntime.snapshot().phase == .applyingInMemoryPaperReplacement(operationID),
+          paperReplacementIsFresh(plan) else {
           return .failed("Paper identity changed after durable replacement was committed.")
         }
         // Coverage removal changes the current plan identity. Obtain the
@@ -15567,12 +15564,33 @@ extension PlotterApplicationRuntime {
           return .failed("Drawing Run became active before paper replacement could be projected.")
         }
         if let terminal = drawingSnapshot.terminal {
-          let result = await drawingRunRuntime.submit(
-            PlotterDrawingRunSubmission(
-              projection: drawingSnapshot.projection,
-              intent: .beginNewRun(terminal.runID)
-            )
-          )
+          let submission = PlotterDrawingRunSubmission(projection: drawingSnapshot.projection,
+            intent: .beginNewRun(terminal.runID))
+          let result: PlotterDrawingRunSubmissionResult
+          if let transition = plan.paperReplacement {
+            // This retained effect follows the existing durable paper write
+            // (including its read-back), checkpoint commit and coverage clear.
+            // Re-read that SAME persistence owner before retiring Run metadata.
+            guard let actions = activeStatePersistencePort else {
+              return .failed("Committed paper replacement lost its persistence owner.")
+            }
+            switch actions.loadAcceptedLearningPathCheckpoint() {
+            case .loaded(let checkpoint):
+              guard checkpoint.semanticIdentity.paperInstance == transition.current.instance,
+                checkpoint.semanticIdentity.paperContactPlane == transition.current.contactPlane else {
+                return .failed("Committed replacement checkpoint does not match the new sheet identity.")
+              }
+            case .absent:
+              guard plan.previousAcceptedCheckpoint == nil, learningArtifactGraph.revisions.isEmpty else {
+                return .failed("Committed paper replacement is missing its accepted checkpoint.")
+              }
+            case .rejected(let reason):
+              return .failed("Committed replacement checkpoint is unavailable: \(reason)")
+            }
+            result = await drawingRunRuntime.completeCommittedPaperReplacement(submission, transition: transition)
+          } else {
+            result = await drawingRunRuntime.submit(submission)
+          }
           guard case .applied = result.disposition else {
             let detail = result.snapshot.lastRefusal.map(drawingRunRefusalDetail)
               ?? "Resolve Drawing Run evidence publication before changing paper identity."

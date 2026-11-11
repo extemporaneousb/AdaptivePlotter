@@ -186,6 +186,7 @@ ISSUANCE_REQUIRED_FILES = (
     "Sources/PlotterEpisodeModel/PlotterDrawingRun.swift",
     "Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift",
     "Sources/PlotterApp/OperatorWorkspace.swift",
+    "Sources/PlotterApp/DrawingDestinationComposition.swift",
     "Sources/PlotterApp/DrawingRunEvidenceComposition.swift",
     "Sources/PortraitLibrary/PortraitEvidenceSource.swift",
 )
@@ -232,9 +233,40 @@ def validate_drawing_issuance(sources: dict[str, str], *, consumer_only: bool = 
         if depth or not re.search(r"\brequestID\s*:", arguments) or re.search(r"\b(?:UUID|PlotterDrawingRunRequestID)\s*\(\s*\)", arguments):
             raise ContractError("DX-13-ISSUANCE fresh per-delivery native request identity")
     authored = functions.get("submitDrawingRun", "")
-    if re.search(r"\.start\b", authored) and re.search(r"drawingRunRuntime\.submit\s*\(", authored):
-        if not re.search(r"\b(?:DrawingJobIssuance|drawingDestination)\b", authored):
-            raise ContractError("DX-13-ISSUANCE unbound authored Start forwarding remains")
+    # Recognize the real nominal continuation, including its immutable capture,
+    # shared Submit, and re-entry into the SAME Run owner. A token elsewhere in
+    # this function or a similarly named type cannot exempt direct forwarding.
+    capture = re.search(r"\blet\s+(\w+)\s*=\s*preparation\s*\?\?\s*NativeDrawingIssuancePreparation\s*\(\s*application\s*:\s*self\s*,\s*runtime\s*:\s*drawingRunRuntime\s*,\s*original\s*:\s*submission\s*,", authored)
+    if not capture or not re.search(r"drawingRunRuntime\.submit\s*\(\s*submission\s*,\s*preparation\s*:\s*" + re.escape(capture.group(1)) + r"\s*\)", authored):
+        raise ContractError("DX-13-ISSUANCE unbound authored Start forwarding remains")
+    preparation_code = code["Sources/PlotterApp/DrawingDestinationComposition.swift"]
+    def type_body(name: str) -> str:
+        declaration = re.search(r"\bstruct\s+" + name + r"\b[^\{]*\{", preparation_code)
+        if not declaration:
+            return ""
+        depth, end = 1, declaration.end()
+        while end < len(preparation_code) and depth:
+            depth += (preparation_code[end] == "{") - (preparation_code[end] == "}")
+            end += 1
+        return preparation_code[declaration.end():end - 1] if not depth else ""
+    prepared = type_body("NativeDrawingIssuancePreparation")
+    adapter = type_body("NativeDrawingAdmission")
+    prepared_functions = {name: body for name, _header, body in braced_functions(prepared)}
+    adapter_functions = {name: body for name, _header, body in braced_functions(adapter)}
+    submit = prepared_functions.get("prepareAndSubmit", "")
+    nominal = re.search(r"\blet\s+(\w+)\s*=\s*NativeDrawingAdmission\s*\(\s*preparation\s*:\s*self\s*,\s*pendingID\s*:\s*pendingID\b", submit)
+    if not (re.search(r"\blet\s+runtime\s*:\s*PlotterDrawingRunRuntime\b", prepared)
+            and re.search(r"\blet\s+original\s*:\s*PlotterDrawingRunSubmission\b", prepared)
+            and re.search(r"\bsubmission\s*==\s*original\b", submit)
+            and nominal
+            and re.search(r"drawingDestination\.handle\s*\(\s*\.submit\(", submit)
+            and re.search(r"\brequest\s*:\s*original\.requestID\.rawValue\b", submit)
+            and re.search(r"\badmission\s*:\s*" + re.escape(nominal.group(1)) + r"\s*\)", submit)
+            and re.search(r"preparation\.runtime\.continuePreparedIssuance\s*\(\s*pendingID\s*:\s*pendingID\s*,\s*binding\s*:\s*binding\b", adapter_functions.get("admit", ""))):
+        raise ContractError("DX-13-ISSUANCE broken preparation/shared Submit/same Runtime continuation chain")
+    if not (re.search(r"PlotterDrawingRunSubmission\s*\(\s*requestID\s*:\s*\.init\s*\(\s*rawValue\s*:\s*request\.id\.rawValue", sink)
+            and re.search(r"NativeDrawingIssuancePreparation\s*\(\s*application\s*:\s*self\s*,\s*runtime\s*:\s*drawingRunRuntime\s*,\s*original\s*:\s*\$0\b", sink)):
+        raise ContractError("DX-13-ISSUANCE original public-sink preparation capture missing")
     run = code["Sources/PlotterEpisodeRuntime/PlotterDrawingRunRuntime.swift"]
     for name, _header, body in braced_functions(run):
         if name == "start" and re.search(r"\bRunID\s*\(\s*\)", body):

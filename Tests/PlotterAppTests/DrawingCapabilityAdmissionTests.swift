@@ -113,8 +113,13 @@ struct DrawingCapabilityAdmissionTests {
       let penCommands = await fixture.machine.requestedPenCommands
       let strokes = await fixture.machine.requestedDrawingStrokes
       let run = try #require(app.drawingRunSnapshot)
-      #expect(await app.submitDrawingRun(.init(projection: run.projection, intent: .start)) == nil)
-      #expect(app.drawingEvidenceError == "This drawing is not admitted for plotting.")
+      let submission = PlotterDrawingRunSubmission(projection: run.projection, intent: .start)
+      let result = try #require(await app.submitDrawingRun(submission))
+      guard case .refused(let refusal) = result.disposition else { Issue.record("Unsupported Drawing was admitted"); await app.shutdown(); return }
+      #expect(refusal.requestID == submission.requestID)
+      #expect(refusal.owner.rawValue == "PlotterDrawingRunRuntime")
+      #expect(refusal.detail == "This drawing is not admitted for plotting.")
+      #expect(result.snapshot.planIdentity == run.planIdentity)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == before.projection.draftRevision)
       #expect(app.drawingDraftSnapshot.plan == before.plan)
       #expect(app.portraitStudio.projectedDrawing?.reference == carrier.reference)

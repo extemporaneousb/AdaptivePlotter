@@ -348,7 +348,34 @@ class DrawingIssuanceCutoverTests(unittest.TestCase):
         sources["Sources/PortraitCore/DrawingDestination.swift"] = "struct DrawingJobIssuance { let job: JobRef }"
         sources["Sources/PlotterRuntime/DrawingRunIntent.swift"] = "struct DrawingRunIntentBody {} struct DrawingRunIssuanceProposal {}"
         sources["Sources/PlotterRuntime/DrawingRunEvidenceStore.swift"] = "actor DrawingRunEvidenceStore { func stageIntent(_ proposal: DrawingRunIssuanceProposal) { let run = RunID(); let intent = DrawingRunIntent() } }"
-        sources["Sources/PlotterApp/OperatorWorkspace.swift"] = "func submitUnrecordedPlotterUIRequest(_ request: PlotterUIRequest) { let original = PlotterDrawingRunSubmission(requestID: ID(rawValue: request.id.rawValue), projection: reviewed, intent: .start) }"
+        sources["Sources/PlotterApp/OperatorWorkspace.swift"] = """
+func submitUnrecordedPlotterUIRequest(_ request: PlotterUIRequest) {
+  let original = PlotterDrawingRunSubmission(requestID: .init(rawValue: request.id.rawValue), projection: reviewed, intent: .start)
+  let nativePreparation = original.map { NativeDrawingIssuancePreparation(application: self, runtime: drawingRunRuntime, original: $0, requestStamp: stamp) }
+}
+func submitDrawingRun(_ submission: Submission, preparation: Preparation?) {
+  if submission.intent == .start {
+    let native = preparation ?? NativeDrawingIssuancePreparation(application: self, runtime: drawingRunRuntime, original: submission, requestStamp: stamp)
+    return await drawingRunRuntime.submit(submission, preparation: native)
+  } else { return await drawingRunRuntime.submit(submission) }
+}
+"""
+        sources["Sources/PlotterApp/DrawingDestinationComposition.swift"] = """
+struct NativeDrawingIssuancePreparation: Preparation {
+  let runtime: PlotterDrawingRunRuntime
+  let original: PlotterDrawingRunSubmission
+  func prepareAndSubmit(pendingID: UUID, submission: Submission) {
+    guard submission == original else { return }
+    let adapter = NativeDrawingAdmission(preparation: self, pendingID: pendingID, drawing: retained)
+    return await application.drawingDestination.handle(.submit(.init(namespace: namespace, request: original.requestID.rawValue), ticket), admission: adapter)
+  }
+}
+struct NativeDrawingAdmission: Admission {
+  func admit(_ binding: Binding, publication: Publication) {
+    try await preparation.runtime.continuePreparedIssuance(pendingID: pendingID, binding: binding, candidate: candidate, publication: publication)
+  }
+}
+"""
         sources["Sources/PlotterApp/DrawingRunEvidenceComposition.swift"] = "var stagedPortraitBinding: Intent?; func loadForPortraitBinding() {} func finishPortraitBinding() {}"
         sources["Sources/PortraitLibrary/PortraitEvidenceSource.swift"] = "func proveStagedAttempt() {}"
         for suite in ISSUANCE_FOCUSED_SUITES:
@@ -391,11 +418,30 @@ class DrawingIssuanceCutoverTests(unittest.TestCase):
 
     def test_unbound_authored_start_forwarding_fails_but_nonstart_route_remains(self) -> None:
         sources = self.fixture()
-        sources["Sources/PlotterApp/OperatorWorkspace.swift"] += "\nfunc submitDrawingRun(_ submission: Submission) { if submission.intent == .start { return await drawingRunRuntime.submit(submission) } }"
-        with self.assertRaisesRegex(ContractError, "unbound authored Start"):
-            validate_drawing_issuance(sources)
-        sources["Sources/PlotterApp/OperatorWorkspace.swift"] = sources["Sources/PlotterApp/OperatorWorkspace.swift"].replace("if submission.intent == .start { return await drawingRunRuntime.submit(submission) }", "if submission.intent == .start { return await drawingDestination.handle(.submit(key, ticket)) }; return await drawingRunRuntime.submit(submission)")
+        original = sources["Sources/PlotterApp/OperatorWorkspace.swift"]
+        for replacement in ("drawingRunRuntime.submit(submission)", "drawingRunRuntime.submit(submission) /* DrawingJobIssuance drawingDestination */"):
+            sources["Sources/PlotterApp/OperatorWorkspace.swift"] = original.replace("drawingRunRuntime.submit(submission, preparation: native)", replacement)
+            with self.assertRaisesRegex(ContractError, "unbound authored Start"):
+                validate_drawing_issuance(sources)
+        sources["Sources/PlotterApp/OperatorWorkspace.swift"] = original
         validate_drawing_issuance(sources)
+
+    def test_broken_nominal_continuation_fails_both_scopes(self) -> None:
+        path = "Sources/PlotterApp/DrawingDestinationComposition.swift"
+        mutations = (
+            ("preparation: self", "preparation: another"),
+            ("submission == original", "submission == refreshed"),
+            ("request: original.requestID.rawValue", "request: UUID()"),
+            ("admission: adapter", "admission: another"),
+            ("preparation.runtime.continuePreparedIssuance", "anotherRuntime.continuePreparedIssuance"),
+            ("binding: binding", "binding: anotherBinding"),
+        )
+        for old, new in mutations:
+            for consumer_only in (False, True):
+                sources = self.fixture()
+                sources[path] = sources[path].replace(old, new)
+                with self.subTest(old=old, consumer_only=consumer_only), self.assertRaisesRegex(ContractError, "continuation chain"):
+                    validate_drawing_issuance(sources, consumer_only=consumer_only)
 
     def test_other_raw_file_cannot_substitute_for_store_stage_owner(self) -> None:
         sources = self.fixture()

@@ -233,7 +233,8 @@ deadline, or cancelled waiter cannot be called terminated or quiescent.
 
 ## Drawing issuance terms (DOC-06)
 
-These terms define the pending DX-13-ISSUANCE contract, not implemented authority.
+These terms define the DX-13-ISSUANCE contract. Current ownership and verification
+belong to Swift Architecture and Current Evidence.
 **Pending issuance** is Library-owned typed metadata retaining exact authored closure,
 plan/options, original request and internal issuance before a final receipt exists.
 **Raw stage** is the irreversible attempted-Run boundary: the existing raw owner

@@ -70,9 +70,9 @@ struct DrawingBrowserTests {
     let source = try await DrawingEditFixture.imported(in: library, directory: root, uncertainSource: true)
     let sketches = PortraitSketchCollection(library: library)
     let browser = DrawingLibraryBrowserModel(sketches: sketches)
-    await browser.select(try #require(own.drawing.reference)).value
+    await browser.select(own.drawing.reference).value
     #expect(browser.beginEdit() == nil && browser.makeHandoffRequest() == nil)
-    await browser.select(try #require(source.drawing.reference)).value
+    await browser.select(source.drawing.reference).value
     #expect(!source.drawing.capabilities.sourceSemanticsSupported)
     #expect(browser.beginEdit() != nil)
     browser.dismissEditor()

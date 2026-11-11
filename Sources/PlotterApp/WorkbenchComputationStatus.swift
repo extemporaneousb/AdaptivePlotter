@@ -19,7 +19,7 @@ extension PlotterApplicationRuntime {
         detail: "Drawing Border validation is running. The next phase starts automatically.")
     }
     if let snapshot = drawingRunSnapshot,
-      snapshot.activeRunID != nil || snapshot.phase == .appendingEvidence {
+      snapshot.ownsWorkflow || snapshot.phase == .appendingEvidence {
       let execution = DrawingStudioExecutionPresentation(snapshot: snapshot,
         phaseDetail: drawingRunPhaseDetail(snapshot.phase))
       return .init(title: execution.drawingIsDone ? "Drawing done" : "Drawing in progress",

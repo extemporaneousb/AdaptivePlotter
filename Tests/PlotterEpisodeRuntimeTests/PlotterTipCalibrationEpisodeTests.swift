@@ -226,7 +226,7 @@ struct PlotterTipCalibrationEpisodeTests {
     let runtime = await PlotterTipCalibrationRuntime(effectPort: port)
     let active = Task { await runtime.submit(.beginFourMarkBatch) }
     await port.waitForCallCount(1)
-    let probe = await CancellationEntryProbe()
+    let probe = await MainActor.run { CancellationEntryProbe() }
     let first = Task { @MainActor in
       probe.count += 1
       await runtime.cancelAttempt()

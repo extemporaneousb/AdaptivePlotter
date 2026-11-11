@@ -1,6 +1,7 @@
 @testable import PortraitArtists
 @testable import PortraitLibrary
 import Foundation
+import PortraitCore
 import PlotterEpisodeModel
 @testable import PlotterEpisodeRuntime
 import PlotterModel
@@ -20,7 +21,7 @@ struct PlotterDrawingRunEpisodeTests {
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
     #expect(ready.retainedExecutionPlan == nil)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     let request = try #require(await gate.request)
     // Inject a malformed lower frontier: self-consistent progress for a larger
@@ -49,7 +50,7 @@ struct PlotterDrawingRunEpisodeTests {
     await harness.facts.replace(fixture.facts(plan: newer))
     let synchronized = await harness.runtime.synchronize(environment: .live)
     #expect(synchronized.retainedExecutionPlan == request.plan)
-    let handoff = await harness.runtime.submit(.init(projection: synchronized.projection,
+    let handoff = await harness.submit(.init(projection: synchronized.projection,
       intent: .beginNewRun(runID)))
     #expect(try drawingRunRefusal(handoff).reason == .runIdentityMismatch)
     #expect(handoff.snapshot.retainedExecutionPlan == request.plan)
@@ -121,9 +122,13 @@ struct PlotterDrawingRunEpisodeTests {
       await harness.facts.replace(facts)
       let unavailable = await harness.runtime.synchronize(environment: .live)
       #expect(unavailable.planIdentity == ready.planIdentity)
-      let result = await harness.runtime.submit(.init(projection: unavailable.projection, intent: .start))
+      let request = PlotterDrawingRunSubmission(projection: unavailable.projection, intent: .start)
+      let result = await harness.submit(request)
       let refusal = try drawingRunRefusal(result)
-      #expect(result.snapshot.projection.runRevision == unavailable.projection.runRevision)
+      #expect(refusal.requestID == request.requestID)
+      #expect(result.snapshot.planIdentity == unavailable.planIdentity)
+      // Installing and retiring pending ownership advances the Run revision.
+      #expect(result.snapshot.projection.runRevision.rawValue > unavailable.projection.runRevision.rawValue)
       if case .unavailable(let issue) = unavailable.readiness {
         #expect(issue.reason == refusal.reason)
         #expect(issue.remedy == refusal.remedy)
@@ -155,7 +160,7 @@ struct PlotterDrawingRunEpisodeTests {
     let ready = await harness.runtime.synchronize(environment: .live)
     #expect(ready.readiness == .ready)
     #expect(ready.retainedExecutionPlan == nil)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
     #expect(await harness.events.values == ["stage-intent", "normalize"])
     let active = await harness.runtime.snapshot(environment: .live)
@@ -220,7 +225,7 @@ struct PlotterDrawingRunEpisodeTests {
     }
     let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: before), outcome: .cancelled)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let run = await harness.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(run.snapshot.terminal)
     #expect(run.snapshot.retainedExecutionPlan == before.plan)
     if restored {
@@ -228,17 +233,17 @@ struct PlotterDrawingRunEpisodeTests {
       let reopened = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: after),
         archiveLoadResult: .loaded(archive))
       let blocked = await reopened.runtime.synchronize(environment: .live)
-      let result = await reopened.runtime.submit(.init(projection: blocked.projection, intent: .start))
+      let result = await reopened.submit(.init(projection: blocked.projection, intent: .start))
       #expect(try drawingRunRefusal(result).reason == .planMayAlreadyContainInk)
       #expect(await reopened.events.values.isEmpty)
     } else {
       await harness.facts.replace(fixture.facts(plan: after))
       let held = await harness.runtime.synchronize(environment: .live)
       #expect(held.retainedExecutionPlan == before.plan)
-      let next = await harness.runtime.submit(.init(projection: held.projection, intent: .beginNewRun(terminal.runID)))
+      let next = await harness.submit(.init(projection: held.projection, intent: .beginNewRun(terminal.runID)))
       #expect(next.snapshot.retainedExecutionPlan == nil)
       let blocked = await harness.runtime.synchronize(environment: .live)
-      let result = await harness.runtime.submit(.init(projection: blocked.projection, intent: .start))
+      let result = await harness.submit(.init(projection: blocked.projection, intent: .start))
       #expect(try drawingRunRefusal(result).reason == .planMayAlreadyContainInk)
       #expect(await harness.interpreter.planRequests.count == 1)
     }
@@ -250,7 +255,7 @@ struct PlotterDrawingRunEpisodeTests {
       let harness = await drawingRunHarness(fixture: fixture,
         facts: fixture.facts(learningComplete: learningComplete, paperCurrent: false))
       let current = await harness.runtime.synchronize(environment: .live)
-      let result = await harness.runtime.submit(
+      let result = await harness.submit(
         PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
       let refusal = try drawingRunRefusal(result)
       #expect(refusal.reason == (learningComplete ? .paperCoverageNotCurrent : .learningIncomplete))
@@ -286,7 +291,7 @@ struct PlotterDrawingRunEpisodeTests {
       paperCoverage: fixture.plan.paperCoverage, registration: fixture.registration)
     let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: plan))
     let current = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
+    let result = await harness.submit(PlotterDrawingRunSubmission(projection: current.projection, intent: .start))
     let recordedEvents = await harness.events.values
     #expect(recordedEvents == [
       "stage-intent", "normalize", "travel", "capture-baseline", "stage-baseline", "dispatch-marker",
@@ -312,7 +317,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture, outcome: .cancelled)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let original = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let original = await harness.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(original.snapshot.terminal)
     let material = try DrawingMaterialProfileRevision(name: "Different selected revision", nominalWidthMM: 0.8)
     let revised = try fixture.withMaterial(material)
@@ -327,16 +332,16 @@ struct PlotterDrawingRunEpisodeTests {
       let restored = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: revised),
         archiveLoadResult: .loaded(staged))
       let projection = await restored.runtime.synchronize(environment: .live)
-      let refused = await restored.runtime.submit(.init(projection: projection.projection, intent: .start))
+      let refused = await restored.submit(.init(projection: projection.projection, intent: .start))
       #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
       #expect(await restored.events.values.isEmpty)
     } else {
-      _ = await harness.runtime.submit(.init(projection: original.snapshot.projection,
+      _ = await harness.submit(.init(projection: original.snapshot.projection,
         intent: .beginNewRun(terminal.runID)))
       await harness.facts.replace(fixture.facts(plan: revised))
       let projection = await harness.runtime.synchronize(environment: .live)
       let effectsBefore = await harness.events.values
-      let refused = await harness.runtime.submit(.init(projection: projection.projection, intent: .start))
+      let refused = await harness.submit(.init(projection: projection.projection, intent: .start))
       #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
       #expect(await harness.events.values == effectsBefore)
     }
@@ -347,7 +352,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture, outcome: .cancelled)
     let ready = await harness.runtime.synchronize(environment: .live)
-    _ = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    _ = await harness.submit(.init(projection: ready.projection, intent: .start))
     let sealed = await harness.evidence.archive
     let staged = try DrawingRunEvidenceArchive(archiveID: sealed.archiveID, revision: 0,
       records: [], attempts: sealed.attempts)
@@ -360,7 +365,7 @@ struct PlotterDrawingRunEpisodeTests {
     let restored = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: revised),
       archiveLoadResult: .loaded(staged))
     let current = await restored.runtime.synchronize(environment: .live)
-    let refused = await restored.runtime.submit(.init(projection: current.projection, intent: .start))
+    let refused = await restored.submit(.init(projection: current.projection, intent: .start))
     #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
     #expect(await restored.events.values.isEmpty)
   }
@@ -371,7 +376,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let original = await drawingRunHarness(fixture: fixture, outcome: .cancelled)
     let ready = await original.runtime.synchronize(environment: .live)
-    let run = await original.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let run = await original.submit(.init(projection: ready.projection, intent: .start))
     let record = try #require(run.snapshot.terminal?.record)
     let sealed = await original.evidence.archive
     let attempt = try #require(sealed.attempts.first)
@@ -409,7 +414,7 @@ struct PlotterDrawingRunEpisodeTests {
       }
       #expect(issue.reason == .planMayAlreadyContainInk)
       #expect(issue.remedy == .replaceMarkedPaper)
-      let rejected = await restored.runtime.submit(.init(projection: state.projection, intent: .start))
+      let rejected = await restored.submit(.init(projection: state.projection, intent: .start))
       let refusal = try drawingRunRefusal(rejected)
       #expect(refusal.reason == .planMayAlreadyContainInk)
       #expect(refusal.remedy == .replaceMarkedPaper)
@@ -450,7 +455,7 @@ struct PlotterDrawingRunEpisodeTests {
     let timing = DrawingRunSequenceClock(staleResult ? [10, 15, 35, 40, 45] : [10, 25, 40])
     let harness = await drawingRunHarness(fixture: fixture, clock: timing)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
     #expect(await harness.camera.requests == (staleResult ? [15, 35, 40] : [25]))
     #expect(await harness.vision.requests.isEmpty)
@@ -475,7 +480,7 @@ struct PlotterDrawingRunEpisodeTests {
     let originalFrame = outcome == .completed ? fixture.postFrame : fixture.previewFrame
     await harness.evidence.rejectMediaFrames([originalFrame.frame.id])
     let ready = await harness.runtime.synchronize(environment: .live)
-    let failed = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let failed = await harness.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(failed.snapshot.terminal)
     #expect(terminal.disposition == .publicationIncomplete)
     #expect(failed.snapshot.postFrame == originalFrame)
@@ -485,10 +490,10 @@ struct PlotterDrawingRunEpisodeTests {
       return
     }
     #expect(detail.contains("mediaFailed"))
-    let refusedHandoff = await harness.runtime.submit(.init(projection: failed.snapshot.projection,
+    let refusedHandoff = await harness.submit(.init(projection: failed.snapshot.projection,
       intent: .beginNewRun(terminal.runID)))
     #expect(try drawingRunRefusal(refusedHandoff).remedy == .retryEvidencePublication)
-    let stillFailed = await harness.runtime.submit(.init(projection: refusedHandoff.snapshot.projection,
+    let stillFailed = await harness.submit(.init(projection: refusedHandoff.snapshot.projection,
       intent: .recoverPublication(capability)))
     #expect(stillFailed.snapshot.terminal?.disposition == .publicationIncomplete)
     #expect(stillFailed.snapshot.terminal?.record == terminal.record)
@@ -496,7 +501,7 @@ struct PlotterDrawingRunEpisodeTests {
     let plansBefore = await harness.interpreter.planRequests
     let motionEventsBefore = await harness.events.values.filter { ["normalize", "travel", "execute"].contains($0) }
     await harness.evidence.rejectMediaFrames([])
-    let recovered = await harness.runtime.submit(.init(projection: stillFailed.snapshot.projection,
+    let recovered = await harness.submit(.init(projection: stillFailed.snapshot.projection,
       intent: .recoverPublication(capability)))
     guard case .persisted(let savedID, _) = recovered.snapshot.evidencePersistence else {
       Issue.record("Restored storage did not seal retained exact media")
@@ -517,11 +522,11 @@ struct PlotterDrawingRunEpisodeTests {
     let gate = DrawingRunPlanGate()
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate, releasePlanOnStop: false)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     let active = await harness.runtime.snapshot(environment: .live)
     let stop = try #require(active.stopCapabilityID)
-    _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
+    _ = await harness.submit(.init(projection: active.projection, intent: .stop(stop)))
     await gate.release(.completed)
     let result = await run.value
     #expect(result.snapshot.terminal?.disposition == .cancelled)
@@ -543,12 +548,12 @@ struct PlotterDrawingRunEpisodeTests {
     let harness = await drawingRunHarness(fixture: fixture)
     await harness.interpreter.holdTravel(ordinal: 2, at: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
     let active = await harness.runtime.snapshot(environment: .live)
     #expect(active.phase == .positioningForPostObservation)
     let stop = try #require(active.stopCapabilityID)
-    _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
+    _ = await harness.submit(.init(projection: active.projection, intent: .stop(stop)))
     let result = await run.value
     #expect(await harness.interpreter.stopIntents == [.operatorStop])
     #expect(await harness.camera.requests.count == 2)
@@ -566,7 +571,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture, outcome: outcome)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     let events = await harness.events.values
     let execution = try #require(events.firstIndex(of: "execute"))
     #expect(!events.suffix(from: execution).contains("travel"))
@@ -585,12 +590,21 @@ struct PlotterDrawingRunEpisodeTests {
     let harness = await drawingRunHarness(fixture: fixture,
       stageFailures: baselineFailure ? 0 : 1, stageBaselineFailures: baselineFailure ? 1 : 0)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     #expect(await harness.interpreter.planRequests.isEmpty)
     #expect(await harness.vision.requests.isEmpty)
     let events = await harness.events.values
     #expect(!events.contains("dispatch-marker"))
-    if !baselineFailure { #expect(!events.contains("normalize")) }
+    if !baselineFailure {
+      #expect(!events.contains("normalize"))
+      guard case .refused = result.disposition else { Issue.record("Pre-stage failure was not refused"); return }
+      #expect(result.snapshot.terminal == nil)
+      #expect(await harness.evidence.archive.attempts.isEmpty)
+      guard case .decision(let refusal) = harness.destination.lastReply else { Issue.record("Missing durable pre-stage refusal"); return }
+      #expect(refusal.reason == .preparationUnavailable)
+      #expect(try ExchangeJobReceipt(originalJSON: refusal.receipt).issuance == nil)
+      return
+    }
     let record = try #require(result.snapshot.terminal?.record)
     #expect(record.executionFrontiers.commandedStrokeCount == 0)
     #expect(record.evidenceDisposition == .refused)
@@ -603,7 +617,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture, failDispatchAcknowledgement: true)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     #expect(await harness.interpreter.planRequests.isEmpty)
     #expect(result.snapshot.terminal?.record.executionFrontiers.commandedStrokeCount == 0)
     if case .planMayContainInk = result.snapshot.noRedraw {} else { Issue.record("Uncertain dispatch marker released no-redraw") }
@@ -613,7 +627,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(archive.attempts.first?.inkDispatchPossible == true)
     let restored = await drawingRunHarness(fixture: fixture, archiveLoadResult: .loaded(archive))
     let state = await restored.runtime.synchronize(environment: .live)
-    let refused = await restored.runtime.submit(.init(projection: state.projection, intent: .start))
+    let refused = await restored.submit(.init(projection: state.projection, intent: .start))
     #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
     #expect(await restored.events.values.isEmpty)
   }
@@ -624,14 +638,14 @@ struct PlotterDrawingRunEpisodeTests {
     let gate = DrawingRunPlanGate()
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     let archive = await harness.evidence.archive
     #expect(archive.incompleteAttempts.count == 1)
     #expect(archive.incompleteAttempts.first?.interruptionClassification == .possibleInk)
     let restored = await drawingRunHarness(fixture: fixture, archiveLoadResult: .loaded(archive))
     let restoredReady = await restored.runtime.synchronize(environment: .live)
-    let refused = await restored.runtime.submit(.init(projection: restoredReady.projection, intent: .start))
+    let refused = await restored.submit(.init(projection: restoredReady.projection, intent: .start))
     #expect(try drawingRunRefusal(refused).reason == .planMayAlreadyContainInk)
     #expect(await restored.events.values.isEmpty)
     await gate.release(.cancelled)
@@ -662,7 +676,7 @@ struct PlotterDrawingRunEpisodeTests {
     let harness = await drawingRunHarness(fixture: fixture, normalizationGate: gate)
     let current = await harness.runtime.synchronize(environment: .live)
     let run = Task {
-      await harness.runtime.submit(PlotterDrawingRunSubmission(
+      await harness.submit(PlotterDrawingRunSubmission(
         projection: current.projection,
         intent: .start
       ))
@@ -690,7 +704,7 @@ struct PlotterDrawingRunEpisodeTests {
     await harness.facts.holdNextAcquisition(at: factGate)
 
     let start = Task {
-      await harness.runtime.submit(PlotterDrawingRunSubmission(
+      await harness.submit(PlotterDrawingRunSubmission(
         projection: current.projection,
         intent: .start
       ))
@@ -728,15 +742,26 @@ struct PlotterDrawingRunEpisodeTests {
     await harness.facts.holdNextAcquisition(at: factGate)
 
     let start = Task {
-      await harness.runtime.submit(PlotterDrawingRunSubmission(
+      await harness.submit(PlotterDrawingRunSubmission(
         projection: current.projection,
         intent: .start
       ))
     }
     await factGate.waitUntilHeld()
-    _ = await harness.runtime.beginShutdown(environment: .live)
+    var shutdownFinished = false
+    let shutdown = Task {
+      _ = await harness.runtime.beginShutdown(environment: .live)
+      shutdownFinished = true
+    }
+    // Closing admission is synchronous; joining the retained start waits for
+    // the held lower acquisition rather than abandoning its task.
+    harness.runtime.closeAdmissionAndCancel()
+    await Task.yield()
+    #expect(!shutdownFinished)
     await factGate.release()
     let result = await start.value
+    await shutdown.value
+    #expect(shutdownFinished)
 
     let refusal = try drawingRunRefusal(result)
     #expect(refusal.owner.rawValue == "PlotterDrawingRunRuntime")
@@ -760,7 +785,7 @@ struct PlotterDrawingRunEpisodeTests {
     let current = await harness.runtime.synchronize(environment: .live)
 
     let start = Task {
-      await harness.runtime.submit(PlotterDrawingRunSubmission(
+      await harness.submit(PlotterDrawingRunSubmission(
         projection: current.projection,
         intent: .start
       ))
@@ -792,7 +817,7 @@ struct PlotterDrawingRunEpisodeTests {
     let harness = await drawingRunHarness(fixture: fixture)
     let current = await harness.runtime.synchronize(environment: .live)
     let requestID = PlotterDrawingRunRequestID()
-    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let result = await harness.submit(PlotterDrawingRunSubmission(
       requestID: requestID,
       projection: current.projection,
       intent: .start
@@ -875,7 +900,7 @@ struct PlotterDrawingRunEpisodeTests {
       facts: fixture.facts(plan: outsidePlan)
     )
     let current = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let result = await harness.submit(PlotterDrawingRunSubmission(
       projection: current.projection,
       intent: .start
     ))
@@ -905,11 +930,11 @@ struct PlotterDrawingRunEpisodeTests {
     let gate = DrawingRunPlanGate()
     let harness = await drawingRunHarness(fixture: fixture, facts: fixture.facts(plan: plan), planGate: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     let active = await harness.runtime.snapshot(environment: .live)
     let stop = try #require(active.stopCapabilityID)
-    _ = await harness.runtime.submit(.init(projection: active.projection, intent: .stop(stop)))
+    _ = await harness.submit(.init(projection: active.projection, intent: .stop(stop)))
     let result = await run.value
     #expect(result.snapshot.terminal?.disposition == .cancelled)
     #expect(await harness.interpreter.stopIntents == [.operatorStop])
@@ -935,7 +960,7 @@ struct PlotterDrawingRunEpisodeTests {
     let harness = await drawingRunHarness(fixture: fixture, planGate: planGate)
     let initial = await harness.runtime.synchronize(environment: .live)
     let first = Task {
-      await harness.runtime.submit(PlotterDrawingRunSubmission(
+      await harness.submit(PlotterDrawingRunSubmission(
         projection: initial.projection,
         intent: .start
       ))
@@ -943,13 +968,13 @@ struct PlotterDrawingRunEpisodeTests {
     await planGate.waitUntilStarted()
 
     let active = await harness.runtime.snapshot(environment: .live)
-    let competitor = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let competitor = await harness.submit(PlotterDrawingRunSubmission(
       projection: active.projection,
       intent: .start
     ))
     #expect(try drawingRunRefusal(competitor).reason == .activeRunOwnsWorkflow)
 
-    let wrongStop = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let wrongStop = await harness.submit(PlotterDrawingRunSubmission(
       projection: competitor.snapshot.projection,
       intent: .stop(PlotterDrawingRunStopCapabilityID())
     ))
@@ -970,7 +995,7 @@ struct PlotterDrawingRunEpisodeTests {
     layout.setPresented(.portraitStudio, false)
     let visibleStop = try #require(WorkbenchStopPresentation.actions(in: projection).first)
     #expect(projection.request(for: visibleStop.id)?.intent == .drawingRun(stopIntent))
-    let stopped = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let stopped = await harness.submit(PlotterDrawingRunSubmission(
       projection: wrongStop.snapshot.projection,
       intent: .stop(exactStop)
     ))
@@ -990,13 +1015,13 @@ struct PlotterDrawingRunEpisodeTests {
     }
     #expect(identity == fixture.plan.identity)
 
-    let handedOff = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let handedOff = await harness.submit(PlotterDrawingRunSubmission(
       projection: terminalResult.snapshot.projection,
       intent: .beginNewRun(runID)
     ))
     #expect(handedOff.disposition == .applied)
     #expect(handedOff.snapshot.readiness == .synchronizing)
-    let samePlan = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let samePlan = await harness.submit(PlotterDrawingRunSubmission(
       projection: handedOff.snapshot.projection,
       intent: .start
     ))
@@ -1007,7 +1032,7 @@ struct PlotterDrawingRunEpisodeTests {
     let replacement = try fixture.makePlan(catalogItemID: .triangle)
     await harness.facts.replace(fixture.facts(plan: replacement))
     let replacementProjection = await harness.runtime.synchronize(environment: .live)
-    let replacementRun = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let replacementRun = await harness.submit(PlotterDrawingRunSubmission(
       projection: replacementProjection.projection,
       intent: .start
     ))
@@ -1023,7 +1048,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture, outcome: kind)
     let current = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let result = await harness.submit(PlotterDrawingRunSubmission(
       projection: current.projection,
       intent: .start
     ))
@@ -1052,7 +1077,7 @@ struct PlotterDrawingRunEpisodeTests {
     )
     let current = await harness.runtime.synchronize(environment: .live)
     let requestID = PlotterDrawingRunRequestID()
-    let failed = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let failed = await harness.submit(PlotterDrawingRunSubmission(
       requestID: requestID,
       projection: current.projection,
       intent: .start
@@ -1068,7 +1093,7 @@ struct PlotterDrawingRunEpisodeTests {
     }
     #expect(recordID == terminal.record.recordID)
 
-    let prematureNewRun = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let prematureNewRun = await harness.submit(PlotterDrawingRunSubmission(
       projection: failed.snapshot.projection,
       intent: .beginNewRun(terminal.runID)
     ))
@@ -1076,7 +1101,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(prematureRefusal.owner.rawValue == "DrawingRunEvidenceStore")
     #expect(prematureRefusal.remedy == .retryEvidencePublication)
 
-    let recovered = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let recovered = await harness.submit(PlotterDrawingRunSubmission(
       projection: prematureNewRun.snapshot.projection,
       intent: .recoverPublication(recoveryID)
     ))
@@ -1086,7 +1111,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(attempts.count == 2)
     #expect(attempts[0] == attempts[1])
 
-    let pinned = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let pinned = await harness.submit(PlotterDrawingRunSubmission(
       projection: recovered.snapshot.projection,
       intent: .pinReview(terminal.runID)
     ))
@@ -1094,7 +1119,7 @@ struct PlotterDrawingRunEpisodeTests {
       pinned.snapshot.review
         == .pinned(runID: terminal.runID, frame: fixture.postFrame.plotterExactFrameReference)
     )
-    let unpinned = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let unpinned = await harness.submit(PlotterDrawingRunSubmission(
       projection: pinned.snapshot.projection,
       intent: .unpinReview(terminal.runID)
     ))
@@ -1109,7 +1134,7 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture, evidenceFailures: 1)
     let current = await harness.runtime.synchronize(environment: .live)
-    let failed = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let failed = await harness.submit(PlotterDrawingRunSubmission(
       projection: current.projection,
       intent: .start
     ))
@@ -1119,7 +1144,7 @@ struct PlotterDrawingRunEpisodeTests {
       return
     }
 
-    let wrongRecovery = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let wrongRecovery = await harness.submit(PlotterDrawingRunSubmission(
       projection: failed.snapshot.projection,
       intent: .recoverPublication(PlotterDrawingRunPublicationRecoveryCapabilityID())
     ))
@@ -1131,7 +1156,7 @@ struct PlotterDrawingRunEpisodeTests {
     let appendGate = DrawingRunHoldGate()
     await harness.evidence.holdNextAppend(at: appendGate)
     let recovery = Task {
-      await harness.runtime.submit(PlotterDrawingRunSubmission(
+      await harness.submit(PlotterDrawingRunSubmission(
         projection: wrongRecovery.snapshot.projection,
         intent: .recoverPublication(recoveryID)
       ))
@@ -1142,7 +1167,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(appending.terminal?.disposition == .publicationIncomplete)
     #expect(!appending.physicalEvidenceClaimed)
 
-    let blockedNewRun = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let blockedNewRun = await harness.submit(PlotterDrawingRunSubmission(
       projection: appending.projection,
       intent: .beginNewRun(terminal.runID)
     ))
@@ -1151,7 +1176,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(newRunRefusal.reason == .evidencePublicationInProgress)
     #expect(newRunRefusal.remedy == .waitForEvidencePublication)
 
-    let blockedReview = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let blockedReview = await harness.submit(PlotterDrawingRunSubmission(
       projection: blockedNewRun.snapshot.projection,
       intent: .pinReview(terminal.runID)
     ))
@@ -1180,26 +1205,16 @@ struct PlotterDrawingRunEpisodeTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let completed = await drawingRunHarness(fixture: fixture)
     let projection = await completed.runtime.synchronize(environment: .live)
-    let result = await completed.runtime.submit(PlotterDrawingRunSubmission(
+    let result = await completed.submit(PlotterDrawingRunSubmission(
       projection: projection.projection,
       intent: .start
     ))
     let record = try #require(result.snapshot.terminal?.record)
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-      "drawing-run-episode-\(UUID().uuidString)", isDirectory: true
-    )
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = DrawingRunEvidenceStore(
-      fileURL: directory.appendingPathComponent("drawing-runs.json")
-    )
-    let owned = try #require(record.attemptEvidence)
-    try await store.stageIntent(owned.intent)
-    _ = try await store.installMedia(frame: fixture.baselineFrame.frame, source: fixture.baselineFrame.source)
-    for baseline in owned.baselines { try await store.stageBaseline(runID: record.runID, media: baseline) }
-    try await store.markInkDispatchPossible(runID: record.runID)
-    _ = try await store.installMedia(frame: fixture.completionFrame.frame, source: fixture.completionFrame.source)
-    _ = try await store.installMedia(frame: fixture.postFrame.frame, source: fixture.postFrame.source)
-    let archive = try await store.append(record)
+    // Exercise the actual canonical stage/seal, rather than reconstructing a
+    // job-bound attempt through the deliberately nonjob stageIntent API.
+    let store = DrawingRunEvidenceStore(fileURL: completed.evidence.archiveURL)
+    let archive = await completed.evidence.archive
+    #expect(archive.records == [record])
     guard case .loaded(let loaded) = await store.load() else {
       Issue.record("Expected the exact checksummed archive to load.")
       return
@@ -1213,7 +1228,7 @@ struct PlotterDrawingRunEpisodeTests {
       environment: .live
     )
     let restoredProjection = await restored.runtime.synchronize(environment: .live)
-    let blocked = await restored.runtime.submit(PlotterDrawingRunSubmission(
+    let blocked = await restored.submit(PlotterDrawingRunSubmission(
       projection: restoredProjection.projection,
       intent: .start
     ))
@@ -1239,7 +1254,7 @@ struct PlotterDrawingRunEpisodeTests {
     #expect(current.evidenceArchiveAvailability == .rejected(detail: "integrityMismatch"))
     #expect(current.noRedraw == .archiveUnavailable(detail: "integrityMismatch"))
 
-    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let result = await harness.submit(PlotterDrawingRunSubmission(
       projection: current.projection,
       intent: .start
     ))
@@ -1263,7 +1278,7 @@ struct PlotterDrawingRunEpisodeTests {
     let simulatedFacts = fixture.facts(environment: .simulated)
     let harness = await drawingRunHarness(fixture: fixture, facts: simulatedFacts)
     let current = await harness.runtime.synchronize(environment: .simulated)
-    let result = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    let result = await harness.submit(PlotterDrawingRunSubmission(
       projection: current.projection,
       intent: .start
     ))

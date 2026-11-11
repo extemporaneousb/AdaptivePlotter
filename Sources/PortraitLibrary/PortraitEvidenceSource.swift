@@ -34,7 +34,7 @@ package struct PortraitEvidenceSource {
     struct Manifest:Decodable { let archiveID:UUID;let revision:UInt64;let attempts:[Reference] }
     let bytes = try Data(contentsOf:url),hash = DrawingArtifactCoding.sha256(bytes)
     let envelope = try JSONDecoder().decode(Envelope.self,from:bytes)
-    guard [2,3].contains(envelope.schemaVersion),DrawingArtifactCoding.sha256(envelope.payload) == envelope.payloadSHA256,
+    guard [2,3,4].contains(envelope.schemaVersion),DrawingArtifactCoding.sha256(envelope.payload) == envelope.payloadSHA256,
       generation == nil || generation == hash else { throw DrawingExchangeError.mismatchedParent }
     let manifest = try JSONDecoder().decode(Manifest.self,from:envelope.payload)
     guard manifest.archiveID == archive.archiveID,manifest.revision == archive.revision,

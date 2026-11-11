@@ -127,7 +127,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     switch reply {
     case .prepared(let ticket):
       if revealPreparedDrawing?(ticket) == true {
-        applicationRuntime.drawingDestinationStatus = "Drawing prepared in the preview. Submission is unavailable."
+        applicationRuntime.drawingDestinationStatus = "Drawing prepared in the preview. Review it before choosing Draw."
       } else {
         applicationRuntime.drawingDestinationStatus = "Drawing preparation has changed. Prepare it again to review the current preview."
       }

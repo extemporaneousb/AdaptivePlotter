@@ -713,8 +713,11 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    drawing has no pre-run learning-role selector. Active Learning assigns its
    predeclared experimental roles internally.
 6. Press **Draw** only when LIVE controller admission, Motion, current
-   paper coverage, and the exact plan are all current. The app redundantly
-   commands and settles Pen Up before observation-position travel; prior Pen
+   paper coverage, and the exact plan are all current. The existing Run owner
+   immediately exposes pending Stop, preserves the original request and reviewed
+   plan, and commits its exact raw attempt and accepted job/Run link before effects.
+   Retrying a request or recovering publication never starts another drawing.
+   The app redundantly commands and settles Pen Up before observation-position travel; prior Pen
    command knowledge is not trusted. It then selects the plan's final point as
    the same-pose observation location and captures the local pre-drawing baseline there.
 7. One `RunInterpreter` owner preflights the controller-precision schedule, then

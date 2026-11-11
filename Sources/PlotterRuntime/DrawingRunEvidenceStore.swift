@@ -2,6 +2,7 @@ import Darwin
 import CryptoKit
 import Foundation
 import PlotterModel
+import PortraitCore
 
 public enum DrawingRunEvidenceArchiveError: Error, Equatable, Sendable {
   case unsupportedSchema(UInt16)
@@ -131,9 +132,16 @@ public struct DrawingRunEvidenceArchive: Codable, Hashable, Sendable {
       }
     }
     var intentIDs = Set<RunID>()
+    var jobKeys = Set<DrawingRequestKey>()
+    var jobs = Set<JobRef>()
+    var issuances = Set<UUID>()
     for attempt in attempts {
       let runID = attempt.intent.runID
       try attempt.intent.validate()
+      if let binding = attempt.intent.issuance {
+        guard jobKeys.insert(binding.key).inserted, jobs.insert(binding.job).inserted,
+          issuances.insert(binding.issuance).inserted else { throw DrawingRunEvidenceArchiveError.invalidAttempt(runID) }
+      }
       guard intentIDs.insert(runID).inserted, attempt.baselines.count <= 4,
         Set(attempt.baselines).count == attempt.baselines.count,
         !attempt.inkDispatchPossible || !attempt.baselines.isEmpty else {
@@ -400,10 +408,24 @@ extension DrawingRunEvidenceRecord {
 /// Atomic, integrity-checked persistence intended for an injected Application
 /// Support file path. It records immutable facts only: there is deliberately no
 /// readiness-promotion, model-acceptance, authorization, or motion-replay API.
+public enum DrawingRunIssuanceStageDisposition: Sendable, Equatable { case newlyStaged, existing }
+public struct DrawingRunIssuanceStageReceipt: Sendable {
+  public let intent: DrawingRunIntent
+  public let archive: DrawingRunEvidenceArchive
+  public let disposition: DrawingRunIssuanceStageDisposition
+  public init(intent: DrawingRunIntent, archive: DrawingRunEvidenceArchive, disposition: DrawingRunIssuanceStageDisposition) {
+    self.intent = intent; self.archive = archive; self.disposition = disposition
+  }
+}
+
+package enum DrawingRunEvidencePublicationBoundary: Sendable {
+  case afterManifestRename
+}
+
 public actor DrawingRunEvidenceStore {
-  // Fence out schema-two writers: their indexed manifests would silently drop
-  // the new supplemental review facts when republished.
-  private static let envelopeSchemaVersion: UInt16 = 3
+  // Fence out schema-three writers: they cannot preserve Drawing job issuance
+  // and full-ref candidate bindings when republishing the raw manifest.
+  private static let envelopeSchemaVersion: UInt16 = 4
 
   private struct Envelope: Codable {
     let schemaVersion: UInt16
@@ -444,9 +466,18 @@ public actor DrawingRunEvidenceStore {
   public private(set) var mediaBytesVerified = 0
 
   public nonisolated let fileURL: URL
+  private let publicationFault: (@Sendable (DrawingRunEvidencePublicationBoundary) throws -> Void)?
 
   public init(fileURL: URL) {
     self.fileURL = fileURL
+    publicationFault = nil
+  }
+
+  /// Package-scoped deterministic crash boundary, owned by this same writer.
+  package init(fileURL: URL,
+    publicationFault: @escaping @Sendable (DrawingRunEvidencePublicationBoundary) throws -> Void) {
+    self.fileURL = fileURL
+    self.publicationFault = publicationFault
   }
 
   public func load() -> DrawingRunEvidenceStoreLoadResult {
@@ -545,8 +576,60 @@ public actor DrawingRunEvidenceStore {
     verifiedFiles[url] = state
   }
 
+  /// One actor turn: identity lookup precedes allocation and publication. No
+  /// suspension permits another caller to choose a second RunID for this job.
+  public func stageIssuance(_ proposal: DrawingRunIssuanceProposal) throws -> DrawingRunIssuanceStageReceipt {
+    _ = try DrawingRunIssuanceProposal(body: proposal.body, binding: proposal.binding)
+    try proposal.binding.preparedPlan.validate(DrawingArtifactCoding.encoder().encode(proposal.body.plan))
+    let archive = try currentArchive()
+    if let prior = try existingIssuance(proposal.binding, in: archive) {
+      guard prior.body == proposal.body else { throw DrawingRunEvidenceError.invalidAttemptContext }
+      return .init(intent: prior, archive: archive, disposition: .existing)
+    }
+    try Task.checkCancellation()
+    let intent = try DrawingRunIntent(runID: RunID(), body: proposal.body, issuance: proposal.binding)
+    do {
+      let committed = try stageCanonicalIntent(intent)
+      return .init(intent: intent, archive: committed, disposition: .newlyStaged)
+    } catch {
+      // A rename may have committed before fsync failed. Reverify through this
+      // same owner. An uncertain acknowledgement can never mint live permission.
+      cachedArchive = nil; cachedManifest = nil; committedBytes = nil; verifiedFiles = [:]
+      if case .loaded(let recovered) = load(),
+        let prior = try existingIssuance(proposal.binding, in: recovered), prior.body == proposal.body {
+        return .init(intent: prior, archive: recovered, disposition: .existing)
+      }
+      throw error
+    }
+  }
+
+  public func lookupIssuance(_ binding: DrawingJobIssuance) throws -> DrawingRunIssuanceStageReceipt? {
+    // load() distinguishes verified absence from rejected/unreadable bytes.
+    switch load() {
+    case .absent: return nil
+    case .rejected: throw DrawingRunEvidenceError.invalidAttemptContext
+    case .loaded(let archive):
+      guard let intent = try existingIssuance(binding, in: archive) else { return nil }
+      return .init(intent: intent, archive: archive, disposition: .existing)
+    }
+  }
+  private func existingIssuance(_ binding: DrawingJobIssuance, in archive: DrawingRunEvidenceArchive) throws -> DrawingRunIntent? {
+    let matches = archive.attempts.map(\.intent).filter {
+      guard let saved = $0.issuance else { return false }
+      return saved.key == binding.key || saved.job == binding.job || saved.issuance == binding.issuance
+    }
+    guard matches.count <= 1 else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    guard let intent = matches.first else { return nil }
+    guard intent.issuance == binding else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    return intent
+  }
+
   @discardableResult
   public func stageIntent(_ intent: DrawingRunIntent) throws -> DrawingRunEvidenceArchive {
+    guard intent.issuance == nil else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    return try stageCanonicalIntent(intent)
+  }
+  private func stageCanonicalIntent(_ intent: DrawingRunIntent) throws -> DrawingRunEvidenceArchive {
     let current = try currentArchive()
     if let existing = current.attempts.first(where: { $0.intent.runID == intent.runID }) {
       guard existing.intent == intent else { throw DrawingRunEvidenceStoreError.immutableAttempt(intent.runID) }
@@ -628,7 +711,7 @@ public actor DrawingRunEvidenceStore {
     if record.attemptEvidence != nil, current.records.contains(record) { return current }
     if let evidence = record.attemptEvidence,
       !current.attempts.contains(where: { $0.intent.runID == record.runID }) {
-      guard record.executionFrontiers.commandedStrokeCount == 0 else {
+      guard evidence.intent.issuance == nil, record.executionFrontiers.commandedStrokeCount == 0 else {
         throw DrawingRunEvidenceStoreError.missingAttempt(record.runID)
       }
       // A pre-dispatch failure can retain and seal its intent in this one write.
@@ -810,6 +893,7 @@ public actor DrawingRunEvidenceStore {
       payload: payload, payloadSHA256: Self.sha256(payload)))
     try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     try bytes.write(to: fileURL, options: [.atomic])
+    try publicationFault?(.afterManifestRename)
     try Self.synchronizeFile(fileURL)
     // Publish only after the exact index and all referenced components are durable.
     // Superseded blobs are retained after uncertain commits; the index alone selects truth.
@@ -841,10 +925,17 @@ public actor DrawingRunEvidenceStore {
     references: [Component], id: (T) -> UUID, encoder: JSONEncoder) throws -> [Component] {
     let old = Dictionary(uniqueKeysWithValues: previous.map { (id($0), $0) })
     let retained = Dictionary(uniqueKeysWithValues: references.map { ($0.id, $0) })
-    return try values.map { value in
-      if old[id(value)] == value, let reference = retained[id(value)] { return reference }
-      return try installComponent(value, id: id(value), encoder: encoder)
+    var components: [Component] = []
+    components.reserveCapacity(values.count)
+    for value in values {
+      let identifier = id(value)
+      if old[identifier] == value, let reference = retained[identifier] {
+        components.append(reference)
+      } else {
+        components.append(try installComponent(value, id: identifier, encoder: encoder))
+      }
     }
+    return components
   }
 
   private nonisolated static func componentURL(_ hash: String, archiveURL: URL) -> URL {
@@ -880,7 +971,7 @@ public actor DrawingRunEvidenceStore {
       envelope = try JSONDecoder().decode(Envelope.self, from: bytes)
     }
     catch { return .rejected(.malformedEnvelope(String(describing: error))) }
-    guard [1, 2, 3].contains(envelope.schemaVersion) else { return .rejected(.unsupportedEnvelopeSchema(envelope.schemaVersion)) }
+    guard [1, 2, 3, 4].contains(envelope.schemaVersion) else { return .rejected(.unsupportedEnvelopeSchema(envelope.schemaVersion)) }
     guard sha256(envelope.payload) == envelope.payloadSHA256 else { return .rejected(.integrityMismatch) }
     do {
       let archive: DrawingRunEvidenceArchive

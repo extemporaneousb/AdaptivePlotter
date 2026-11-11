@@ -14,7 +14,7 @@ struct DrawingResultCaptureTests {
     let gate = DrawingRunPlanGate()
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     await harness.facts.replace(unavailableFacts(fixture))
     await gate.release(.completed)
@@ -50,7 +50,7 @@ struct DrawingResultCaptureTests {
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate,
       cameraFrames: [fixture.baselineFrame])
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     await harness.facts.replace(unavailableFacts(fixture))
     await gate.release(.completed)
@@ -77,7 +77,7 @@ struct DrawingResultCaptureTests {
     let harness = await drawingRunHarness(fixture: fixture,
       cameraFrames: [fixture.baselineFrame, rejected, fixture.postFrame])
     let ready = await harness.runtime.synchronize(environment: .live)
-    let result = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let result = await harness.submit(.init(projection: ready.projection, intent: .start))
     let attempt = try #require(result.snapshot.terminal?.record.attemptEvidence)
     #expect(attempt.terminalFrames.count == 1)
     #expect(attempt.terminalFrames.first?.frame == ExactFrameProvenance(frame: fixture.postFrame.frame))
@@ -98,7 +98,7 @@ struct DrawingResultCaptureTests {
     let gate = DrawingRunPlanGate()
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     #expect(!unsealed.frame.contentHashIsMaterialized)
     await harness.facts.replace(unavailableFacts(fixture, displayedFrame: unsealed))
@@ -122,7 +122,7 @@ struct DrawingResultCaptureTests {
     let harness = await drawingRunHarness(fixture: fixture)
     await harness.camera.holdCapture(ordinal: 2, at: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilHeld()
     let active = await harness.runtime.snapshot(environment: .live)
     let stop = try #require(active.stopCapabilityID)
@@ -147,7 +147,7 @@ struct DrawingResultCaptureTests {
     let harness = await drawingRunHarness(fixture: fixture)
     await harness.evidence.rejectMediaFrames([fixture.completionFrame.frame.id])
     let ready = await harness.runtime.synchronize(environment: .live)
-    let failed = await harness.runtime.submit(.init(projection: ready.projection, intent: .start))
+    let failed = await harness.submit(.init(projection: ready.projection, intent: .start))
     let terminal = try #require(failed.snapshot.terminal)
     #expect(terminal.disposition == .publicationIncomplete)
     let status = DrawingStudioExecutionPresentation(snapshot: failed.snapshot, phaseDetail: "")

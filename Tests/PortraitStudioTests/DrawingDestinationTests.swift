@@ -10,16 +10,6 @@ import PlotterModel
 import Testing
 @testable import PortraitStudio
 
-@MainActor private final class DestinationOwner: DrawingDestinationNonDeviceOwner {
-  var issues = 0
-  var loseAcknowledgement = false
-  var settled = false
-  func issue(job: JobRef, issuance: UUID) async throws {
-    issues += 1
-    if loseAcknowledgement { throw DrawingDestinationRefusal.preparationUnavailable }
-  }
-  func cancel(job: JobRef) async throws -> (acknowledged: Bool, settled: Bool) { (true, settled) }
-}
 @MainActor private final class DestinationPreparationGate {
   private var continuation: CheckedContinuation<Void, Never>?
   private var entered = false
@@ -76,26 +66,16 @@ import Testing
     plan = try DrawingPlanner.plan(program: program, placement: placement,
       drawableRegion: DrawableMachineRegion(bounds: AxisAlignedBounds<MachineSpace>(minX: 0, minY: 0, maxX: 200, maxY: 200)), provenance: provenance)
   }
-  func service(library supplied: DrawingLibrary? = nil, owner: DestinationOwner? = nil, returns: URL? = nil) -> DrawingDestinationService {
+  func service(library supplied: DrawingLibrary? = nil, returns: URL? = nil) -> DrawingDestinationService {
     DrawingDestinationService(library: supplied ?? library, returnDirectory: returns ?? root.appendingPathComponent("results"),
       prepare: { ref, engine, _ in try .init(drawing: ref, destination: engine, draftRevision: 1, plan: self.plan, options: self.options) },
-      current: { self.live ? $0 : nil }, nonDeviceOwner: owner)
+      current: { self.live ? $0 : nil })
   }
   func ticket(_ service: DrawingDestinationService) async throws -> DrawingPreparedTicket {
     guard case .prepared(let ticket) = try await service.handle(.prepare(reference)) else { throw DrawingDestinationRefusal.preparationUnavailable }
     return ticket
   }
   func cleanup() async { await library.closeLibrary(); try? FileManager.default.removeItem(at: root) }
-}
-
-private extension DrawingLibrary {
-  /// Inspect the existing owner's durable intents without opening/recovering it.
-  func destinationPendingDecisionRecords() throws -> [DrawingLibraryRecord] {
-    guard let catalog = cachedExchangeCatalog else { return [] }
-    return try catalog.storage.pendingTransactions().flatMap {
-      try JSONDecoder().decode(LibraryExchangePublication.self, from: $0.intent).domainCommit?.batch.records ?? []
-    }
-  }
 }
 
 @Suite("DX12 shared destination service", .serialized)
@@ -165,63 +145,6 @@ private extension DrawingLibrary {
     let rows = try await reopened.records(kind: "adaptiveplotter.destination.job")
     #expect(rows.allSatisfy { $0.payload.count < 16_384 && !String(decoding: $0.payload, as: UTF8.self).contains("\"strokes\"") })
     await reopened.closeLibrary()
-  }
-  @Test("Actual Library decision-commit faults recover one frozen mapping without issuance replay",
-    arguments: [LibraryExchangeCatalogBoundary.beforeSQLCommit, .afterSQLCommit])
-  func uncertainDecisionCommit(boundary: LibraryExchangeCatalogBoundary) async throws {
-    let fixture = try await DestinationFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
-    let owner = DestinationOwner(), service = fixture.service(owner: owner)
-    let ticket = try await fixture.ticket(service), key = DrawingRequestKey(namespace: UUID())
-    try await fixture.library.editFault(boundary)
-    do { _ = try await service.handle(.submit(key, ticket)) } catch {}
-    let committed = try await fixture.library.records(kind: "adaptiveplotter.destination.job")
-    let journal = try await fixture.library.destinationPendingDecisionRecords().filter { $0.kind == "adaptiveplotter.destination.job" }
-    // The pre-commit transaction rolls SQL back but retains its exact journal;
-    // the post-commit path recovers/verifies SQL and finishes that same journal.
-    if boundary == .beforeSQLCommit { #expect(committed.isEmpty && journal.count == 1) }
-    else { #expect(committed.count == 1 && journal.isEmpty) }
-    let frozen = try #require((committed + journal).first)
-    let original = try JSONDecoder().decode(DrawingJobDecision.self, from: frozen.payload)
-    #expect(original.phase == .reconciling && owner.issues == 0)
-    try await fixture.library.editFault(nil)
-    try await fixture.library.recover()
-    #expect(try await fixture.library.destinationPendingDecisionRecords().isEmpty)
-    await fixture.library.closeLibrary()
-    let reopened = DrawingLibrary(directoryURL: fixture.root.appendingPathComponent("library"))
-    let restarted = fixture.service(library: reopened, owner: owner)
-    #expect(try await restarted.handle(.submit(key, ticket)) == .decision(original))
-    #expect(try await restarted.handle(.status(.request(key))) == .decision(original))
-    #expect(try await restarted.handle(.status(.job(original.job.handle))) == .decision(original))
-    #expect(try await reopened.records(kind: key.recordKind).count == 1)
-    #expect(try await reopened.records(kind: "adaptiveplotter.destination.job").map(\.payload) == [frozen.payload])
-    #expect(try ExchangeJobReceipt(originalJSON: original.receipt).issuance != nil)
-    #expect(try await restarted.handle(.exportResult(original.job.handle)) == .refused(.preparationUnavailable))
-    #expect(owner.issues == 0)
-    await reopened.closeLibrary()
-  }
-  @Test("Real service accepted non-device issuance, cancellation acknowledgement and uncertain retry never reissue")
-  func nonDeviceOwnership() async throws {
-    let fixture = try await DestinationFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
-    let owner = DestinationOwner(), service = fixture.service(owner: DestinationOwner())
-    let ticket = try await fixture.ticket(service)
-    let issuing = fixture.service(owner: owner), key = DrawingRequestKey(namespace: UUID())
-    guard case .decision(let accepted) = try await issuing.handle(.submit(key, ticket)) else { Issue.record("Missing accepted job"); return }
-    #expect(accepted.phase == .accepted && owner.issues == 1)
-    #expect(try ExchangeJobReceipt(originalJSON: accepted.receipt).issuance != nil)
-    #expect(try await issuing.handle(.exportResult(accepted.job.handle)) == .refused(.preparationUnavailable))
-    #expect(try await issuing.handle(.cancel(.job(accepted.job.handle))) == .cancellation(acknowledged: true, settled: false))
-    guard case .decision(let pending) = try await issuing.handle(.status(.request(key))) else { Issue.record("Missing cancel status"); return }
-    #expect(pending.phase == .cancelRequested && pending.receipt == accepted.receipt)
-    owner.settled = true
-    #expect(try await issuing.handle(.cancel(.job(accepted.job.handle))) == .cancellation(acknowledged: true, settled: true))
-    owner.loseAcknowledgement = true
-    let uncertainKey = DrawingRequestKey(namespace: key.namespace)
-    do { _ = try await issuing.handle(.submit(uncertainKey, ticket)); Issue.record("Expected lost acknowledgement") } catch {}
-    #expect(owner.issues == 2)
-    let restart = fixture.service(owner: owner)
-    guard case .decision(let uncertain) = try await restart.handle(.submit(uncertainKey, ticket)) else { Issue.record("Missing uncertain job"); return }
-    #expect(uncertain.phase == .reconciling && owner.issues == 2)
-    await fixture.library.closeLibrary()
   }
   @Test("Engine-owned source-free and Photo refusal export closes offline with zero runs and exact bytes", arguments: [false, true])
   func refusalClosure(photo: Bool) async throws {
@@ -340,17 +263,17 @@ private extension DrawingLibrary {
     let client = DrawingDestinationClient(library: fixture.library, root: fixture.root.appendingPathComponent("transport"))
     func invoke(_ delivery: DrawingDestinationDelivery, boundary: String? = nil) async throws -> (Int32, String) {
       let input = DrawingDestinationFiles.requestURL(root: client.root, client: delivery.client, delivery: delivery.id)
-      return try await Task.detached { () throws -> (Int32, String) in
+      return try await Task.detached { () async throws -> (Int32, String) in
         let process = Process(); process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = [fixture.root.path, planURL.path, input.path] + (boundary.map { [$0] } ?? [])
         let pipe = Pipe(); process.standardOutput = pipe
         try process.run()
         let deadline = ContinuousClock.now.advanced(by: .seconds(20))
-        while process.isRunning, ContinuousClock.now < deadline { Thread.sleep(forTimeInterval: 0.01) }
+        while process.isRunning, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         if process.isRunning {
           process.terminate()
           let terminationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
-          while process.isRunning, ContinuousClock.now < terminationDeadline { Thread.sleep(forTimeInterval: 0.01) }
+          while process.isRunning, ContinuousClock.now < terminationDeadline { try await Task.sleep(for: .milliseconds(10)) }
           if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
           process.waitUntilExit()
           throw DrawingDestinationRefusal.preparationUnavailable

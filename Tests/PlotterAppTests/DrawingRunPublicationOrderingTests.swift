@@ -20,7 +20,7 @@ struct DrawingRunPublicationOrderingTests {
     let harness = await drawingRunHarness(fixture: fixture, planGate: planGate,
       releasePlanOnStop: false)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await planGate.waitUntilStarted()
     let executing = await harness.runtime.snapshot(environment: .live)
     let capability = try #require(executing.stopCapabilityID)
@@ -33,6 +33,8 @@ struct DrawingRunPublicationOrderingTests {
       intent: .stop(capability)))
     #expect(stopped.disposition == .applied)
     #expect(stopped.snapshot.activeRunID == executing.activeRunID)
+    #expect(stopped.snapshot.phase == .stopping)
+    #expect(stopped.snapshot.stopCapabilityID == capability)
     #expect(stopped.snapshot.projection.runRevision > executing.projection.runRevision)
     var expected = stopped.snapshot
     if settlement != .stop {
@@ -66,7 +68,7 @@ struct DrawingRunPublicationOrderingTests {
     let gate = DrawingRunPlanGate()
     let harness = await drawingRunHarness(fixture: fixture, planGate: gate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await gate.waitUntilStarted()
     let request = try #require(await gate.request)
     let before = await harness.runtime.snapshot(environment: .live)
@@ -88,7 +90,7 @@ struct DrawingRunPublicationOrderingTests {
     let pollGate = DrawingRunHoldGate()
     let harness = await drawingRunHarness(fixture: fixture, planGate: planGate)
     let ready = await harness.runtime.synchronize(environment: .live)
-    let run = Task { await harness.runtime.submit(.init(projection: ready.projection, intent: .start)) }
+    let run = Task { await harness.submit(.init(projection: ready.projection, intent: .start)) }
     await planGate.waitUntilStarted()
     let request = try #require(await planGate.request)
     let earlyProgress = drawingRunOutcome(.cancelled, request: request).progress
@@ -180,7 +182,7 @@ func verifyDrawingRunPublicationOrdering(
     earlier.append(value)
   }
   #expect(earlier.contains { $0.phase == .appendingEvidence && $0.terminal == nil })
-  let settled = await runtime.snapshot(environment: .live)
+  let settled = try await issuanceSettled(runtime)
   application.installDrawingRunSnapshot(settled)
   let publishedTerminal = try #require(application.drawingRunSnapshot)
   for value in earlier where value.projection.runRevision < publishedTerminal.projection.runRevision {

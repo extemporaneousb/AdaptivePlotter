@@ -144,6 +144,8 @@ struct WorkbenchStopCompositionTests {
       #expect(application.drawingRunSnapshot?.planIdentity == heldPlan)
       await fixture.planGate.release(.cancelled)
       #expect(await pendingRun.value == .accepted(requestID: draw.id))
+      // Observe terminal publication separately from the admission ACK.
+      try await fixture.waitForDrawingSettlement()
       // Capture before the lower await: allowing another UI turn here could
       // conceal a queued earlier publication overwriting the returned result.
       let immediatelyPublished = try #require(application.drawingRunSnapshot)

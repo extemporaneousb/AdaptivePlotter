@@ -1,7 +1,9 @@
 @testable import PortraitLibrary
 import Foundation
+import DrawingLibrary
+import PortraitCore
 import PlotterEpisodeModel
-import PlotterEpisodeRuntime
+@testable import PlotterEpisodeRuntime
 import PlotterModel
 import Testing
 
@@ -303,6 +305,21 @@ func drawingRunReadySnapshot(position: MachinePosition, penState: PenState = .up
 actor DrawingRunFactProbe: PlotterDrawingRunFactSource {
   private var values: [PlotterEnvironment: PlotterDrawingRunExternalFacts]
   private var nextAcquisitionGate: DrawingRunHoldGate?
+  private var bindingLibrary: DrawingLibrary?
+  private var bindingCollection: PortraitSketchCollection?
+  private var bindingEvidence: (any PlotterDrawingRunEvidencePort)?
+  private var bindingArchiveURL: URL?
+  func installBinding(library: DrawingLibrary, collection: PortraitSketchCollection,
+    evidence: any PlotterDrawingRunEvidencePort, archiveURL: URL) {
+    bindingLibrary = library; bindingCollection = collection; bindingEvidence = evidence; bindingArchiveURL = archiveURL
+  }
+  func retainCandidateForAttempt(_ intent: DrawingRunIntent) async throws {
+    guard let binding = intent.issuance, let library = bindingLibrary,
+      let collection = bindingCollection, let evidence = bindingEvidence, let archiveURL = bindingArchiveURL,
+      let receipt = try await evidence.lookupIssuance(binding), receipt.intent == intent else { throw DrawingRunEvidenceError.invalidAttemptContext }
+    let drawing = try await library.drawing(binding.drawing)
+    try await collection.bindDrawingAttempt(intent, drawing: drawing, archive: receipt.archive, archiveURL: archiveURL)
+  }
 
   init(_ facts: PlotterDrawingRunExternalFacts) {
     values = [facts.environment: facts]
@@ -437,6 +454,8 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
   private let planGate: DrawingRunPlanGate?
   private let releasePlanOnStop: Bool
   private var nextSnapshotGate: DrawingRunHoldGate?
+  private var nextPlanAdmissionGate: DrawingRunHoldGate?
+  func holdNextPlanAdmission(at gate: DrawingRunHoldGate) { nextPlanAdmissionGate = gate }
   private var drawingProgress: DrawingPlanProgressSnapshot?
   private var drawingOutcomeOverride: DrawingPlanOutcome?
   private var heldTravel: (ordinal: Int, gate: DrawingRunHoldGate)?
@@ -513,7 +532,7 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
     }
     let gate = planGate
     let fallback = outcomeKind
-    return .admitted(DrawingPlanOperation(
+    let operation = DrawingPlanOperation(
       id: request.operationID,
       planRevisionID: request.plan.revisionID,
       task: Task {
@@ -535,7 +554,10 @@ actor DrawingRunInterpreterProbe: PlotterDrawingRunInterpreterPort {
         if case .completed(_, let position) = result { self.setPosition(position) }
         return result
       }
-    ))
+    )
+    let admissionGate = nextPlanAdmissionGate; nextPlanAdmissionGate = nil
+    await admissionGate?.hold()
+    return .admitted(operation)
   }
 
   func requestStop(_ intent: JogCancelIntent) async -> JogCancelOutcome {
@@ -627,24 +649,48 @@ actor DrawingRunEvidenceProbe: PlotterDrawingRunEvidencePort {
   private var stageBaselineFailuresRemaining: Int
   private var failDispatchAcknowledgement: Bool
   private var rejectedMediaFrames: Set<FrameID> = []
+  var lookupIntentOverride: DrawingRunIntent?
+  func replaceLookupIntent(_ intent: DrawingRunIntent?) { lookupIntentOverride = intent }
   private var nextAppendGate: DrawingRunHoldGate?
+  private var stageGate: (gate: DrawingRunHoldGate, afterCommit: Bool)?
+  func holdStage(at gate: DrawingRunHoldGate, afterCommit: Bool) { stageGate = (gate, afterCommit) }
   private(set) var attempts: [DrawingRunEvidenceRecord] = []
   private(set) var archive = DrawingRunEvidenceArchive()
 
   init(events: DrawingRunEventProbe, failures: Int = 0, stageFailures: Int = 0,
-    stageBaselineFailures: Int = 0, failDispatchAcknowledgement: Bool = false) {
+    stageBaselineFailures: Int = 0, failDispatchAcknowledgement: Bool = false,
+    uncertainStageAcknowledgement: Bool = false) {
     self.events = events
     failuresRemaining = failures
     stageFailuresRemaining = stageFailures
     stageBaselineFailuresRemaining = stageBaselineFailures
     self.failDispatchAcknowledgement = failDispatchAcknowledgement
-    store = DrawingRunEvidenceStore(fileURL: FileManager.default.temporaryDirectory
+    let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("drawing-run-probe-" + UUID().uuidString)
-      .appendingPathComponent("evidence.json"))
+      .appendingPathComponent("evidence.json")
+    if uncertainStageAcknowledgement {
+      store = DrawingRunEvidenceStore(fileURL: url,
+        publicationFault: { _ in throw DrawingRunEvidenceProbeError.stageFailed })
+    } else { store = DrawingRunEvidenceStore(fileURL: url) }
   }
 
   deinit { try? FileManager.default.removeItem(at: store.fileURL.deletingLastPathComponent()) }
 
+  nonisolated var archiveURL: URL { store.fileURL }
+  func stageIssuance(_ proposal: DrawingRunIssuanceProposal) async throws -> DrawingRunIssuanceStageReceipt {
+    await events.append("stage-intent")
+    if stageFailuresRemaining > 0 { stageFailuresRemaining -= 1; throw DrawingRunEvidenceProbeError.stageFailed }
+    let held = stageGate; stageGate = nil
+    if held?.afterCommit == false { await held?.gate.hold() }
+    let receipt = try await store.stageIssuance(proposal)
+    archive = receipt.archive
+    if held?.afterCommit == true { await held?.gate.hold() }
+    return receipt
+  }
+  func lookupIssuance(_ binding: DrawingJobIssuance) async throws -> DrawingRunIssuanceStageReceipt? {
+    guard let receipt = try await store.lookupIssuance(binding) else { return nil }
+    return .init(intent: lookupIntentOverride ?? receipt.intent, archive: receipt.archive, disposition: .existing)
+  }
   func stageIntent(_ intent: DrawingRunIntent) async throws -> DrawingRunEvidenceArchive {
     if !archive.attempts.contains(where: { $0.intent.runID == intent.runID }) {
       await events.append("stage-intent")
@@ -740,9 +786,24 @@ struct DrawingRunRuntimeHarness: Sendable {
   let vision: DrawingRunVisionProbe
   let evidence: DrawingRunEvidenceProbe
   let events: DrawingRunEventProbe
+  let destination: DrawingRunServicePreparation
+  /// Legacy run assertions explicitly wait for settlement; issuance suites call
+  /// runtime.submit directly and assert its earlier durable admission ACK.
+  func submit(_ submission: PlotterDrawingRunSubmission) async -> PlotterDrawingRunSubmissionResult {
+    let ack = await runtime.submit(submission)
+    guard submission.intent == .start, case .applied = ack.disposition else { return ack }
+    let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+    var state = await runtime.currentSnapshot(environment: submission.projection.environment)
+    while state.ownsWorkflow, ContinuousClock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(5))
+      state = await runtime.currentSnapshot(environment: submission.projection.environment)
+    }
+    if state.ownsWorkflow { Issue.record("Run did not settle within fifteen seconds") }
+    return .init(disposition: ack.disposition, snapshot: state)
+  }
 }
 
-func drawingRunHarness(
+@MainActor func drawingRunHarness(
   fixture: DrawingRunEpisodeFixture,
   facts initialFacts: PlotterDrawingRunExternalFacts? = nil,
   outcome: DrawingRunOutcomeKind = .completed,
@@ -753,6 +814,7 @@ func drawingRunHarness(
   stageFailures: Int = 0,
   stageBaselineFailures: Int = 0,
   failDispatchAcknowledgement: Bool = false,
+  uncertainStageAcknowledgement: Bool = false,
   archiveLoadResult: DrawingRunEvidenceStoreLoadResult = .absent,
   cameraFrames: [DisplayedFrame]? = nil,
   clock: any RuntimeClock = DrawingRunEpisodeClock()
@@ -775,15 +837,20 @@ func drawingRunHarness(
   let vision = DrawingRunVisionProbe(events: events)
   let evidence = DrawingRunEvidenceProbe(events: events, failures: evidenceFailures,
     stageFailures: stageFailures, stageBaselineFailures: stageBaselineFailures,
-    failDispatchAcknowledgement: failDispatchAcknowledgement)
+    failDispatchAcknowledgement: failDispatchAcknowledgement,
+    uncertainStageAcknowledgement: uncertainStageAcknowledgement)
+  let destination = try! await DrawingRunServicePreparation(facts: facts, environment: resolvedFacts.environment)
+  await facts.installBinding(library: destination.library, collection: destination.collection, evidence: evidence, archiveURL: evidence.archiveURL)
   let runtime = PlotterDrawingRunRuntime(
     facts: facts,
     interpreter: interpreter,
     camera: camera,
     vision: vision,
     evidence: evidence,
-    clock: clock
+    clock: clock,
+    preparation: destination
   )
+  destination.install(runtime)
   if resolvedFacts.environment == .live {
     _ = await runtime.restoreNoRedrawTruth(
       from: archiveLoadResult,
@@ -798,7 +865,8 @@ func drawingRunHarness(
     camera: camera,
     vision: vision,
     evidence: evidence,
-    events: events
+    events: events,
+    destination: destination
   )
 }
 
@@ -880,4 +948,153 @@ func drawingRunCheckpointProgress(_ request: DrawingPlanRequest, completed count
     completedStrokeIDs: request.plan.strokes.prefix(count).map(\.logicalStrokeID),
     completedCheckpointIDs: request.plan.strokes.prefix(count).map(\.endingCheckpointID),
     activeStrokeID: nil, activeSegmentIndex: nil)
+}
+
+/// Disposable composition of the SAME service, Library and Run. It does not
+/// manufacture decisions or accepted receipts; only the real raw owner stages.
+@MainActor final class DrawingRunServicePreparation: PlotterDrawingRunIssuancePreparation {
+  nonisolated let requestStamp = ExchangeDigest.hash(Data(UUID().uuidString.utf8))
+  let root: URL
+  let library: DrawingLibrary
+  let collection: PortraitSketchCollection
+  let service: DrawingDestinationService
+  let control: DrawingRunServiceControl
+  let facts: DrawingRunFactProbe
+  let environment: PlotterEnvironment
+  weak var runtime: PlotterDrawingRunRuntime?
+  var preparationGate: DrawingRunHoldGate?
+  var lastTicket: DrawingPreparedTicket?
+  var lastKey: DrawingRequestKey?
+  var lastReply: DrawingDestinationReply?
+  let publicationProbe = DrawingRunPublicationProbe()
+
+  init(facts: DrawingRunFactProbe, environment: PlotterEnvironment) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("drawing-issuance-" + UUID().uuidString)
+    let library = DrawingLibrary(directoryURL: root.appendingPathComponent("library"), payloadValidators: DrawingDestinationResult.payloadValidators)
+    let collection = PortraitSketchCollection(library: library)
+    try await library.open()
+    let control = DrawingRunServiceControl()
+    let options = DrawingDestinationOptions(drawBorder: false, sheetPlacementIsCurrent: true,
+      paperCoverageIsCurrent: true, readiness: "fixture-native", applicability: .hash(Data("fixture-applicability".utf8)))
+    let service = DrawingDestinationService(library: library, returnDirectory: root.appendingPathComponent("results"),
+      prepare: { ref, engine, _ in
+        guard let current = await facts.drawingRunFacts(for: environment).plan else { return nil }
+        return try .init(drawing: ref, destination: engine,
+          draftRevision: current.identity.draftRevision.rawValue, plan: current.plan, options: options)
+      },
+      current: { frozen in
+        let current = await facts.drawingRunFacts(for: environment)
+        return current.plan?.plan.revisionID == frozen.planID ? frozen : nil
+      }, control: control)
+    self.root = root; self.library = library; self.collection = collection; self.facts = facts
+    self.control = control; self.service = service; self.environment = environment
+  }
+  func install(_ runtime: PlotterDrawingRunRuntime) { self.runtime = runtime; control.runtime = runtime }
+  func currentFacts() async -> PlotterDrawingRunExternalFacts { await facts.drawingRunFacts(for: environment) }
+  func prepareAndSubmit(pendingID: UUID, submission: PlotterDrawingRunSubmission) async throws -> DrawingDestinationReply {
+    await preparationGate?.hold()
+    guard let runtime else { throw DrawingDestinationRefusal.preparationUnavailable }
+    let actual = await facts.drawingRunFacts(for: submission.projection.environment)
+    guard let plan = actual.plan, plan.identity == submission.projection.planIdentity else { throw DrawingDestinationRefusal.stalePreview }
+    // Retain this explicit call's exact authored source and reviewed plan; a
+    // later fixture plan change must not reuse the first Drawing or ticket.
+    let authored = try Drawing(program: plan.program, input: .none, parent: .none,
+      producer: .init(id: "example.issuance-fixture", version: "1", recordJSON: Data("{}".utf8)))
+    let reference = try await library.retain(authored, reason: "drawing-run-fixture").reference
+    let drawing = try await library.drawing(reference)
+    let identity = try await service.nativeIdentity()
+    let options = DrawingDestinationOptions(drawBorder: false, sheetPlacementIsCurrent: true,
+      paperCoverageIsCurrent: true, readiness: "fixture-native", applicability: .hash(Data("fixture-applicability".utf8)))
+    let preparation = try DrawingPreparation(drawing: reference, destination: identity.engine,
+      draftRevision: plan.identity.draftRevision.rawValue, plan: plan.plan, options: options)
+    guard case .prepared(let ticket) = try await service.handle(.prepare(reference),
+      context: .init(nativePreparation: preparation)) else { throw DrawingDestinationRefusal.preparationUnavailable }
+    let key = DrawingRequestKey(namespace: identity.namespace, request: submission.requestID.rawValue)
+    lastTicket = ticket; lastKey = key
+    let admission = DrawingRunServiceAdmission(runtime: runtime, pendingID: pendingID,
+      drawing: drawing, facts: facts, expected: actual, publicationProbe: publicationProbe)
+    let reply = try await service.handle(.submit(key, ticket), admission: admission)
+    lastReply = reply
+    return reply
+  }
+  func close() async {
+    if let runtime { _ = await runtime.beginShutdown(environment: .live) }
+    await service.close(); await collection.shutdown(); await library.closeLibrary()
+    try? FileManager.default.removeItem(at: root)
+  }
+}
+@MainActor final class DrawingRunServiceControl: DrawingDestinationJobControl {
+  weak var runtime: PlotterDrawingRunRuntime?
+  func cancel(_ binding: DrawingJobIssuance) async -> DrawingJobCancellation {
+    guard let runtime else { return .init(acknowledged: false, settled: false) }
+    return await runtime.cancelIssuance(binding)
+  }
+  func lookup(_ binding: DrawingJobIssuance) async -> DrawingRawIssuanceLookup {
+    guard let runtime else { return .unknown }
+    return await runtime.lookupIssuance(binding)
+  }
+  func publishedSettlement(_ binding: DrawingJobIssuance, run: UUID) async {
+    await runtime?.acknowledgeJobSettlement(binding, run: run)
+  }
+}
+@MainActor struct DrawingRunServiceAdmission: DrawingDestinationIssuanceAdmission {
+  let runtime: PlotterDrawingRunRuntime
+  let pendingID: UUID
+  let drawing: Drawing
+  let facts: DrawingRunFactProbe
+  let expected: PlotterDrawingRunExternalFacts
+  let publicationProbe: DrawingRunPublicationProbe
+  func isCurrent(_ ticket: DrawingPreparedTicket) async -> Bool {
+    let actual = await facts.drawingRunFacts(for: expected.environment)
+    return actual.plan == expected.plan && actual.penActuationProfile == expected.penActuationProfile
+      && actual.paperCoverageIsCurrent == expected.paperCoverageIsCurrent && ticket.facts.drawing == drawing.reference
+  }
+  func admit(_ binding: DrawingJobIssuance, publication: any DrawingJobPublication) async throws {
+    guard let program = expected.plan?.program, let candidate = drawing.executionReference(for: program) else { throw DrawingDestinationRefusal.preparationUnavailable }
+    publicationProbe.target = publication
+    try await runtime.continuePreparedIssuance(pendingID: pendingID, binding: binding,
+      candidate: candidate, publication: publicationProbe)
+  }
+}
+
+/// Faults and holds at the existing nominal publication port; all durable writes
+/// are forwarded to the actual shared service/Library authority.
+@MainActor final class DrawingRunPublicationProbe: DrawingJobPublication {
+  var target: (any DrawingJobPublication)?
+  var proposalGate: DrawingRunHoldGate?
+  var linkGate: DrawingRunHoldGate?
+  var linkFailures = 0
+  var settlementFailures = 0
+  var settlementGate: DrawingRunHoldGate?
+  private var destination: any DrawingJobPublication { target! }
+  func retainProposal(_ bytes: Data, for binding: DrawingJobIssuance) async throws -> ExchangeAsset {
+    await proposalGate?.hold()
+    return try await destination.retainProposal(bytes, for: binding)
+  }
+  func staged(_ binding: DrawingJobIssuance, run: UUID) async throws { try await destination.staged(binding, run: run) }
+  func acceptedLink(_ binding: DrawingJobIssuance, run: UUID) async throws -> DrawingJobDecision {
+    await linkGate?.hold()
+    if linkFailures > 0 { linkFailures -= 1; throw DrawingRunEvidenceProbeError.appendFailed }
+    return try await destination.acceptedLink(binding, run: run)
+  }
+  func refuseBeforeStage(_ binding: DrawingJobIssuance, reason: DrawingDestinationRefusal) async throws -> DrawingJobDecision {
+    try await destination.refuseBeforeStage(binding, reason: reason)
+  }
+  func settle(_ binding: DrawingJobIssuance, run: UUID) async throws {
+    await settlementGate?.hold()
+    if settlementFailures > 0 { settlementFailures -= 1; throw DrawingRunEvidenceProbeError.appendFailed }
+    try await destination.settle(binding, run: run)
+  }
+  func cancellationRequested(_ binding: DrawingJobIssuance) async throws -> Bool { try await destination.cancellationRequested(binding) }
+}
+
+@MainActor func issuanceSettled(_ runtime: PlotterDrawingRunRuntime) async throws -> PlotterDrawingRunSnapshot {
+  let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+  var snapshot = await runtime.currentSnapshot(environment: .live)
+  while snapshot.ownsWorkflow, ContinuousClock.now < deadline {
+    try await Task.sleep(for: .milliseconds(5))
+    snapshot = await runtime.currentSnapshot(environment: .live)
+  }
+  try #require(!snapshot.ownsWorkflow, "Issuance Run did not settle within fifteen seconds")
+  return snapshot
 }

@@ -114,7 +114,7 @@ struct PlotterOperatorThroughputPolicyTests {
     let fixture = try await DrawingRunEpisodeFixtureCache.load()
     let harness = await drawingRunHarness(fixture: fixture)
     let current = await harness.runtime.synchronize(environment: .live)
-    _ = await harness.runtime.submit(PlotterDrawingRunSubmission(
+    _ = await harness.submit(PlotterDrawingRunSubmission(
       projection: current.projection,
       intent: .start
     ))

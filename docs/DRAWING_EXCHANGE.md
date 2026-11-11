@@ -121,7 +121,7 @@ tickets, decisions, refusals, cancellation acknowledgement/settlement and result
 | --- | --- |
 | Describe | Stable local engine identity, current exchange/Drawing/stroke profiles, authored-style preservation and captured destination applicability. Placement/border/material/readiness options are captured; arbitrary overrides and a nominal-width requirement are absent. Production execution is unavailable. |
 | Prepare | Through the existing projection-bound app/draft owners, load/retain the exact Drawing/input/parent closure, select/fit and capture a genuine current plan/options. No executable plan means typed refusal and no ticket. A ticket pins full DrawingRef, destination, draft revision, actual plan ID/hash and plan/options asset digests. |
-| Submit | Recheck a new request against the stored ticket and live facts; changed facts require a new preview. A decided same-key retry returns the original decision. Production durably refuses with `issuance-seam-unavailable`; it never falls back to legacy Start. |
+| Submit | Recheck the original native request against its stored ticket and immutable plan/fact pins. Native Plot enters the existing Run owner, atomically stages one bound raw attempt, then commits the accepted receipt/Run link before effects. Same-key retry returns or reconciles the original job without another dispatch. File/automatic Submit lacks native Plot capability and is durably refused; there is no unbound Start fallback. |
 | Status | Look up by JobRef or client namespace/request after a lost reply; compact domain rows contain no geometry/plan bytes. Metadata counter evidence excludes explicit owner opening/recovery. |
 | Cancel | Acknowledgement and settlement are separate fields. A refused job is already settled and retains its immutable receipt. Only the disposable non-device harness exercises accepted/held/reconciling cancellation. |
 | ExportResult | A genuine prepared refusal exports engine-owned authored closure, actual frozen plan/options and refused receipt, zero attempts/issuance. Missing return publication may be repaired without submitting/dispatching again. Accepted zero-attempt results remain invalid. |
@@ -156,10 +156,12 @@ The independent Python carrier checks known envelope/hash/reference closure; its
 `unsupported []` for these refusal envelopes does not implement native physical-plan,
 intent/frontier/assessment codecs or prove readiness/issuance/ink.
 
-Existing Draw/Start/Stop/run ownership is unchanged in adopted DX-12. Definition-only
-DOC-06 canonically defines the later DX-13-ISSUANCE correction, without executing
-it. See [Current Evidence](CURRENT_EVIDENCE.md#doc-06-drawing-issuance-definition-candidate)
-for actual DX-12 closure and remaining issuance/native-codec/scale/physical limits.
+DX-13-ISSUANCE binds the native Draw request and durable job through the existing
+Run/raw/Library owners. Pending ownership exposes Stop before preparation awaits;
+acceptance follows raw staging and the durable accepted link, rather than full run
+settlement. Cancellation acknowledgement is separate from lower-owner settlement.
+See [Current Evidence](CURRENT_EVIDENCE.md) for the tested candidate, package gates,
+and remaining return/native-codec/scale/physical limits.
 
 ## Persistence, exchange and atomic mounting
 
@@ -257,7 +259,7 @@ execution when reporting counts and computing training eligibility.
 
 Two separate applications can use local request/receipt files, each written by its owner and atomically published, with an OS document-open event to foreground the destination. Use the same typed call within the combined app. Studio's Plot… pins the explicitly selected drawing and opens Prepare in the destination. Only an explicit Plot in the destination submits the reviewed plan and enters the existing Start admission. A changed plan returns the user to preview. To acknowledge an accepted job, Plotter must already own a durable verified copy of the drawing/input/parent bytes needed for its eventual result. Disconnecting Studio or losing its pathname after acceptance cannot destroy that closure. Delivery order, visible job state and relaunch recovery matter more than transport choice. A drawing file alone is inert.
 
-Keep a durable mapping from (client namespace, request ID) to the request digest, job ID and optional run. Retrying the same request yields the original job. Reusing an ID with a different drawing, destination, prepared plan or options is a conflict. A timeout triggers a status lookup. Before Start persist a unique issuance identity for the job. Bind it to the runtime request and one RunID in durable storage before any physical effect. The execution owner must return or reconcile the same run for that issuance, using its staged intent/request evidence. A crash between acceptance, Start, intent staging and publishing the run link leaves the job reconciling; uncertain issuance never initiates a second Start. This is a new boundary requirement: today Start allocates a fresh RunID and stages intent later. After an uncertain dispatch the job exposes possible ink and requires the existing recovery process. A deliberate physical retry is a new job with fresh paper/readiness checks. Raw intent and possible-ink persistence complete locally before their respective effects. Portable publication is a retryable export after local recording. If the destination disappears, expose “result waiting to return” and retry publication without dispatch. We guarantee deduplication of admission and never infer exactly-once deposition.
+Keep a durable mapping from (client namespace, request ID) to the request digest, job ID and optional run. Retrying the same request yields the original job. Reusing an ID with a different drawing, destination, prepared plan or options is a conflict. A timeout triggers a status lookup. Before Start persist a unique issuance identity for the job. Bind it to the runtime request and one RunID in durable storage before any physical effect. The execution owner must return or reconcile the same run for that issuance, using its staged intent/request evidence. A crash between acceptance, Start, intent staging and publishing the run link leaves the job reconciling; uncertain issuance never initiates a second Start. The existing raw staging owner chooses the canonical RunID atomically; only its newly-staged acknowledgement to the original live Run continuation can permit dispatch. After an uncertain dispatch the job exposes possible ink and requires the existing recovery process. A deliberate physical retry is a new job with fresh paper/readiness checks. Raw intent and possible-ink persistence complete locally before their respective effects. Portable publication is a retryable export after local recording. If the destination disappears, expose “result waiting to return” and retry publication without dispatch. We guarantee deduplication of admission and never infer exactly-once deposition.
 
 The runtime continues through `DrawingPlacement → ExecutionPlanRevision → PlotterDrawingRunPlan → DrawingPlanRequest → RunInterpreter → MachineController`. Use its actual check-before-motion, stage-intent, possible-ink, progress and evidence records. The exchange layer reads them and returns their classifications. A result that opens in Studio carries no live calibration, paper, retry, or actuation authority.
 
@@ -529,11 +531,12 @@ The cost of the proposed package is the validator and the file/SQLite publish pr
 ## Named issuance definition boundary
 
 [DOC-06](EPISODE_ARCHITECTURE_EXECUTION_PLAN.md#doc-06-drawing-issuance-definition)
-is definition-only. DX-13-ISSUANCE remains pending: its fixed lifecycle
-binds original request/full Drawing refs and reviewed plan/options to one atomic raw
-stage and durable accepted Run link before effects. Only the original live newly-
-staged continuation can dispatch. Status/Cancel share short monotonic metadata
-transitions; restart never reissues. Current production remains refusal-only.
+is the definition-only prerequisite. DX-13-ISSUANCE implements that coupled
+lifecycle in the existing owners: original request/full Drawing refs and reviewed
+plan/options bind to one atomic raw stage and durable accepted Run link before
+effects. Only the original live newly-staged continuation can dispatch. Status/Cancel
+share short monotonic metadata transitions; restart never reissues. Package adoption
+and actual validation are recorded separately in Current Evidence.
 Accepted zero-attempt export remains invalid; real accepted result snapshots belong
 to DX-15. DX-14 parking/outline policy is outside issuance currentness. No additional
 UI field, learning/setup step, width declaration or historical loading is required.

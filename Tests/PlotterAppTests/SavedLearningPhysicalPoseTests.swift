@@ -550,6 +550,7 @@ struct SavedLearningPhysicalPoseTests {
     await f.planGate.release(.possibleInk)
     let start = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
     #expect(await app.submitPlotterUIRequest(start) == .accepted(requestID: start.id))
+    try await f.waitForDrawingSettlement()
     let record = try #require(app.drawingRunSnapshot?.terminal?.record)
     #expect(record.executionFrontiers.commandedStrokeCount > 0)
     #expect(record.executionFrontiers.inkVerifiedStrokeCount == 0)
@@ -679,6 +680,7 @@ struct SavedLearningPhysicalPoseTests {
     await f.planGate.release(.possibleInk)
     let movedStart = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
     #expect(await app.submitPlotterUIRequest(movedStart) == .accepted(requestID: movedStart.id))
+    try await f.waitForDrawingSettlement()
     let movedRecord = try #require(app.drawingRunSnapshot?.terminal?.record)
     #expect(movedRecord.recordID != record.recordID)
     guard case .loaded(let finalArchive) = await f.stores.evidenceStore.load() else {
