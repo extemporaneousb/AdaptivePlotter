@@ -2,9 +2,13 @@ import Foundation
 import CryptoKit
 import Darwin
 
-public struct ExchangeCarrierFailure: Error {
+public struct ExchangeCarrierFailure: LocalizedError {
   public let stagingURL: URL
   public let underlying: Error
+  public var errorDescription: String? {
+    "Could not read the Drawing Exchange package. " + (underlying is DrawingExchangeError
+      ? String(describing: underlying) : underlying.localizedDescription)
+  }
 }
 public struct StagedExchangePackage: Sendable {
   public let files: VerifiedExchangeFiles

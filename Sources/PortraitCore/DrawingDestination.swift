@@ -136,6 +136,8 @@ public enum DrawingDestinationRequest: Codable, Equatable, Sendable {
 }
 public enum DrawingDestinationReply: Codable, Equatable, Sendable {
   case description(DrawingDestinationDescription)
+  /// Authored artwork is loaded while machine placement is unavailable. Carries no execution ticket.
+  case referencePreview(DrawingRef)
   case prepared(DrawingPreparedTicket)
   case decision(DrawingJobDecision)
   case pending(DrawingPendingJob)

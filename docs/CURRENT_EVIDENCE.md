@@ -8,6 +8,35 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Personal Drawing archive and signed native UI, 2026-11-11
+
+The offline recovery on this Mac retained 216 source Photo occurrences (196 distinct
+encoded images), 26 Drawings and 29 associated runs across 21 Drawings. The archive
+contains 53 raw run identities. Five records in the original provenance quarantine
+have no unique source and retain their reasons. Two linked runs retain ink-verified
+frontiers of 77 and 41 strokes. The other counts include controller completions,
+refusals, cancellations and incomplete attempts. Two operator no-ink confirmations
+survived. The 209 files in the raw archive copy matched their source bytes; 31
+retained live terminal camera frames from 18 linked runs were also exported as PNGs.
+
+The ordinary writable libraries of both applications received identical recovered
+Photo and Drawing refs. The separate recovery directory retains the original record
+crosswalk and a cold-openable Library. An independent check queried SQLite, followed
+the authored Input back to its Photo and verified program and raw record digests
+and execution frontiers. The optional importer read 4,502 old catalog candidates
+and 1,470 Flow candidates. Replaying the pruning journal for the previously
+exported 125-stroke Dojo drawing reproduced its entire saved program after 203 removals.
+
+Signed Studio imported a Drawing ZIP, generated three alternatives from a photo,
+saved a direction and persisted a 193-to-192-stroke prune in a disposable Library.
+In its recovered default Library it showed the original Photo and its corresponding
+192-stroke drawing, restored the selected 41-stroke Contour after a cold restart
+and displayed the historical 41/41 completed and ink-verified counts. Native
+handoff testing also reproduced the missing-calibration refusal and startup
+cancellation when a document opened during archive recovery. Regression coverage
+exercises an unplaced reference preview and window replacement during startup.
+The physical plotter did not run during this test.
+
 ## Drawing-object software completion
 
 Task `task-852e26361222475dbca131fbad91e7b1`, attempt

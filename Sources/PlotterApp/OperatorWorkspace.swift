@@ -1,3 +1,4 @@
+import OSLog
 import PortraitStudioUI
 import EpisodeCore
 import EpisodeRuntime
@@ -1008,6 +1009,7 @@ final class PlotterApplicationRuntime:
   @ObservationIgnored private var currentVideoPreviewProjection: PlotterUIProjection?
   @ObservationIgnored private var currentVideoPreviewBindingSemanticRevision: UInt64?
   @ObservationIgnored private var admissionState: AdmissionState = .open
+  @ObservationIgnored private var windowStartupTask: Task<Void, Never>?
   @ObservationIgnored private var startupState: StartupState = .notStarted
   @ObservationIgnored private(set) var learningEpisodeRecord = PlotterLearningEpisodeRecord()
   @ObservationIgnored private var activeLearningActionTask: PlotterApplicationLearningTask?
@@ -11254,8 +11256,26 @@ final class PlotterApplicationRuntime:
     )
   }
 
+  /// A window can be replaced while a document opens or its layout restores.
+  /// Every window waits for the same application-owned startup and archive read.
+  func awaitWindowStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
+    guard applicationAdmissionIsOpen else { return }
+    if windowStartupTask == nil {
+      windowStartupTask = Task { await self.performApplicationStartup(policy) }
+    }
+    await windowStartupTask?.value
+  }
+
   func performApplicationStartup(_ policy: AdaptivePlotterLaunchPolicy) async {
     guard applicationAdmissionIsOpen, startupState == .notStarted else { return }
+    let log = Logger(subsystem: "com.adaptiveplotter.app", category: "startup")
+    log.notice("Starting application and loading Drawing evidence")
+    let loading = "Opening the Drawing Library and restoring plot history…"
+    drawingDestinationStatus = loading
+    defer {
+      if drawingDestinationStatus == loading { drawingDestinationStatus = nil }
+      log.notice("Startup finished: \(String(describing: self.startupState), privacy: .public)")
+    }
     startupState = .starting
     do { try await portraitStudio.library.open() }
     catch { drawingEvidenceError = "Drawing Library unavailable: " + error.localizedDescription }
@@ -12896,6 +12916,7 @@ final class PlotterApplicationRuntime:
     drawingDestination.closeAdmission()
     retainedWorkbenchVoiceController?.setEnabled(false)
     startupState = .cancelled
+    windowStartupTask?.cancel()
     markSemanticPresentationChanged()
     let learningTask = activeLearningActionTask
     learningTask?.task.cancel()
@@ -12971,6 +12992,8 @@ final class PlotterApplicationRuntime:
     } else {
       await portraitStudio.shutdown()
     }
+    await windowStartupTask?.value
+    windowStartupTask = nil
     await drawingMaterials.flush()
     // Persistence occurs only after admission is closed and every effect owner
     // has settled, while the source-indexed semantic state is still intact.

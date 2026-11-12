@@ -17,6 +17,7 @@ let package = Package(
     .executable(name: "DrawingDestinationHarness", targets: ["DrawingDestinationHarness"]),
   ],
   targets: [
+    .executableTarget(name: "HistoricalDrawingImport", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitArtists", "PlotterModel"]),
     .executableTarget(name: "DrawingDestinationHarness", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitLibrary", "PlotterModel"]),
     .target(name: "EpisodeCore"),
     .target(

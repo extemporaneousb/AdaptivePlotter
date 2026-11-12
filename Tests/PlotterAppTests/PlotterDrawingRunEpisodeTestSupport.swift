@@ -986,8 +986,8 @@ func drawingRunCheckpointProgress(_ request: DrawingPlanRequest, completed count
     let service = DrawingDestinationService(library: library, returnDirectory: root.appendingPathComponent("results"),
       prepare: { ref, engine, _ in
         guard let current = await facts.drawingRunFacts(for: environment).plan else { return nil }
-        return try .init(drawing: ref, destination: engine,
-          draftRevision: current.identity.draftRevision.rawValue, plan: current.plan, options: options)
+        return .planned(try .init(drawing: ref, destination: engine,
+          draftRevision: current.identity.draftRevision.rawValue, plan: current.plan, options: options))
       },
       current: { frozen in
         let current = await facts.drawingRunFacts(for: environment)

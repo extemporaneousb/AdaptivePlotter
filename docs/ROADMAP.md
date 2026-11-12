@@ -65,7 +65,7 @@ the work.
 | 4. Integrated software release | Complete the remaining DX-20 regression and scale cases on the integrated tree, then DX-21 independent final review. Reuse applicable native evidence from the first delivery. | Both app routes, current-format integrity/recovery, responsiveness and simulated return pass their gates. |
 | 5. Attended deployment | DX-22 follows DX-21 and requires separate operator authorization. | Signed-app handoff and attended ink evidence each have their own result. |
 
-DX-17a/b are deferred. No active milestone depends on either. Any change to an
+The personal archive converter covers the retained photo and plot subset of DX-17a/b. Broader historical continuity is deferred. Any change to an
 episode-owned runtime seam still requires a named eligible package under the
 [episode workflow](../.codex/guidance/adaptiveplotter-workflow.md). A blocked
 seam cannot block the native Drawing workflow. Production data, physical motion
@@ -247,10 +247,11 @@ claim geometry re-extraction or residual labels. No success-only filtering or
 implicit negative label. Recovery: create a new immutable training manifest;
 never mutate a checkpoint's prior dataset or activate physical correction.
 
-**DX-17a/b — Historical archive import, deferred.** Neither authored-data conversion
-nor run-history reconciliation is scheduled for the Drawing refactor. A future
-importer needs its own scope and disposable inputs. Current-format ZIP/directory
-exchange and reopening a library created by this version are supported release paths.
+**DX-17a/b — Personal archive conversion.** The offline converter recovers original photos,
+archived geometry and attributable historical runs into a new current-format library. The
+[operator instructions](PORTRAIT_STUDIO.md#recover-historical-photos-and-plotted-drawings)
+cover the default selection, additional candidates and raw evidence. General archive upgrades,
+restored training history and live legacy readers remain deferred.
 
 **DX-18 — Current-format apps and supported tools.** Package the actual standalone
 and embedded routes with their existing bundle IDs. Exercise launch, current file

@@ -11,6 +11,27 @@ import Testing
 
 @Suite("DX12 actual destination preparation", .serialized)
 @MainActor struct DrawingDestinationCompositionTests {
+  @Test("An uncalibrated destination shows the exact reference without issuing a plan")
+  func unplacedReferencePreview() async throws {
+    let fixture = try PlotterApplicationFixture()
+    let app = fixture.application
+    await app.performApplicationStartup(.init(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"]))
+    do {
+      let drawing = try drawingTestValue(program: portraitPersistenceCandidate(seed: 413).program)
+      let retained = try await app.portraitStudio.sketches.retain(drawing, reason: "test-handoff")
+      let ref = try #require(retained.reference)
+      let reply = try await app.drawingDestination.handle(.prepare(ref))
+      #expect(reply == .referencePreview(ref))
+      let window = DestinationWindowBindings()
+      #expect(window.presentation.reveal(.unplaced(ref), application: app))
+      #expect(window.route.drawing == ref && window.route.workspace == .plotter)
+      #expect(app.drawingDraftSnapshot.authoredProgram == drawing.program)
+      #expect(app.drawingDraftSnapshot.plan == nil)
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
+      #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
+      await app.shutdown()
+    } catch { await app.shutdown(); throw error }
+  }
   @Test("Existing projection-bound fake-port composition prepares without any Start or controller dispatch")
   func actualPrepare() async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
@@ -396,7 +417,7 @@ import Testing
       let handoff = Task {
         await DrawingDestinationHandoff.perform(drawing, application: app,
           lifetime: { .init(route: window.route, studioIsPresented: window.layout.isPresented(.portraitStudio), reviewerIsPresented: window.reviewer) },
-          showDestination: { ticket in shows += 1; window.presentation.showDestination(reference: ticket.facts.drawing) })
+          showDestination: { preview in shows += 1; window.presentation.showDestination(reference: preview.reference) })
       }
       try await gate.waitUntilEntered()
       // This does not change workspace, selection or source identity. It changes

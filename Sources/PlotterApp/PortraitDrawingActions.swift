@@ -30,7 +30,8 @@ extension PlotterApplicationRuntime {
       }
       do {
         let program = retained.program
-        if let error = await submitPortraitDrawingAction(PlotterAppUIActionID.observationCameraRole(.plotter)) {
+        if workbenchCameraRole != .plotter || cameraRoleIsTransitioning,
+          let error = await submitPortraitDrawingAction(PlotterAppUIActionID.observationCameraRole(.plotter)) {
           throw PlotterModelError.invalidValue(error)
         }
         try assertCurrent()
@@ -47,6 +48,7 @@ extension PlotterApplicationRuntime {
           throw PlotterModelError.invalidValue(error)
         }
         try assertCurrent()
+        if let ref, canShowUnplacedDrawing(ref) { return nil }
         if let error = await submitPortraitDrawingAction(PlotterAppUIActionID.drawingDraft(.fitInDrawableRegion)) {
           throw PlotterModelError.invalidValue(error)
         }

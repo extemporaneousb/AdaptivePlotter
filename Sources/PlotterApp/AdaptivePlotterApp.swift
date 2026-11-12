@@ -143,10 +143,16 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     }
     switch reply {
     case .prepared(let ticket):
-      if revealPreparedDrawing?(ticket) == true {
+      if revealPreparedDrawing?(.prepared(ticket)) == true {
         applicationRuntime.drawingDestinationStatus = "Drawing prepared in the preview. Review it before choosing Draw."
       } else {
         applicationRuntime.drawingDestinationStatus = "Drawing preparation has changed. Prepare it again to review the current preview."
+      }
+    case .referencePreview(let ref):
+      if revealPreparedDrawing?(.unplaced(ref)) == true {
+        applicationRuntime.drawingDestinationStatus = applicationRuntime.drawingDraftSnapshot.planningRefusal?.remedy
+      } else {
+        applicationRuntime.drawingDestinationStatus = "The drawing selection changed. Open it again to review it."
       }
     case .refused:
       applicationRuntime.drawingDestinationStatus = "The drawing could not be prepared. Review the destination preview and readiness."

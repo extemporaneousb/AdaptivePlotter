@@ -288,6 +288,9 @@ package struct DrawingLibraryBrowser: View {
             Button("Child Drawings") {
               route.collection = .children; route.branchParent = ref; route.photo = nil; route.input = nil; route.drawing = nil
             }
+            if drawing.producer.id == "adaptiveplotter.historical-import", drawing.producer.version == "1" {
+              HistoricalRunsView(receipt: drawing.producer.originalJSON)
+            }
             DrawingResultReviewView(library: sketches.library, drawing: ref, export: exportResult).id(ref)
             review(drawing)
           } else { Text("Select a drawing.").foregroundStyle(.secondary) }
@@ -346,5 +349,44 @@ package struct DrawingLibraryBrowser: View {
     let scoped = url.startAccessingSecurityScopedResource()
     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
     await model.exportDrawing(ref, to: url)
+  }
+}
+
+/// A read-only attribution from the imported producer receipt. Exact raw files
+/// are indexed in the conversion crosswalk, outside the current Run authority.
+private struct HistoricalRunsView: View {
+  struct Receipt: Decodable {
+    let historicalRuns: [Run]
+    struct Run: Decodable, Identifiable {
+      let runID: UUID
+      let status: String?
+      let dispatchPossible: Bool?
+      let frontiers: Frontiers?
+      let noInkConfirmation: Confirmation?
+      var id: UUID { runID }
+    }
+    struct Frontiers: Decodable {
+      let controllerCompletedStrokeCount: Int
+      let inkVerifiedStrokeCount: Int
+    }
+    struct Confirmation: Decodable { let recordedAt: Date }
+  }
+
+  let receipt: Data
+  var body: some View {
+    if let value = try? JSONDecoder().decode(Receipt.self, from: receipt), !value.historicalRuns.isEmpty {
+      DisclosureGroup("Historical plot runs (\(value.historicalRuns.count))") {
+        ForEach(value.historicalRuns) { run in
+          VStack(alignment: .leading) {
+            Text(run.status ?? (run.dispatchPossible == true ? "Possible ink" : "Terminal status unavailable"))
+            Text(run.runID.uuidString).font(.caption)
+            if let counts = run.frontiers {
+              Text("\(counts.controllerCompletedStrokeCount) controller-completed strokes, \(counts.inkVerifiedStrokeCount) ink-verified")
+            }
+            if run.noInkConfirmation != nil { Text("Operator confirmed no ink") }
+          }.textSelection(.enabled)
+        }
+      }
+    }
   }
 }

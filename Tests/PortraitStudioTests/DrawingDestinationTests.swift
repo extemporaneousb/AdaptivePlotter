@@ -68,7 +68,7 @@ import Testing
   }
   func service(library supplied: DrawingLibrary? = nil, returns: URL? = nil) -> DrawingDestinationService {
     DrawingDestinationService(library: supplied ?? library, returnDirectory: returns ?? root.appendingPathComponent("results"),
-      prepare: { ref, engine, _ in try .init(drawing: ref, destination: engine, draftRevision: 1, plan: self.plan, options: self.options) },
+      prepare: { ref, engine, _ in .planned(try .init(drawing: ref, destination: engine, draftRevision: 1, plan: self.plan, options: self.options)) },
       current: { self.live ? $0 : nil })
   }
   func ticket(_ service: DrawingDestinationService) async throws -> DrawingPreparedTicket {
@@ -423,7 +423,7 @@ import Testing
     let service = DrawingDestinationService(library: fixture.library, returnDirectory: fixture.root.appendingPathComponent("results"),
       prepare: { ref, engine, _ in
         await gate.wait()
-        return try .init(drawing: ref, destination: engine, draftRevision: 1, plan: fixture.plan, options: fixture.options)
+        return .planned(try .init(drawing: ref, destination: engine, draftRevision: 1, plan: fixture.plan, options: fixture.options))
       }, current: { $0 })
     let work = Task { try await service.handle(.prepare(fixture.reference)) }
     try await gate.waitUntilEntered()

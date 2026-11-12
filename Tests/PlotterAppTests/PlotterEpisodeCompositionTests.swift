@@ -189,6 +189,25 @@ struct PlotterEpisodeCompositionTests {
     await application.shutdown()
   }
 
+  @Test("Replacing a window during startup preserves the application's archive and camera recovery")
+  func windowReplacementJoinsStartup() async throws {
+    let gate = TestConfigurationSuspension()
+    let fixture = try PlotterApplicationFixture(observationSessionOverride:
+      resolvedObservationSession(try TestObservationCameraSession(), startupGate: gate))
+    let app = fixture.application
+    let policy = AdaptivePlotterLaunchPolicy(arguments: [])
+    await gate.arm()
+    let first = Task { await app.awaitWindowStartup(policy) }
+    try await waitForExecutorTurnsAsync(conditionDescription: "held window startup") { await gate.isWaiting }
+    first.cancel()
+    let replacement = Task { await app.awaitWindowStartup(policy) }
+    await gate.release()
+    await first.value
+    await replacement.value
+    #expect(app.drawingDestinationStartupHasSettled)
+    await app.shutdown()
+  }
+
   @Test("startup is idempotent and shutdown closes admission")
   func startupIdempotenceAndClosedAdmission() async throws {
     let camera = try TestObservationCameraSession()

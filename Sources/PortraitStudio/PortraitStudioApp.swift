@@ -13,10 +13,13 @@ struct PortraitStudioApp: App {
   private let launchError: String?
   private let library: DrawingLibrary
 
+  static var defaultLibraryURL: URL {
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/PortraitStudio/DrawingLibrary", isDirectory: true)
+  }
+
   init() {
     let args = CommandLine.arguments
-    var location = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent("Library/Application Support/PortraitStudio/DrawingLibrary", isDirectory: true)
+    var location = Self.defaultLibraryURL
     var error: String?
     if let index = args.firstIndex(of: "--library") {
       if args.filter({ $0 == "--library" }).count == 1, index + 1 < args.count, args[index + 1].hasPrefix("/") {
@@ -57,6 +60,10 @@ struct PortraitStudioDojoWindow: View {
     delegate: PortraitStudioApplicationDelegate, route: Binding<DrawingLibraryRoute>? = nil) {
     self.dojo = dojo; self.acquisition = acquisition; self.library = library; self.delegate = delegate
     routeOverride = route
+    let location = library.directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+    let isDefault = location == PortraitStudioApp.defaultLibraryURL.standardizedFileURL.resolvingSymlinksInPath()
+    let key = "PortraitStudio.libraryRoute.v1" + (isDefault ? "" : "." + location.path)
+    _savedRoute = AppStorage(wrappedValue: Data(), key)
   }
   /// Install the same route binding used by the window; a document can arrive
   /// before this callback exists, so the delegate retains only its reveal ref.
@@ -118,6 +125,7 @@ struct PortraitStudioDojoWindow: View {
       }, photoSelected: { ref in if let ref { route.wrappedValue.selectPhoto(ref) } }) }
     }
     .frame(minWidth: 1100, minHeight: 720)
+    .onChange(of: route.wrappedValue.photo) { _, _ in libraryError = nil }
     .overlay(alignment: .bottom) {
       VStack {
         if let libraryError { Text(libraryError).foregroundStyle(.red) }
@@ -200,7 +208,7 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
         destinationStatus = "Opening the drawing preview in AdaptivePlotter. Review it before choosing Draw."
         return nil
       }
-      guard let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.bullard.AdaptivePlotter") else {
+      guard let application = Self.plotterApplicationURL() else {
         return "AdaptivePlotter is unavailable. The preparation request is retained for retry."
       }
       let configuration = NSWorkspace.OpenConfiguration()
@@ -210,6 +218,16 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
       destinationStatus = "Opening the drawing preview in AdaptivePlotter. Review it before choosing Draw."
       return nil
     } catch { return terminating || !isStillCurrent() ? nil : error.localizedDescription }
+  }
+  private static func plotterApplicationURL() -> URL? {
+    let identifier = "com.bullard.AdaptivePlotter"
+    let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("AdaptivePlotter.app")
+    let running = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+      .filter { !$0.isTerminated }.compactMap(\.bundleURL)
+    if let paired = running.first(where: { $0.resolvingSymlinksInPath() == sibling.resolvingSymlinksInPath() }) { return paired }
+    if let current = running.first { return current }
+    if Bundle(url: sibling)?.bundleIdentifier == identifier { return sibling }
+    return NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)
   }
   func recoverDestinationRequests() async {
     guard !terminating, let library else { return }
@@ -228,6 +246,10 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
     let replies = pendingDestinationReplies; pendingDestinationReplies = []
     for reply in replies {
       if case .refused = reply { documentError = "The drawing could not be prepared. Review it in AdaptivePlotter." }
+      if case .referencePreview = reply {
+        documentError = nil
+        destinationStatus = "Drawing opened in AdaptivePlotter. Restore placement calibration to prepare a motion plan."
+      }
       if case .prepared = reply { documentError = nil; destinationStatus = "Preparation received from AdaptivePlotter. Review the preview before choosing Draw." }
     }
   }

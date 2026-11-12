@@ -6,7 +6,11 @@ import PlotterRuntime
 
 /// Library metadata transitions are serialized, not whole runs or artifact work.
 @MainActor public final class DrawingDestinationService: DrawingDestination, DrawingJobPublication {
-  public typealias Prepare = @MainActor (DrawingRef, UUID, @escaping @MainActor () -> Bool) async throws -> DrawingPreparation?
+  public enum Projection: Sendable {
+    case planned(DrawingPreparation)
+    case referencePreview(DrawingRef)
+  }
+  public typealias Prepare = @MainActor (DrawingRef, UUID, @escaping @MainActor () -> Bool) async throws -> Projection?
   public typealias Current = @MainActor (DrawingPreparedFacts) async throws -> DrawingPreparedFacts?
   private let library: DrawingLibrary
   private let prepare: Prepare
@@ -77,10 +81,12 @@ import PlotterRuntime
       let drawing = try await library.drawing(ref)
       if context.nativePreparation != nil, !drawing.capabilities.supported.contains(.plot) { return .refused(.unsupportedDrawing) }
       guard valid(), context.mayBegin() else { return .refused(.preparationUnavailable) }
-      let preparation: DrawingPreparation?
-      if let native = context.nativePreparation { preparation = native }
-      else { preparation = try await prepare(ref, engine, valid) }
-      guard valid(), let preparation, preparation.facts.drawing == ref,
+      let projection: Projection?
+      if let native = context.nativePreparation { projection = .planned(native) }
+      else { projection = try await prepare(ref, engine, valid) }
+      guard valid() else { return .refused(.preparationUnavailable) }
+      if case .referencePreview(ref) = projection { return .referencePreview(ref) }
+      guard case .planned(let preparation) = projection, preparation.facts.drawing == ref,
         preparation.facts.destination == engine else { return .refused(.preparationUnavailable) }
       let ticket = DrawingPreparedTicket(facts: preparation.facts)
       let assets = Self.assets(preparation)

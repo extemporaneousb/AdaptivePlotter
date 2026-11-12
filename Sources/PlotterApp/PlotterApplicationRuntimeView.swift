@@ -84,8 +84,8 @@ struct PlotterApplicationRuntimeView: View {
         } ?? false).equatable()
       if reviewerIsPresented {
         DrawingTransferView(application: application, close: { selectToolbarDestination(.plotter) },
-          route: libraryRoute, openStudio: openLibraryPhoto, projected: { ticket in
-            drawingDestinationWindowPresentation.showDestination(reference: ticket.facts.drawing)
+          route: libraryRoute, openStudio: openLibraryPhoto, projected: { preview in
+            drawingDestinationWindowPresentation.showDestination(reference: preview.reference)
           })
       } else if layout.wrappedValue.isPresented(.portraitStudio) {
         VStack(spacing: 0) {
@@ -141,7 +141,8 @@ struct PlotterApplicationRuntimeView: View {
       let launch = RunningAppPreviewPerformanceGate.usesSimulatedWorkbench
         ? AdaptivePlotterLaunchPolicy(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"])
         : AdaptivePlotterLaunchPolicy.current
-      await application.performApplicationStartup(launch)
+      await application.awaitWindowStartup(launch)
+      guard !Task.isCancelled, application.drawingDestinationStartupHasSettled else { return }
       if savedRoute.isEmpty, !savedLayout.isEmpty {
         libraryRoute.wrappedValue.workspace = layout.wrappedValue.isPresented(.portraitStudio) ? .drawingStudio : .plotter
       }
@@ -463,7 +464,7 @@ struct PlotterApplicationRuntimeView: View {
     await DrawingDestinationHandoff.perform(drawing, application: application, lifetime: {
       .init(route: libraryRoute.wrappedValue,
         studioIsPresented: layout.wrappedValue.isPresented(.portraitStudio), reviewerIsPresented: reviewerIsPresented)
-    }, showDestination: { ticket in drawingDestinationWindowPresentation.showDestination(reference: ticket.facts.drawing) })
+    }, showDestination: { preview in drawingDestinationWindowPresentation.showDestination(reference: preview.reference) })
   }
 
   private func applyPortraitMaterial(_ profile: DrawingMaterialProfileRevision) async -> String? {

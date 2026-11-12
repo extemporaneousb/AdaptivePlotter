@@ -31,7 +31,7 @@ to the task.
 
 - Read Product Contract for authority, safety, persistence, evidence, model
   semantics, or observability requirements.
-- For drawing, photo, input, job or attempt adoption, read Drawing Exchange and its Roadmap backlog. Use the versioned schema and fixture linked by the spec. Current operator instructions describe the Drawing-first cutover; historical authoring import remains deferred.
+- For drawing, photo, input, job or attempt adoption, read Drawing Exchange and its Roadmap backlog. Use the versioned schema and fixture linked by the spec. Current operator instructions describe the Drawing-first cutover; personal archive conversion is documented in Portrait Studio.
 - Read the Learning Path Operating Protocol and Button Transitions for current
   actions, progression, recovery, or UI actionability.
 - Read Swift Architecture for current owners and dependencies.

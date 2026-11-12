@@ -35,7 +35,7 @@ import PlotterModel
         let drawing = try await library.drawing(ref)
         if args.last == "--exit-after-closure" { Darwin.exit(75) }
         guard drawing.program.contentHash == plan.sourceProgramContentHash else { return nil }
-        return try .init(drawing: ref, destination: engine, draftRevision: 1, plan: plan, options: options)
+        return .planned(try .init(drawing: ref, destination: engine, draftRevision: 1, plan: plan, options: options))
       }, current: { $0 })
     if args.last == "--exit-before-result-publication" {
       DrawingDestinationArtifactObservation.shared.install { _, boundary in

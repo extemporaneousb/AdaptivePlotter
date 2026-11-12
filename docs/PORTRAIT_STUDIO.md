@@ -43,7 +43,7 @@ Embedded Studio uses `~/Library/Application Support/AdaptivePlotter/DrawingLibra
 The standalone executable accepts one absolute `--library` directory argument.
 Each library admits one writer. Close the first app before another app opens the
 same directory for writing. Old authoring formats are not active library inputs;
-historical files remain untouched and historical import is deferred.
+historical files can be recovered with the offline converter below.
 
 Camera photos retain exact capture time, frame identity/timestamp, acquisition
 session, source pixel extent and burst-selection measurements beside their source
@@ -93,7 +93,10 @@ The Library's existing **Send to Drawing** action now uses the shared typed Prep
 path. In standalone Drawing Studio, **Prepare in AdaptivePlotter** retains the exact
 Drawing and sends a `.drawingrequest`; no new destination setup, width declaration or
 learning action is required. Both Library and Dojo use the same existing selection,
-projection, fit and readiness owners. AdaptivePlotter reveals the exact current ticket
+projection, fit and readiness owners. Studio sends the request to a running Plotter or, on
+cold launch, the Plotter packaged beside Studio when available. Without a current tip
+registration or Drawing Boundary, Plotter can display the exact authored reference and
+identify the missing calibration. That response contains no motion plan or execution ticket. AdaptivePlotter reveals the exact current ticket
 in Plotter's Drawing panel after saved workspace/Photo restoration. An obsolete source
 request cannot foreground or reveal another selection. Ordinary standalone Drawing
 import/open reveals its exact imported ref in the existing global Library route,
@@ -386,8 +389,7 @@ reference and preserves its required parent. Rank may keep durable features and
 preview bytes for unselected alternatives without keeping their full geometry.
 Reopening does not silently regenerate evicted geometry. Copy the entire closed
 library directory for a backup; the SQLite file alone does not include its assets.
-Historical authoring files remain untouched outside this format. Their import is
-deferred and is not a startup requirement.
+The offline converter reads the historical authoring files from their original directories.
 
 A curated `.flowphotos` folder contains `photo-collection.json` and original bytes
 at `images/<sha256>.asset`. Its schema-one entries retain names, image hashes/sizes,
@@ -426,8 +428,8 @@ The existing raw DrawingEvidence owner retains execution, possible-ink and
 no-redraw authority. The authoring library records an exact DrawingRef association
 to an already-staged run through the existing pre-motion adapter; that association
 is not physical evidence. Controller settlement does not prove deposited ink.
-Historical drawing packages and plot attachments remain untouched files, with
-historical import deferred. A drawing export is a handoff artifact, not a backup of
+Historical plot references are available from converted Drawings and the accompanying
+raw archive. A drawing export is a handoff artifact, not a backup of
 all training records.
 
 ## Derived presentation work
@@ -437,8 +439,40 @@ stale-selection guards. Rename/navigation reuses an unchanged active checkpoint 
 training summary; feedback, grouping/exclusion and fit changes invalidate the relevant
 work. Cache eviction preserves the retained originals and canonical feedback. These
 changes add no setup, physical-width field or new learning action. The measured
-current-format fixture and its limits are in Current Evidence; remaining signed native
-interaction and large-media performance acceptance are separate.
+current-format fixture and its limits are in Current Evidence. See the personal archive
+receipt there for signed native interaction with historical photos and drawings.
+
+## Recover historical photos and plotted drawings
+
+From the repository, run the converter with a new output directory. The default sources are the
+old Portrait Library SQLite catalog and the adjacent DrawingEvidence archive in Application
+Support. Include the Flow portfolio to recover its photos and their acquisition metadata.
+
+```sh
+python3 Scripts/convert_historical_drawings.py "$HOME/Documents/Recovered Drawings" \
+  --portfolio "$HOME/Documents/Flow Edge Portfolio.flowportfolio"
+```
+
+Open the resulting `DrawingLibrary` directory with Studio's existing `--library` launch argument
+after quitting Studio. In **Library**, select a photo to browse its prepared inputs and exact
+drawings, or use **Drawings** for the full list. Expand **Historical plot runs** on a recovered
+drawing to inspect recorded status, stroke counts and operator no-ink confirmations.
+**Send to Drawing** prepares the selected revision in AdaptivePlotter.
+
+The default selection includes all source photo occurrences, catalog drawings associated with
+execution or possible ink, and the saved transfers. The adjacent `conversion.json` maps the old
+IDs to current Photo and Drawing refs and indexes the copied raw evidence by run ID and digest.
+The `Plot Photographs` folder contains viewable PNGs of retained live terminal frames from
+linked runs. The report records each original frame digest and capture reference.
+Quarantined runs retain their original reason. An interrupted attempt may have no terminal
+record. Only the recorded ink-verified frontier supports a verified stroke count.
+
+Use `--drawing ID` for an additional catalog drawing or Flow candidate or pruning revision, `--all-drawings` for
+all stored candidate programs and nonempty Flow pruning revisions, `--photo-library DIRECTORY` for another catalog's photos, or
+`--package FILE.portraitdrawing.json` for a frozen Flow export or line edit. These options are
+offline imports into a fresh directory. Existing libraries, portfolio journals and evidence
+stay at their original paths. Rankings, training checkpoints and undo histories stay in those
+archives. Fully removed drawings are listed in the report as empty masks. A missing original preparation has an explicit unavailable Input.
 
 ## Historical research and baseline
 

@@ -2,7 +2,7 @@
 
 **ADR DX-0001 · Accepted 2026-11-06 · Wire profile 1.** This is the normative target for Studio/Library/Plotter interoperability. The reviewed source baseline is `6305c0503ae3cae7130bd38d0e2def309a927e88`. Adoption progress belongs to the [Drawing Exchange backlog](ROADMAP.md#drawing-exchange). The [Studio guide](PORTRAIT_STUDIO.md) describes the currently shipped UI and current-format exchange.
 
-Change control: preserve issued revision bytes, job identities and historical evidence. The 2026-11-07 operator-directed Drawing-first cutover supersedes the requirement to keep legacy v1–4 authoring readers, writers and fallbacks active. The release target set on November 8 uses fresh libraries. Importing historical portfolios, upgrading their storage and restoring retired file handlers are deferred. Historical files stay untouched. Current-format library reopen, exchange integrity and exact job/attempt identities remain release requirements. Breaking changes to a required wire meaning need a successor ADR, a new profile and a lossless compatibility strategy. Compatible optional fields require a fixture that round-trips through an older preserving reader. Implementation improvements inside these boundaries use ordinary review. The [wire schema](../Resources/DrawingExchange/v1/schema.json) specifies structural admission. This document specifies semantic admission. A decoder must satisfy both before claiming support for an operation.
+Change control: preserve issued revision bytes, job identities and historical evidence. The 2026-11-07 operator-directed Drawing-first cutover supersedes the requirement to keep legacy v1–4 authoring readers, writers and fallbacks active. The release target set on November 8 uses fresh libraries. The offline personal archive converter reads retained photos, programs and run associations into a new library. In-place upgrades and retired file handlers remain deferred. Historical files stay untouched. Current-format library reopen, exchange integrity and exact job/attempt identities remain release requirements. Breaking changes to a required wire meaning need a successor ADR, a new profile and a lossless compatibility strategy. Compatible optional fields require a fixture that round-trips through an older preserving reader. Implementation improvements inside these boundaries use ordinary review. The [wire schema](../Resources/DrawingExchange/v1/schema.json) specifies structural admission. This document specifies semantic admission. A decoder must satisfy both before claiming support for an operation.
 
 ## Decision
 
@@ -120,7 +120,7 @@ tickets, decisions, refusals, cancellation acknowledgement/settlement and result
 | Operation | Current behavior |
 | --- | --- |
 | Describe | Stable local engine identity, current exchange/Drawing/stroke profiles, authored-style preservation and captured destination applicability. Placement/border/material/readiness options are captured; arbitrary overrides and a nominal-width requirement are absent. Native Plot capability remains with the existing Run owner. |
-| Prepare | Through the existing projection-bound app/draft owners, load/retain the exact Drawing/input/parent closure, select/fit and capture a genuine current plan/options. No executable plan means typed refusal and no ticket. A ticket pins full DrawingRef, destination, draft revision, actual plan ID/hash and plan/options asset digests. |
+| Prepare | Through the existing projection-bound app/draft owners, load/retain the exact Drawing/input/parent closure, select/fit and capture a genuine current plan/options. When a missing registration or Drawing Boundary prevents placement, return the exact loaded reference for artwork preview. Other failed preparations return a typed refusal. Only a genuine plan earns a ticket. A ticket pins full DrawingRef, destination, draft revision, actual plan ID/hash and plan/options asset digests. |
 | Submit | Recheck the original native request against its stored ticket and immutable plan/fact pins. Native Plot enters the existing Run owner, atomically stages one bound raw attempt, then commits the accepted receipt/Run link before effects. Same-key retry returns or reconciles the original job without another dispatch. File/automatic Submit lacks native Plot capability and is durably refused; there is no unbound Start fallback. |
 | Status | Look up by JobRef or client namespace/request after a lost reply; compact domain rows contain no geometry/plan bytes. Metadata counter evidence excludes explicit owner opening/recovery. |
 | Cancel | Acknowledgement and settlement are separate fields. A refused job is already settled and retains its immutable receipt. Accepted cancellation uses the same Run/Stop owner and retains its exact lower-handle settlement. |
@@ -329,7 +329,7 @@ installed atomically only for admitted materialized declared roots, using their
 original record dates. Opaque roots do not gain invented program metrics, and
 existing titles, retention reasons and tombstones remain unchanged.
 This scoped work grants no execution,
-retry, no-ink or other live physical authority; historical import stays deferred.
+retry, no-ink or other live physical authority; historical run attributions remain read-only.
 
 ## Shared membership editor boundary, 2026-11-08
 
@@ -405,7 +405,7 @@ are bounded across each read/freeze; selected-example limits remain separately e
 This implementation snapshot is tracked by
 `task-222f2a729f8b4f9781bf4eb7f0c4095f`; final configured acceptance/landing belongs to that
 task. See the [dated receipt](CURRENT_EVIDENCE.md#dx-09-canonical-feedback-and-frozen-training-inputs-2026-11-08).
-Historical import remains deferred; no additional UI/width/setup input or physical,
+Historical conversion runs offline; no additional UI/width/setup input or physical,
 Runtime/Episode, signed deployment or model-promotion authority is introduced.
 
 ## Current Library navigation boundary, 2026-11-08

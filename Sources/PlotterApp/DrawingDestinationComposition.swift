@@ -16,15 +16,27 @@ import PlotterModel
         guard let application else { return nil }
         let drawing = try await library.drawing(ref)
         guard isStillCurrent(), await application.projectDrawing(drawing, isStillCurrent: isStillCurrent) == nil else { return nil }
-        return try application.preparedDestinationDrawing(ref, engine: engine)
+        if application.canShowUnplacedDrawing(ref) { return .referencePreview(ref) }
+        return try application.preparedDestinationDrawing(ref, engine: engine).map { .planned($0) }
       }, current: { [weak application] facts in
         try application?.preparedDestinationDrawing(facts.drawing, engine: facts.destination)?.facts
       }, control: DrawingRunDestinationControl(runtime: application.drawingRunRuntime),
       resultSource: application.drawingEvidencePort)
   }
 }
-enum DrawingDestinationPreparationOutcome: Sendable {
+enum DrawingDestinationPreview: Sendable {
   case prepared(DrawingPreparedTicket)
+  case unplaced(DrawingRef)
+
+  var reference: DrawingRef {
+    switch self {
+    case .prepared(let ticket): ticket.facts.drawing
+    case .unplaced(let ref): ref
+    }
+  }
+}
+enum DrawingDestinationPreparationOutcome: Sendable {
+  case preview(DrawingDestinationPreview)
   case refused(DrawingDestinationRefusal, detail: String)
 }
 extension PlotterApplicationRuntime {
@@ -32,7 +44,7 @@ extension PlotterApplicationRuntime {
   /// reveal a preview retain the exact typed ticket through their final await.
   func prepareDestinationDrawing(_ drawing: Drawing, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
     switch await prepareDestinationDrawingOutcome(drawing, isStillCurrent: isStillCurrent) {
-    case .prepared: return nil
+    case .preview: return nil
     case .refused(_, let detail): return detail
     }
   }
@@ -57,12 +69,30 @@ extension PlotterApplicationRuntime {
         guard isStillCurrent(), preparedDrawingIsCurrent(ticket) else {
           return .refused(.stalePreview, detail: "Drawing preparation has changed. Review the current preview.")
         }
-        return .prepared(ticket)
+        return .preview(.prepared(ticket))
+      case .referencePreview(let ref):
+        guard isStillCurrent(), canShowUnplacedDrawing(ref) else {
+          return .refused(.stalePreview, detail: "Drawing selection changed.")
+        }
+        return .preview(.unplaced(ref))
       case .refused(let reason):
         return .refused(reason, detail: "The drawing could not be prepared. Review the destination preview and readiness.")
       default: return .refused(.preparationUnavailable, detail: "Drawing preparation is unavailable.")
       }
     } catch { return .refused(.preparationUnavailable, detail: error.localizedDescription) }
+  }
+  func canShowUnplacedDrawing(_ ref: DrawingRef) -> Bool {
+    let draft = drawingDraftSnapshot
+    guard drawingDestinationRecoveryAdmissionIsOpen, let artwork = portraitStudio.projectedDrawing,
+      artwork.reference == ref, draft.authoredProgram == artwork.program, draft.plan == nil,
+      !draft.projection.externalFacts.runInProgress else { return false }
+    return draft.planningRefusal?.reason == .registrationUnavailable || draft.planningRefusal?.reason == .drawableRegionUnavailable
+  }
+  func destinationPreviewIsCurrent(_ preview: DrawingDestinationPreview) -> Bool {
+    switch preview {
+    case .prepared(let ticket): preparedDrawingIsCurrent(ticket)
+    case .unplaced(let ref): canShowUnplacedDrawing(ref)
+    }
   }
   func preparedDrawingIsCurrent(_ ticket: DrawingPreparedTicket) -> Bool {
     guard drawingDestinationRecoveryAdmissionIsOpen else { return false }
@@ -100,15 +130,15 @@ struct DrawingDestinationHandoffLifetime: Equatable {
 @MainActor enum DrawingDestinationHandoff {
   static func perform(_ drawing: Drawing, application: PlotterApplicationRuntime,
     lifetime: @escaping @MainActor () -> DrawingDestinationHandoffLifetime,
-    showDestination: @escaping @MainActor (DrawingPreparedTicket) -> Void) async -> String? {
+    showDestination: @escaping @MainActor (DrawingDestinationPreview) -> Void) async -> String? {
     let initial = lifetime()
     let current = { @MainActor in lifetime() == initial }
     let outcome = await application.prepareDestinationDrawingOutcome(drawing, isStillCurrent: current)
     guard current() else { return "Drawing handoff was cancelled." }
     switch outcome {
-    case .prepared(let ticket):
-      guard application.preparedDrawingIsCurrent(ticket) else { return "Drawing preparation has changed. Review the current preview." }
-      showDestination(ticket)
+    case .preview(let preview):
+      guard application.destinationPreviewIsCurrent(preview) else { return "Drawing preparation has changed. Review the current preview." }
+      showDestination(preview)
       return nil
     case .refused(_, let detail): return detail
     }
@@ -117,7 +147,7 @@ struct DrawingDestinationHandoffLifetime: Equatable {
 
 /// Borrowed bindings belonging to the existing window. This value owns neither
 /// selection nor preferences; all destination reveals share this exact action.
-typealias DrawingDestinationReveal = @MainActor (DrawingPreparedTicket) -> Bool
+typealias DrawingDestinationReveal = @MainActor (DrawingDestinationPreview) -> Bool
 @MainActor struct DrawingDestinationWindowPresentation {
   let route: Binding<DrawingLibraryRoute>
   let layout: Binding<WorkbenchLayoutState>
@@ -131,9 +161,9 @@ typealias DrawingDestinationReveal = @MainActor (DrawingPreparedTicket) -> Bool
     layout.wrappedValue.setPresented(.portraitStudio, false)
     layout.wrappedValue.setPresented(.drawing, true)
   }
-  func reveal(_ ticket: DrawingPreparedTicket, application: PlotterApplicationRuntime) -> Bool {
-    guard application.preparedDrawingIsCurrent(ticket) else { return false }
-    showDestination(reference: ticket.facts.drawing)
+  func reveal(_ preview: DrawingDestinationPreview, application: PlotterApplicationRuntime) -> Bool {
+    guard application.destinationPreviewIsCurrent(preview) else { return false }
+    showDestination(reference: preview.reference)
     return true
   }
   func revealAction(application: PlotterApplicationRuntime) -> DrawingDestinationReveal {
