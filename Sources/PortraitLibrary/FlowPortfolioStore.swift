@@ -364,7 +364,10 @@ package actor FlowPortfolioStore {
     switch scope {
     case .portfolio: permitted = state.candidates
     case .candidate(let id): permitted = [try candidate(id)]
-    case .source(let id): _ = try source(id); permitted = state.candidates.filter { $0.sourceID == id }
+    case .source(let id):
+      _ = try source(id)
+      let aliases = state.photoSourceIDs(for: id)
+      permitted = state.candidates.filter { aliases.contains($0.sourceID) }
     case .round(let id): _ = try round(id); permitted = state.candidates.filter { $0.roundID == id }
     }
     var items: [FlowPortfolioPresentationItem] = []
@@ -526,12 +529,19 @@ package actor FlowPortfolioStore {
     let value = try candidate(id)
     if let reference = value.drawing { return try await storage.library.drawing(reference).program }
     if let drawing = temporaryDrawings[id] { return drawing.program }
+    if let drawing = try await historicalDrawing(id) { return drawing.program }
     throw FlowPortfolioError.unavailable("This generated drawing was temporary and has no retained geometry.")
   }
   package func candidateRaster(_ id: UUID) async throws -> PortraitRaster {
-    try JSONDecoder().decode(PortraitRaster.self, from: await storage.read(candidate(id).raster))
+    if let historical = try await historicalCandidate(id) {
+      return try JSONDecoder().decode(PortraitRaster.self, from: await historicalBytes(historical.raster))
+    }
+    return try JSONDecoder().decode(PortraitRaster.self, from: await storage.read(candidate(id).raster))
   }
-  package func candidatePreview(_ id: UUID) async throws -> Data { try await storage.read(candidate(id).preview) }
+  package func candidatePreview(_ id: UUID) async throws -> Data {
+    if let historical = try await historicalCandidate(id) { return try await historicalBytes(historical.preview) }
+    return try await storage.read(candidate(id).preview)
+  }
 
   private func source(_ id: UUID) throws -> FlowPortfolioSource {
     guard let value = state.sources.first(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Portfolio photograph is unavailable.") }

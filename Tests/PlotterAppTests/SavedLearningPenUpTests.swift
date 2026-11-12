@@ -737,6 +737,8 @@ private struct SavedCameraCalibrationFixture {
       loadPenCapAppearanceSelection: { nil }, log: log
     )
     await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     if includeCamera {

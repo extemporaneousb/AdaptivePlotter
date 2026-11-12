@@ -149,7 +149,9 @@ public final class VerifiedExchangeFiles: @unchecked Sendable {
     let selected = entries.filter { $0.value.fingerprint.isVerified }
     return try .init(entries: selected, stagingURL: stagingURL, limits: limits, counters: counters)
   }
-  func verify(_ digest: ExchangeDigest) throws {
+  /// Verify the exact asset in this resolver without walking unrelated selected
+  /// files. Consumers still own final revalidation of their complete read set.
+  public func verify(_ digest: ExchangeDigest) throws {
     guard let path = byDigest[digest], let handle = handles[path] else { throw DrawingExchangeError.missingAsset(digest.description) }
     _ = try handle.open()
   }

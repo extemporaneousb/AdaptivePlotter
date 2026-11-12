@@ -119,7 +119,6 @@ struct DrawingWorkbenchCompositionTests {
     #expect(await f.machine.requestedPenCommands.first == .raise)
     var layout = WorkbenchLayoutState()
     layout.setPresented(.motion, false)
-    layout.setPresented(.portraitStudio, false)
     let stops = WorkbenchStopPresentation.actions(in: app.testPlotterUIProjection().semantic)
     #expect(stops.count == 1)
     if case .drawingRun(.stop(let capability)) = stops.first?.intent {
@@ -403,7 +402,7 @@ struct DrawingWorkbenchApplicationFixture {
   let runRuntime: PlotterDrawingRunRuntime
 
   static func make(releasePlanOnStop: Bool = true,
-    portraitStudio: PortraitStudioModel? = nil,
+    receivedDrawings: ReceivedDrawingStore? = nil,
     drawingMaterials: DrawingMaterialLibrary? = nil,
     verifyPhysicalPose: Bool = true,
     legacyTemplate: Bool = false,
@@ -430,7 +429,7 @@ struct DrawingWorkbenchApplicationFixture {
     let checkpointStore = stores.checkpointStore
     var runRuntime: PlotterDrawingRunRuntime?
     let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera,
-      portraitStudio: portraitStudio, drawingMaterials: drawingMaterials,
+      receivedDrawings: receivedDrawings, drawingMaterials: drawingMaterials,
       drawingPlanBegin: { request in
         .admitted(DrawingPlanOperation(id: request.operationID, planRevisionID: request.plan.revisionID,
           task: Task { drawingRunOutcome(await planGate.wait(request), request: request) }))
@@ -451,6 +450,8 @@ struct DrawingWorkbenchApplicationFixture {
         discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),
       loadPenCapAppearanceSelection: { nil }, log: log)
     await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))

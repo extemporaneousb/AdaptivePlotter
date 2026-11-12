@@ -71,6 +71,8 @@ struct MotionAuthorizationPenPreparationTests {
     let machine = try LowerMachineSessionFixture(log: EventLog(), motionGuardInitiallyActive: false)
     await machine.setPenState(.unknown)
     let app = plotterApplicationRuntime(machine: machine, log: EventLog())
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     #expect(await machine.requestedPenCommands.isEmpty)
@@ -260,6 +262,8 @@ struct MotionAuthorizationPenPreparationTests {
         discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),
       loadPenCapAppearanceSelection: { nil }, log: EventLog())
     await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))

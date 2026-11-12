@@ -13,7 +13,7 @@ struct FlowPhotoCollectionTests {
   func portableImport() async throws {
     let folder = temporary(), root = temporary(), copy = temporary()
     defer { for p in [folder, root, copy] { try? FileManager.default.removeItem(at: p) } }
-    let images = [FlowDojoFixture.image(1), FlowDojoFixture.image(2)]
+    let images = [FlowAuthoringFixture.image(1), FlowAuthoringFixture.image(2)]
     try writeCollection(folder, images: images)
     let collection = try FlowPhotoCollection.load(directory: folder)
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
@@ -45,7 +45,7 @@ struct FlowPhotoCollectionTests {
     let root = temporary(), copy = temporary()
     defer { for p in [root, copy] { try? FileManager.default.removeItem(at: p) } }
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
-    let data = FlowDojoFixture.image(1), session = UUID()
+    let data = FlowAuthoringFixture.image(1), session = UUID()
     let selection = PortraitCaptureSelectionProvenance(capturedFrameCount: 8, evaluatedFrameCount: 6,
       method: .sharpnessAndExposure, selectedSharpness: 0.04, selectedMeanLuminance: 0.5, selectedClippedFraction: 0.01)
     let photo = PortraitPhoto(id: UUID(), data: data, label: "Exact acquisition label",
@@ -61,7 +61,7 @@ struct FlowPhotoCollectionTests {
     let retry = try await store.addCapturedSource(photo: photo, title: "Captured portrait")
     #expect(retry.id == source.id && retry.title == "User renamed portrait")
     #expect(await store.snapshot() == beforeRetry)
-    let collision = PortraitPhoto(id: photo.id, data: FlowDojoFixture.image(2), label: photo.label,
+    let collision = PortraitPhoto(id: photo.id, data: FlowAuthoringFixture.image(2), label: photo.label,
       capturedAt: photo.capturedAt, frameID: photo.frameID, captureNanoseconds: photo.captureNanoseconds,
       pose: photo.pose, sourcePixelExtent: photo.sourcePixelExtent, captureSessionID: session, selectionProvenance: selection)
     await #expect(throws: (any Error).self) { try await store.addCapturedSource(photo: collision, title: "Collision") }
@@ -83,7 +83,7 @@ struct FlowPhotoCollectionTests {
   func occurrenceIdentity() async throws {
     let folder = temporary(), root = temporary()
     defer { for p in [folder, root] { try? FileManager.default.removeItem(at: p) } }
-    let pixels = FlowDojoFixture.image(1)
+    let pixels = FlowAuthoringFixture.image(1)
     try writeCollection(folder, images: [pixels, pixels])
     let firstCollection = try FlowPhotoCollection.load(directory: folder)
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
@@ -110,7 +110,7 @@ struct FlowPhotoCollectionTests {
     let beforeConflict = await store.snapshot()
     // Reusing the first collection+entry identity for different image bytes is
     // a conflict, never another acquisition or a content-hash based replacement.
-    try writeCollection(folder, images: [FlowDojoFixture.image(2), pixels])
+    try writeCollection(folder, images: [FlowAuthoringFixture.image(2), pixels])
     let changed = try FlowPhotoCollection.load(directory: folder)
     await #expect(throws: (any Error).self) { try await store.importPhotoCollection(changed) }
     #expect(await store.snapshot() == beforeConflict)
@@ -120,7 +120,7 @@ struct FlowPhotoCollectionTests {
   func originalImportFacts(kind: String) async throws {
     let folder = temporary(), root = temporary()
     defer { for p in [folder, root] { try? FileManager.default.removeItem(at: p) } }
-    try writeCollection(folder, images: [FlowDojoFixture.image(1)])
+    try writeCollection(folder, images: [FlowAuthoringFixture.image(1)])
     let collection = try FlowPhotoCollection.load(directory: folder)
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
     let first = try #require(try await store.importPhotoCollection(collection).first)
@@ -147,7 +147,7 @@ struct FlowPhotoCollectionTests {
     let library = DrawingLibrary(directoryURL: root)
     let store = FlowPortfolioStore(directory: root, purpose: .validationFixture, library: library)
     try await store.loadRecords()
-    let source = try await store.addSource(data: FlowDojoFixture.image(1), title: "Initial")
+    let source = try await store.addSource(data: FlowAuthoringFixture.image(1), title: "Initial")
     let ref = try #require(source.photo)
     #expect(try await library.photos().entries.map(\.reference) == [ref])
     #expect(try await library.photo(ref).reference == ref)
@@ -183,12 +183,12 @@ struct FlowPhotoCollectionTests {
   func exactPreparationSource() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
-    let data = FlowDojoFixture.image(1)
+    let data = FlowAuthoringFixture.image(1)
     let source = try await store.addSource(data: data, title: "Exact source")
     let photo = try await store.sourcePhoto(source.id)
     let result = try StudioDrawingFixture.production(program: FlowPortfolioTests.program(), raster: FlowPortfolioTests.raster).artifacts
     #expect(throws: (any Error).self) {
-      try PortraitDrawingImages.input(result: result, data: FlowDojoFixture.image(2), photo: photo, identity: .init(issuer: UUID()))
+      try PortraitDrawingImages.input(result: result, data: FlowAuthoringFixture.image(2), photo: photo, identity: .init(issuer: UUID()))
     }
     let encoded = try PortraitDrawingImages.sourceAsset(data)
     let minimal = try DrawingImageAsset(descriptor: .init(asset: encoded.asset.descriptor.asset), bytes: data)
@@ -205,7 +205,7 @@ struct FlowPhotoCollectionTests {
   func invalidCollection() async throws {
     let folder = temporary(), root = temporary()
     defer { for p in [folder, root] { try? FileManager.default.removeItem(at: p) } }
-    try writeCollection(folder, images: [FlowDojoFixture.image(1)])
+    try writeCollection(folder, images: [FlowAuthoringFixture.image(1)])
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
     let before = await store.snapshot()
     let manifestURL = folder.appendingPathComponent("photo-collection.json")
@@ -225,7 +225,7 @@ struct FlowPhotoCollectionTests {
   func namesAndNavigation() async throws {
     let root = temporary(), copy = temporary(); defer { for p in [root, copy] { try? FileManager.default.removeItem(at: p) } }
     let store = try await StudioDrawingFixture.store(directory: root, purpose: .validationFixture)
-    let source = try await store.addSource(data: FlowDojoFixture.image(1), title: "Before")
+    let source = try await store.addSource(data: FlowAuthoringFixture.image(1), title: "Before")
     let round = try await store.beginRound(sourceID: source.id, recipes: [.standard])
     let program = try FlowPortfolioTests.program()
     let candidate = try await store.completeCandidate(roundID: round.id, slot: 0, production: StudioDrawingFixture.production(program: program, raster: FlowPortfolioTests.raster), previewPNG: PortraitDrawingPreview.png(program))

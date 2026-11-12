@@ -12,77 +12,77 @@ import Vision
 
 /// Owned offscreen hosts and a disposable validation portfolio only. This proves
 /// native layout and rendered controls, not interactive inspection of the app.
-@Suite("Flow Edge dojo bounded workspace", .serialized)
+@Suite("Flow Edge authoring bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
   @Test("Explore, Prune, Rank and Fit retain visible core actions without regenerating on layout",
-    arguments: FlowDojoModel.Stage.allCases)
-  func controlsFit(stage: FlowDojoModel.Stage) async throws {
+    arguments: FlowAuthoringModel.Stage.allCases)
+  func controlsFit(stage: FlowAuthoringModel.Stage) async throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let renderer = WorkspaceLayoutRenderer()
     let library = DrawingFirstTestStorage.library()
     let owner = PortraitStudioModel(library: library)
-    let dojo = FlowDojoModel(directory: directory, library: library, strokeStyle: try portraitTestStyle(),
+    let authoring = FlowAuthoringModel(directory: directory, library: library, strokeStyle: try portraitTestStyle(),
       purpose: .validationFixture, render: { data, recipe, pen in try await renderer.render(data, recipe, pen) },
       fit: { _, _ in .unavailable("Layout fixture has no trained artist.") })
     do {
       let stroke = try portraitTestStyle()
-      await dojo.open()
-      await dojo.addPhoto(data: try portraitTestImage(), title: "Disposable portrait layout fixture")
-      dojo.count = 6
-      await dojo.generate(refining: false)
-      try #require(dojo.error == nil)
-      try #require(dojo.roundCandidates.count == 6)
-      let chosen = try #require(dojo.roundCandidates.first)
-      await dojo.selectCandidate(chosen.id, prune: true)
-      await dojo.edit(.remove, ids: [try #require(dojo.program?.strokes.first?.id)])
-      await dojo.edit(.completeTarget)
-      await dojo.presentRanking(scope: .round(try #require(dojo.round?.id)))
-      let items = try #require(dojo.presentation?.items)
+      await authoring.open()
+      await authoring.addPhoto(data: try portraitTestImage(), title: "Disposable portrait layout fixture")
+      authoring.count = 6
+      await authoring.generate(refining: false)
+      try #require(authoring.error == nil)
+      try #require(authoring.roundCandidates.count == 6)
+      let chosen = try #require(authoring.roundCandidates.first)
+      await authoring.selectCandidate(chosen.id, prune: true)
+      await authoring.edit(.remove, ids: [try #require(authoring.program?.strokes.first?.id)])
+      await authoring.edit(.completeTarget)
+      await authoring.presentRanking(scope: .round(try #require(authoring.round?.id)))
+      let items = try #require(authoring.presentation?.items)
       try #require(items.count == 6)
-      await dojo.rank(item: items[0].id, position: 1)
-      await dojo.rank(item: items[1].id, position: 2)
-      await dojo.fit()
-      try #require(dojo.error == nil)
-      let activeRound = try #require(dojo.round?.id)
+      await authoring.rank(item: items[0].id, position: 1)
+      await authoring.rank(item: items[1].id, position: 2)
+      await authoring.fit()
+      try #require(authoring.error == nil)
+      let activeRound = try #require(authoring.round?.id)
       for index in 2...18 {
-        await dojo.addPhoto(data: try portraitTestImage(), title: "Historical photo \(index)")
+        await authoring.addPhoto(data: try portraitTestImage(), title: "Historical photo \(index)")
       }
-      await dojo.selectRound(activeRound)
+      await authoring.selectRound(activeRound)
       if stage == .prune {
-        let lines = try #require(dojo.program?.strokes)
-        await dojo.edit(.remove, ids: [lines[1].id])
-        await dojo.edit(.undo)
-        dojo.selection = [lines[2].id]
+        let lines = try #require(authoring.program?.strokes)
+        await authoring.edit(.remove, ids: [lines[1].id])
+        await authoring.edit(.undo)
+        authoring.selection = [lines[2].id]
       }
-      dojo.stage = stage
+      authoring.stage = stage
       let renderCalls = await renderer.calls
-      let revision = dojo.document?.revision
-      let programHash = dojo.program?.contentHash
-      let roundID = dojo.round?.id
+      let revision = authoring.document?.revision
+      let programHash = authoring.program?.contentHash
+      let roundID = authoring.round?.id
       for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
-        try await inspect(owner, dojo: dojo, stroke: stroke, stage: stage, size: size)
+        try await inspect(owner, authoring: authoring, stroke: stroke, stage: stage, size: size)
         #expect(await renderer.calls == renderCalls, "Layout must never regenerate drawings.")
-        #expect(dojo.document?.revision == revision, "Layout must not create portfolio records or judgments.")
-        #expect(dojo.program?.contentHash == programHash && dojo.round?.id == roundID)
-        #expect(dojo.stage == stage && dojo.candidate?.id == chosen.id)
+        #expect(authoring.document?.revision == revision, "Layout must not create portfolio records or judgments.")
+        #expect(authoring.program?.contentHash == programHash && authoring.round?.id == roundID)
+        #expect(authoring.stage == stage && authoring.candidate?.id == chosen.id)
       }
       if stage == .rank {
-        await dojo.presentRanking(scope: .round(try #require(dojo.round?.id)), count: 2)
-        try #require(dojo.error == nil)
-        let previousPair = try #require(dojo.presentation)
+        await authoring.presentRanking(scope: .round(try #require(authoring.round?.id)), count: 2)
+        try #require(authoring.error == nil)
+        let previousPair = try #require(authoring.presentation)
         try #require(previousPair.items.count == 2)
-        await dojo.compare(preferred: try #require(previousPair.items.first?.id))
-        try #require(dojo.error == nil)
-        let nextPair = try #require(dojo.presentation)
+        await authoring.compare(preferred: try #require(previousPair.items.first?.id))
+        try #require(authoring.error == nil)
+        let nextPair = try #require(authoring.presentation)
         try #require(nextPair.id != previousPair.id && nextPair.items.count == 2)
-        try #require(dojo.ranks.isEmpty)
-        let pairRevision = dojo.document?.revision
+        try #require(authoring.ranks.isEmpty)
+        let pairRevision = authoring.document?.revision
         for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
-          try await inspect(owner, dojo: dojo, stroke: stroke, stage: stage, size: size, suffix: "-pair", expectedFreshPair: true)
-          #expect(dojo.document?.revision == pairRevision)
+          try await inspect(owner, authoring: authoring, stroke: stroke, stage: stage, size: size, suffix: "-pair", expectedFreshPair: true)
+          #expect(authoring.document?.revision == pairRevision)
           #expect(await renderer.calls == renderCalls)
         }
       }
@@ -99,7 +99,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let owner = PortraitStudioModel(library: DrawingFirstTestStorage.library())
-    let host = NSHostingController(rootView: FlowDojoCameraPanel(camera: owner,
+    let host = NSHostingController(rootView: FlowAuthoringCameraPanel(camera: owner,
       strokeStyle: try portraitTestStyle(), selectCamera: { nil }, captured: { _ in })
       .frame(width: 640, height: 600).background(Color(nsColor: .windowBackgroundColor)))
     let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 640, height: 600),
@@ -114,7 +114,7 @@ struct PortraitStudioWorkspaceLayoutTests {
       if let directory = ProcessInfo.processInfo.environment["PORTRAIT_WORKSPACE_SNAPSHOT_DIR"] {
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         try PortraitImageAnalyzer.encodedImage(image).write(to:
-          URL(fileURLWithPath: directory).appendingPathComponent("dojo-camera-panel-640x600.png"))
+          URL(fileURLWithPath: directory).appendingPathComponent("authoring-camera-panel-640x600.png"))
       }
       let controls = descendants(host.view).compactMap { $0 as? NSButton }.filter {
         !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
@@ -128,7 +128,7 @@ struct PortraitStudioWorkspaceLayoutTests {
       try VNImageRequestHandler(cgImage: image).perform([recognize])
       let rendered = (recognize.results ?? []).compactMap { $0.topCandidates(1).first?.string }
       let diagnostic = "native=\(labels) rendered=\(rendered)"
-      print("FLOW_DOJO_CAMERA_LAYOUT \(diagnostic)")
+      print("FLOW_AUTHORING_CAMERA_LAYOUT \(diagnostic)")
       #expect(controls.count >= 3, "Camera actions must remain real native controls: \(diagnostic)")
       for title in ["Restart Camera", "Close", "Capture Photo"] {
         #expect((labels + rendered).contains { normalize($0).contains(normalize(title)) },
@@ -143,9 +143,9 @@ struct PortraitStudioWorkspaceLayoutTests {
     } catch { window.close(); await owner.shutdown(); throw error }
   }
 
-  private func inspect(_ owner: PortraitStudioModel, dojo: FlowDojoModel, stroke: PlotterModel.StrokeStyle,
-    stage: FlowDojoModel.Stage, size: CGSize, suffix: String = "", expectedFreshPair: Bool = false) async throws {
-    let host = NSHostingController(rootView: FlowDojoView(model: dojo, camera: owner,
+  private func inspect(_ owner: PortraitStudioModel, authoring: FlowAuthoringModel, stroke: PlotterModel.StrokeStyle,
+    stage: FlowAuthoringModel.Stage, size: CGSize, suffix: String = "", expectedFreshPair: Bool = false) async throws {
+    let host = NSHostingController(rootView: FlowAuthoringView(model: authoring, camera: owner,
       handoff: { _ in nil })
       .padding(12)
       .frame(width: size.width, height: size.height)
@@ -164,7 +164,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     try await settle(host.view)
     #expect(!window.isKeyWindow)
     #expect(abs(host.view.bounds.width - size.width) < 1 && abs(host.view.bounds.height - size.height) < 1)
-    #expect(!dojo.isBusy && dojo.error == nil)
+    #expect(!authoring.isBusy && authoring.error == nil)
 
     let bitmap = try #require(host.view.bitmapImageRepForCachingDisplay(in: host.view.bounds))
     host.view.cacheDisplay(in: host.view.bounds, to: bitmap)
@@ -173,7 +173,7 @@ struct PortraitStudioWorkspaceLayoutTests {
       try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
       let name = stage.rawValue.lowercased().replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-")
       try PortraitImageAnalyzer.encodedImage(image).write(to: URL(fileURLWithPath: directory)
-        .appendingPathComponent("dojo-\(name)\(suffix)-\(Int(size.width))x\(Int(size.height)).png"))
+        .appendingPathComponent("authoring-\(name)\(suffix)-\(Int(size.width))x\(Int(size.height)).png"))
     }
     // Read the full frame plus overlapping bands: small native labels otherwise
     // disappear in OCR segmentation beside the large blank drawing canvas.
@@ -200,8 +200,8 @@ struct PortraitStudioWorkspaceLayoutTests {
     }
     let normalized = (rendered + nativeLabels).map(normalize)
     let diagnostic = "stage=\(stage.rawValue) size=\(size) native=\(nativeLabels) rendered=\(rendered)"
-    print("FLOW_DOJO_HOSTED_LAYOUT \(diagnostic)")
-    for label in ["Flow Edge Dojo", "Import Photo", "Portfolio", "Branches"] + coreLabels(stage) {
+    print("FLOW_AUTHORING_HOSTED_LAYOUT \(diagnostic)")
+    for label in ["Flow Edge", "Import Photo", "Portfolio", "Branches"] + coreLabels(stage) {
       #expect(normalized.contains { $0.contains(normalize(label)) }, "Core action '\(label)' is not visibly rendered: \(diagnostic)")
     }
 
@@ -233,7 +233,7 @@ struct PortraitStudioWorkspaceLayoutTests {
       if stage == .rank {
         let columns = max(1, Int((contentViewport.contentView.bounds.width + 12) / 232))
         let visibleRanks = nativeLabels.filter { ["1", "2", "Unranked"].contains($0) }
-        #expect(visibleRanks.count >= min(columns, dojo.presentation?.items.count ?? 0),
+        #expect(visibleRanks.count >= min(columns, authoring.presentation?.items.count ?? 0),
           "The entire first row of rank pickers must be visible before scrolling at \(size): \(visibleRanks).")
         if expectedFreshPair {
           #expect(visibleRanks.filter { $0 == "Unranked" }.count == 2,
@@ -241,7 +241,7 @@ struct PortraitStudioWorkspaceLayoutTests {
         } else {
           #expect(visibleRanks.contains("1") && visibleRanks.contains("2"))
         }
-        if dojo.presentation?.items.count == 2 {
+        if authoring.presentation?.items.count == 2 {
           #expect(normalized.contains { $0.contains(normalize("Prefer this drawing")) })
           #expect(normalized.contains { $0.contains(normalize("Equal preference")) })
         }
@@ -254,7 +254,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     }
   }
 
-  private func coreLabels(_ stage: FlowDojoModel.Stage) -> [String] {
+  private func coreLabels(_ stage: FlowAuthoringModel.Stage) -> [String] {
     switch stage {
     case .explore: return ["Broad exploration", "Refine selected drawing", "Prune selected drawing"]
     case .prune: return ["Delete Selected", "Undo", "Redo", "Finish pruning", "Original"]

@@ -8,8 +8,8 @@ import PortraitCore
 import PortraitLibrary
 
 /// The single authoring journey: explore a source, prune, rank, fit, and repeat.
-package struct FlowDojoView: View {
-  @Bindable package var model: FlowDojoModel
+package struct FlowAuthoringView: View {
+  @Bindable package var model: FlowAuthoringModel
   @Bindable package var camera: PortraitStudioModel
   package var selectCamera: () async -> String? = { nil }
   package var handoffTitle = "Export Drawing"
@@ -20,7 +20,7 @@ package struct FlowDojoView: View {
   @Environment(\.drawingPresentationPolicy) private var presentationPolicy
   @State private var message: String?
 
-  package init(model: FlowDojoModel, camera: PortraitStudioModel,
+  package init(model: FlowAuthoringModel, camera: PortraitStudioModel,
     selectCamera: @escaping () async -> String? = { nil }, handoffTitle: String = "Export Drawing",
     handoff: ((Drawing) async -> String?)? = nil, photoSelected: @escaping (PhotoRef?) -> Void = { _ in }) {
     self.model = model; self.camera = camera; self.selectCamera = selectCamera
@@ -40,7 +40,7 @@ package struct FlowDojoView: View {
         portfolioSidebar.frame(minWidth: 230, idealWidth: 270, maxWidth: 340)
         VStack(alignment: .leading, spacing: 12) {
           stageBar
-          FlowDojoTrainingFeedback(model: model)
+          FlowAuthoringTrainingFeedback(model: model)
           switch model.stage {
           case .explore: exploration
           case .prune: pruning
@@ -60,14 +60,14 @@ package struct FlowDojoView: View {
         Text(model.directory.lastPathComponent).font(.caption).foregroundStyle(.secondary).help(model.directory.path)
       }.padding(8)
     }
-    .accessibilityIdentifier("flowDojo.workspace")
+    .accessibilityIdentifier("flowAuthoring.workspace")
     .task { await model.open() }
     .onChange(of: model.currentPhotoRef) { _, ref in photoSelected(ref) }
     .onChange(of: presentationPolicy.modalUnavailableReason) { _, reason in
-      if reason != nil { importing = false; showingCamera = false; FlowDojoFiles.cancelPanel() }
+      if reason != nil { importing = false; showingCamera = false; FlowAuthoringFiles.cancelPanel() }
     }
     .sheet(isPresented: $showingCamera) {
-      FlowDojoCameraPanel(camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera) { photo in
+      FlowAuthoringCameraPanel(camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera) { photo in
         await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt))
       }
     }
@@ -75,7 +75,7 @@ package struct FlowDojoView: View {
       Task {
         do {
           let url = try result.get()
-          let bytes = try await Task.detached { try FlowDojoFiles.readImage(url) }.value
+          let bytes = try await Task.detached { try FlowAuthoringFiles.readImage(url) }.value
           await model.addPhoto(data: bytes, title: url.deletingPathExtension().lastPathComponent,
             mediaType: url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg")
         } catch { message = error.localizedDescription }
@@ -93,31 +93,31 @@ package struct FlowDojoView: View {
 
   private var acquisitionBar: some View {
     HStack(spacing: 10) {
-      Text("Flow Edge Dojo").font(.title2.weight(.semibold))
+      Text("Flow Edge").font(.title2.weight(.semibold))
       Button("Import Photo", systemImage: "photo.badge.plus") { if permitModal() { importing = true } }
-        .accessibilityIdentifier("flowDojo.importPhoto")
+        .accessibilityIdentifier("flowAuthoring.importPhoto")
       Button("Capture Photo", systemImage: "camera") { if permitModal() { showingCamera = true } }
-        .accessibilityIdentifier("flowDojo.openCamera")
+        .accessibilityIdentifier("flowAuthoring.openCamera")
       Spacer()
-      Button("Import Photo Set…") { if permitModal() { Task { if let url = await FlowDojoFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } } }
+      Button("Import Photo Set…") { if permitModal() { Task { if let url = await FlowAuthoringFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } } }
       Button(handoffTitle, systemImage: "square.and.arrow.up") {
         Task {
           do {
             if let handoff { message = await handoff(try await model.retainedDrawing()) }
-            else if permitModal(), let url = await FlowDojoFiles.exportDrawing() { try await model.exportDrawing(to: url) }
+            else if permitModal(), let url = await FlowAuthoringFiles.exportDrawing() { try await model.exportDrawing(to: url) }
           } catch { message = error.localizedDescription }
         }
       }.disabled(model.candidate == nil || model.program?.strokes.count == model.removedIndices.count)
-        .accessibilityIdentifier("flowDojo.exportDrawing")
+        .accessibilityIdentifier("flowAuthoring.exportDrawing")
     }.disabled(model.isBusy || model.needsRecovery).controlSize(.regular)
   }
 
-  private var portfolioSidebar: some View { FlowDojoSidebar(model: model) }
+  private var portfolioSidebar: some View { FlowAuthoringSidebar(model: model) }
 
   private var stageBar: some View {
     HStack {
       Picker("Curation stage", selection: $model.stage) {
-        ForEach(FlowDojoModel.Stage.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+        ForEach(FlowAuthoringModel.Stage.allCases, id: \.self) { Text($0.rawValue).tag($0) }
       }.pickerStyle(.segmented).frame(maxWidth: 480)
       Spacer()
     }.disabled(model.isBusy || model.needsRecovery)
@@ -147,10 +147,10 @@ package struct FlowDojoView: View {
             Stepper("\(model.count) drawings", value: $model.count, in: 3...9).fixedSize()
             Button("Broad exploration") { Task { await model.generate(refining: false) } }
               .disabled(model.selectedSource == nil)
-              .accessibilityIdentifier("flowDojo.broad")
+              .accessibilityIdentifier("flowAuthoring.broad")
             Button("Refine selected drawing") { Task { await model.generate(refining: true) } }
               .disabled(model.candidate == nil)
-              .accessibilityIdentifier("flowDojo.refine")
+              .accessibilityIdentifier("flowAuthoring.refine")
           }
           HStack {
             Button("Prune selected drawing") { model.stage = .prune }.disabled(model.candidate == nil)
@@ -166,7 +166,7 @@ package struct FlowDojoView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
           ForEach(model.roundCandidates) { candidate in
             VStack(alignment: .leading, spacing: 6) {
-              FlowDojoImage(data: model.previews[candidate.id], identity: model.previewIdentity(candidate: candidate)).frame(height: 220)
+              FlowAuthoringImage(data: model.previews[candidate.id], identity: model.previewIdentity(candidate: candidate)).frame(height: 220)
               HStack {
                 Text(model.drawingName(candidate)).font(.headline)
                 Spacer()
@@ -175,7 +175,7 @@ package struct FlowDojoView: View {
               HStack {
                 Button("Choose direction") { Task { await model.selectCandidate(candidate.id) } }
                   .buttonStyle(.borderedProminent)
-                  .accessibilityIdentifier("flowDojo.choose.\(candidate.slot)")
+                  .accessibilityIdentifier("flowAuthoring.choose.\(candidate.slot)")
               }.disabled(model.isBusy || model.needsRecovery)
               HStack {
                 Button("Open / prune") { Task { await model.browseCandidate(candidate.id, prune: true) } }
@@ -220,7 +220,7 @@ package struct FlowDojoView: View {
           Button("Finish pruning") { Task { await model.edit(.completeTarget) } }
             .disabled(model.isBusy || model.needsRecovery || model.prune?.action == .completeTarget)
             .help("Declare the current kept/removed mask as the intended training target. All edits are already autosaved.")
-            .accessibilityIdentifier("flowDojo.finishPruning")
+            .accessibilityIdentifier("flowAuthoring.finishPruning")
         }
         if model.prune?.action == .completeTarget {
           HStack {
@@ -230,10 +230,10 @@ package struct FlowDojoView: View {
           }
         }
         GeometryReader { proxy in
-          if model.showsPhoto { FlowDojoImage(data: model.sourceData, identity: model.selectedSource?.image.sha256 ?? "no-source").frame(maxWidth: .infinity, maxHeight: .infinity) }
+          if model.showsPhoto { FlowAuthoringImage(data: model.sourceData, identity: model.selectedSource?.image.sha256 ?? "no-source").frame(maxWidth: .infinity, maxHeight: .infinity) }
           else {
             ScrollView([.horizontal, .vertical]) {
-              FlowDojoCanvas(model: model, program: program)
+              FlowAuthoringCanvas(model: model, program: program)
                 .frame(width: max(100, proxy.size.width * model.zoom), height: max(100, proxy.size.height * model.zoom))
             }
           }
@@ -281,7 +281,7 @@ package struct FlowDojoView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
           ForEach(model.presentation?.items ?? []) { item in
             VStack(spacing: 8) {
-              FlowDojoImage(data: model.rankingPreviews[item.id], identity: model.rankingPreviewIdentity(item)).frame(height: 240)
+              FlowAuthoringImage(data: model.rankingPreviews[item.id], identity: model.rankingPreviewIdentity(item)).frame(height: 240)
               if model.presentation?.items.count == 2 {
                 Button("Prefer this drawing") { Task { await model.compare(preferred: item.id) } }
                   .buttonStyle(.borderedProminent).disabled(model.isBusy || model.needsRecovery)
@@ -308,7 +308,7 @@ package struct FlowDojoView: View {
         HStack {
           Button("Fit portfolio") { Task { await model.fit() } }.buttonStyle(.borderedProminent)
             .disabled(model.isBusy || model.needsRecovery || model.trainingProgress?.canAttemptFit != true)
-            .accessibilityIdentifier("flowDojo.fit")
+            .accessibilityIdentifier("flowAuthoring.fit")
           Button("Use untrained exploration") { Task { await model.activate(nil) } }
             .disabled(model.isBusy || model.needsRecovery || model.document?.activeFitID == nil)
           Text(model.activeCheckpoint == nil ? "No active checkpoint" : "Active: " + [model.activeCheckpoint?.ranker == nil ? nil : "preference", model.activeCheckpoint?.deleter == nil ? nil : "deletion"].compactMap { $0 }.joined(separator: " + ") + (model.activeCheckpoint?.isExperimental == true ? " · experimental" : "")).font(.caption).foregroundStyle(.secondary)
@@ -362,7 +362,7 @@ package struct FlowDojoView: View {
 
 }
 
-package struct FlowDojoImage: View {
+package struct FlowAuthoringImage: View {
   package let data: Data?
   package let identity: String
   package let maximumDimension: Int
@@ -389,8 +389,8 @@ package struct FlowDojoImage: View {
   }
 }
 
-private struct FlowDojoCanvas: NSViewRepresentable {
-  let model: FlowDojoModel
+private struct FlowAuthoringCanvas: NSViewRepresentable {
+  let model: FlowAuthoringModel
   let program: DrawingProgram
   func makeNSView(context: Context) -> PortraitLineEditorNSView { PortraitLineEditorNSView() }
   func updateNSView(_ view: PortraitLineEditorNSView, context: Context) {

@@ -2,6 +2,7 @@ import Foundation
 import ImageIO
 import DrawingLibrary
 import PortraitCore
+import PlotterModel
 import PortraitArtists
 import PortraitStudioUI
 @testable import PortraitLibrary
@@ -24,7 +25,7 @@ struct DrawingLibraryAdoptionTests {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("dx10-adoption-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root)
-    let png = FlowDojoFixture.image(1)
+    let png = FlowAuthoringFixture.image(1)
     let data: Data
     if jpeg {
       let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
@@ -61,12 +62,36 @@ struct DrawingLibraryAdoptionTests {
     await library.closeLibrary()
   }
 
+  @Test("Drawing name edits drain in arrival order before immediate close without changing immutable bytes")
+  @MainActor func drawingNameDrain() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("drawing-name-drain-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let library = DrawingLibrary(directoryURL: root)
+    let production = try await CatalogDrawingProducer().produce(input: .square, settings: .init(style: StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID(UUID()))))
+    let ref = try await library.retain(production.drawing, reason: "name fixture").reference
+    let sketches = PortraitSketchCollection(library: library)
+    try await sketches.select(ref)
+    let original = try await library.drawing(ref)
+    let first = sketches.updateDrawingName(ref, title: "First")
+    let last = sketches.updateDrawingName(ref, title: "Last")
+    await sketches.shutdown(); await library.closeLibrary()
+    let firstFailure = await first.value, lastFailure = await last.value
+    #expect(firstFailure == nil && lastFailure == nil)
+    let reopened = DrawingLibrary(directoryURL: root)
+    let page = try await reopened.drawings()
+    #expect(page.entries.first(where: { $0.reference == ref })?.title == "Last")
+    let exact = try await reopened.drawing(ref)
+    #expect(exact.reference == original.reference && exact.program == original.program && exact.producer.originalJSON == original.producer.originalJSON)
+    #expect(await sketches.updateDrawingName(ref, title: "Too late").value != nil)
+    await reopened.closeLibrary()
+  }
+
   @Test("Accepted Photo field patches drain in arrival order before immediate collection and Library close")
   @MainActor func metadataDrain() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("dx10-metadata-drain-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root)
-    let photo = try PortraitDrawingImages.photo(data: FlowDojoFixture.image(1), issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
+    let photo = try PortraitDrawingImages.photo(data: FlowAuthoringFixture.image(1), issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
     try await library.commitRecords([], closure: .init(photo: photo))
     let sketches = PortraitSketchCollection(library: library)
     let first = sketches.updatePhotoMetadata(photo.reference, patch: .init(title: .set("First")))
@@ -109,11 +134,11 @@ struct DrawingLibraryAdoptionTests {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("dx10-source-load-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root)
-    let model = FlowDojoModel(directory: root, library: library, purpose: .validationFixture)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "A")
+    let model = FlowAuthoringModel(directory: root, library: library, purpose: .validationFixture)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "A")
     let a = try #require(model.currentPhotoRef)
     #expect(model.sourceData != nil)
-    let photo = try PortraitDrawingImages.photo(data: FlowDojoFixture.image(2), issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
+    let photo = try PortraitDrawingImages.photo(data: FlowAuthoringFixture.image(2), issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
     try await library.commitRecords([], closure: .init(photo: photo))
     let object = root.appendingPathComponent("objects/sha256/" + photo.record.original.object.description)
     let original = try Data(contentsOf: object)
@@ -132,7 +157,7 @@ struct DrawingLibraryAdoptionTests {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("dx10-opaque-adoption-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root.appendingPathComponent("library"))
-    let photo = try PortraitDrawingImages.photo(data: FlowDojoFixture.image(1), issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
+    let photo = try PortraitDrawingImages.photo(data: FlowAuthoringFixture.image(1), issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
     var json = try #require(JSONSerialization.jsonObject(with: photo.record.originalJSON) as? [String: Any])
     json["requiredFeatures"] = ["example.unknown-photo/1"]
     let bytes = try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys, .withoutEscapingSlashes])

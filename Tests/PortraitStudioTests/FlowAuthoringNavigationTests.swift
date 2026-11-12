@@ -4,16 +4,16 @@ import PortraitLibrary
 import PortraitStudioUI
 import Testing
 
-@Suite("Flow dojo photo branches and explicit feedback", .serialized)
+@Suite("Flow authoring photo branches and explicit feedback", .serialized)
 @MainActor
-struct FlowDojoNavigationTests {
+struct FlowAuthoringNavigationTests {
   @Test("Browsing a branch never votes; a representative retains the exact judged mask")
   func browsingAndRepresentative() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     do {
-      await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "Frame 0.8s")
+      await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "Frame 0.8s")
       model.count = 3; await model.generate(refining: false)
       let source = try #require(model.selectedSource), values = model.roundCandidates
       #expect(model.photoName(source).hasPrefix("Photo 1"))
@@ -45,8 +45,8 @@ struct FlowDojoNavigationTests {
   func semanticRefreshCache() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "Before")
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "Before")
     model.count = 3; await model.generate(refining: false)
     let candidate = try #require(model.roundCandidates.first), source = try #require(model.selectedSource)
     let library = try #require(model.drawingLibrary), photo = try #require(source.photo)
@@ -71,7 +71,7 @@ struct FlowDojoNavigationTests {
     let beforeEdit = model.trainingSummaryBuildCount
     await model.edit(.remove, ids: [try #require(model.program?.strokes.first?.id)])
     #expect(model.trainingSummaryBuildCount == beforeEdit + 1)
-    #expect(model.trainingProgress == FlowDojoTrainingProgress(document: try #require(model.document)))
+    #expect(model.trainingProgress == FlowAuthoringTrainingProgress(document: try #require(model.document)))
     #expect(await model.shutdown())
   }
 
@@ -79,9 +79,9 @@ struct FlowDojoNavigationTests {
   func explicitComparisons() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     do {
-      await model.open(); await model.addPhoto(data: FlowDojoFixture.image(2), title: "Pair fixture")
+      await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(2), title: "Pair fixture")
       model.count = 3; await model.generate(refining: false)
       let round = try #require(model.round)
       await model.presentRanking(scope: .round(round.id), count: 2)
@@ -113,12 +113,12 @@ struct FlowDojoNavigationTests {
   func localAndPortfolioFeedback() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     do {
       await model.open(); model.count = 3
       var partialSourceID: UUID?
       for index in 0..<6 {
-        await model.addPhoto(data: FlowDojoFixture.image(index), title: "Feedback source \(index + 1)")
+        await model.addPhoto(data: FlowAuthoringFixture.image(index), title: "Feedback source \(index + 1)")
         await model.generate(refining: false)
         let candidate = try #require(model.roundCandidates.first)
         if index == 0 {
@@ -137,12 +137,12 @@ struct FlowDojoNavigationTests {
       #expect(progress.photo(sourceID).partialCorrectionCount == 1)
       #expect(progress.photo(sourceID).choiceCount == 0 && progress.photo(sourceID).rankingCount == 0)
       #expect(progress.photo(sourceID).completedTargetCount == 0)
-      for stage in [FlowDojoModel.Stage.explore, .prune, .rank] {
-        let local = FlowDojoFeedbackText.coverage(progress, stage: stage, selectedSourceID: sourceID)
+      for stage in [FlowAuthoringModel.Stage.explore, .prune, .rank] {
+        let local = FlowAuthoringFeedbackText.coverage(progress, stage: stage, selectedSourceID: sourceID)
         #expect(local.hasPrefix("This photo:") && local.contains("1 remove / 0 keep labels"))
         #expect(local.contains("0 directions") && local.contains("0 comparisons") && local.contains("0 targets"))
       }
-      let portfolio = FlowDojoFeedbackText.coverage(progress, stage: .fit, selectedSourceID: sourceID)
+      let portfolio = FlowAuthoringFeedbackText.coverage(progress, stage: .fit, selectedSourceID: sourceID)
       #expect(portfolio.hasPrefix("Portfolio: 6 photos with feedback"))
       #expect(portfolio.contains("5 directions") && portfolio.contains("1 comparisons"))
       #expect(portfolio.contains("6 remove / 75 keep labels"))
@@ -154,8 +154,8 @@ struct FlowDojoNavigationTests {
   func nameDraftShutdown() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(3), title: "Before")
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(3), title: "Before")
     let id = try #require(model.selectedSource?.id), baseline = try #require(model.document?.revision)
     model.queueName(id, photo: true, title: "A")
     model.queueName(id, photo: true, title: "An")
@@ -167,7 +167,7 @@ struct FlowDojoNavigationTests {
     #expect(await model.shutdown())
     #expect(model.pendingMetadataCount == 0)
     #expect(model.autosaveStatus.hasPrefix("All changes saved"))
-    let reopened = FlowDojoModel(directory: directory)
+    let reopened = FlowAuthoringModel(directory: directory)
     await reopened.open()
     #expect(reopened.selectedSource?.title == "Angular face")
     #expect(reopened.document?.revision == baseline + 1)
@@ -181,9 +181,9 @@ struct FlowDojoNavigationTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let gate = MetadataJoinGate()
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture,
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture,
       metadataJoinHook: { await gate.pause() })
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(5), title: "Before")
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(5), title: "Before")
     let id = try #require(model.selectedSource?.id)
     model.queueName(id, photo: true, title: "First draft")
     let firstJoin = Task { await model.flushMetadataEdits() }
@@ -196,7 +196,7 @@ struct FlowDojoNavigationTests {
     #expect(await model.shutdown())
     #expect(model.pendingMetadataCount == 0)
     await gate.release(); await firstJoin.value
-    let reopened = FlowDojoModel(directory: directory)
+    let reopened = FlowAuthoringModel(directory: directory)
     await reopened.open()
     #expect(reopened.selectedSource?.title == "Newest admitted draft")
     #expect(reopened.error == nil)
@@ -207,9 +207,9 @@ struct FlowDojoNavigationTests {
   func branchOrder() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     do {
-      await model.open(); await model.addPhoto(data: FlowDojoFixture.image(4), title: "Branch fixture")
+      await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(4), title: "Branch fixture")
       let source = try #require(model.selectedSource)
       model.count = 3; await model.generate(refining: false)
       let first = try #require(model.round), parent = try #require(model.roundCandidates.first)

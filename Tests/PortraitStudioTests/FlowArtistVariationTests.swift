@@ -11,7 +11,7 @@ import Testing
 struct FlowArtistVariationTests {
   @Test("The cached live producer admits one program and retains preparation after admission failure")
   func liveProducerCache() async throws {
-    let data = FlowDojoFixture.image(4), renderer = FlowDojoRenderer()
+    let data = FlowAuthoringFixture.image(4), renderer = FlowAuthoringRenderer()
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
     await #expect(throws: (any Error).self) {
       try await renderer.produce(data: data, recipe: .standard, strokeStyle: style, nominalPenWidthMM: -1)
@@ -30,7 +30,7 @@ struct FlowArtistVariationTests {
 
     let input = PortraitFlowDrawingProducer.Input(data: data)
     let settings = PortraitFlowDrawingProducer.Settings(recipe: .standard,
-      analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: style, nominalPenWidthMM: 0.6)
+      analysisOptions: FlowAuthoringRenderer.analysisOptions, strokeStyle: style, nominalPenWidthMM: 0.6)
     let fullyValidatedClaim = try PortraitFlowProducerClaim(result: produced.artifacts,
       input: input, settings: settings, origin: "rendered")
     #expect(try PortraitCandidateCoding.encoder().encode(fullyValidatedClaim) == produced.drawing.producer.originalJSON)
@@ -97,11 +97,11 @@ struct FlowArtistVariationTests {
 
   @Test("Caller-supplied raster evidence cannot inherit a local-render validation proof")
   func suppliedRasterAlwaysValidates() async throws {
-    let data = FlowDojoFixture.image(4)
+    let data = FlowAuthoringFixture.image(4)
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
     let input = PortraitFlowDrawingProducer.Input(data: data)
     let settings = PortraitFlowDrawingProducer.Settings(recipe: .standard,
-      analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: style, nominalPenWidthMM: 0.4)
+      analysisOptions: FlowAuthoringRenderer.analysisOptions, strokeStyle: style, nominalPenWidthMM: 0.4)
     let produced = try await PortraitFlowDrawingProducer().produce(input: input, settings: settings)
     let base = produced.artifacts.raster, width = base.width, height = base.height
     let geometry = try #require(base.analysisGeometry)
@@ -298,12 +298,12 @@ struct FlowArtistVariationTests {
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
     for (sourceIndex, path) in sources.enumerated() {
       let data = try Data(contentsOf: URL(fileURLWithPath: path))
-      let hash = DrawingArtifactCoding.sha256(data), renderer = FlowDojoRenderer()
+      let hash = DrawingArtifactCoding.sha256(data), renderer = FlowAuthoringRenderer()
       for (name, marks) in forms {
         let recipe = FlowArtistRecipe(values: matchedBase.values, marks: marks)
         let start = Date()
         let result = try await renderer.render(data: data, recipe: recipe, strokeStyle: style)
-        let preview = try FlowDojoRenderer.preview(result.program)
+        let preview = try FlowAuthoringRenderer.preview(result.program)
         let filename = "source-\(sourceIndex)-\(name).png"
         try preview.write(to: root.appendingPathComponent(filename), options: .atomic)
         let metrics = VariationMetrics(result.program)
@@ -319,7 +319,7 @@ struct FlowArtistVariationTests {
           var previews = Set<String>(), occupied: [Set<Int>] = [], titles: [String] = []
           for (index, recipe) in recipes.enumerated() {
             let result = try await renderer.render(data: data, recipe: recipe, strokeStyle: style)
-            let preview = try FlowDojoRenderer.preview(result.program)
+            let preview = try FlowAuthoringRenderer.preview(result.program)
             try preview.write(to: root.appendingPathComponent("\(policy)-panel-\(index).png"), options: .atomic)
             previews.insert(DrawingArtifactCoding.sha256(preview)); occupied.append(occupancy(result.program))
             titles.append(recipe.themeTitle)

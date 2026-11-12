@@ -88,6 +88,7 @@ enum DrawingRunEvidenceComposition {
 
 actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort, DrawingDestinationResultSource {
   private let store: DrawingRunEvidenceStore
+  private let archiveLoader: (@Sendable () async -> DrawingRunEvidenceStoreLoadResult)?
   private(set) var loadCount = 0
   private var stagedPortraitBinding: (intent: DrawingRunIntent, archive: DrawingRunEvidenceArchive)?
 
@@ -101,8 +102,9 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort, DrawingDestinationR
     return archive
   }
 
-  init(store: DrawingRunEvidenceStore) {
+  init(store: DrawingRunEvidenceStore, archiveLoader: (@Sendable () async -> DrawingRunEvidenceStoreLoadResult)? = nil) {
     self.store = store
+    self.archiveLoader = archiveLoader
   }
 
   func appendAxisMetricMeasurement(_ measurement: ControllerAxisMetricMeasurement) async throws -> DrawingRunEvidenceArchive {
@@ -117,7 +119,8 @@ actor DrawingRunEvidencePort: PlotterDrawingRunEvidencePort, DrawingDestinationR
 
   func load() async -> DrawingRunEvidenceStoreLoadResult {
     loadCount += 1
-    let result = await store.load()
+    let result: DrawingRunEvidenceStoreLoadResult
+    if let archiveLoader { result = await archiveLoader() } else { result = await store.load() }
     switch result {
     case .loaded: break
     case .absent:

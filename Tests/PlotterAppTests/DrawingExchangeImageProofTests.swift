@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import Testing
+@testable import Drawing
 @testable import PortraitCore
 
 @Suite("DX03 image proof", .serialized)

@@ -39,7 +39,7 @@ struct PlotterEpisodeComposition {
       machineSession: MachineSessionComposition.session,
       observationSession: CameraComposition.observationSession,
       observationRecordingStore: CameraComposition.recordingStore,
-      portraitStudio: PortraitStudioModel(library: library),
+      receivedDrawings: ReceivedDrawingStore(library: library, selectionDefaults: .standard),
       drawingMaterials: DrawingMaterialLibrary(store: DrawingMaterialStore.defaultStore()),
       pointSelectionRuntime: PointSelectionComposition.production.runtime,
       pointSelectionRecordingDiagnostic:
@@ -71,7 +71,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
   var applicationRuntime: PlotterApplicationRuntime { composition.application }
   private let destinationRoot: URL
   private lazy var destinationFileServer = DrawingDestinationFileServer(service: applicationRuntime.drawingDestination,
-    library: applicationRuntime.portraitStudio.sketches.library, root: destinationRoot)
+    library: applicationRuntime.receivedDrawings.sketches.library, root: destinationRoot)
   private struct PreparationReplyKey: Hashable { let client: UUID; let delivery: UUID }
   private var observedPreparationReplies: Set<PreparationReplyKey> = []
   private var revealPreparedDrawing: DrawingDestinationReveal?
@@ -117,7 +117,7 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
             observedPreparationReplies.insert(.init(client: response.client, delivery: response.delivery))
             showDrawingPreparation(response.reply, foreground: true)
           } else {
-            let refs = try await applicationRuntime.portraitStudio.sketches.importDrawings(from: url)
+            let refs = try await applicationRuntime.receivedDrawings.sketches.importDrawings(from: url)
             guard let ref = refs.first else { throw DrawingDestinationRefusal.preparationUnavailable }
             showDrawingPreparation(try await applicationRuntime.drawingDestination.handle(.prepare(ref)), foreground: true)
           }
@@ -221,22 +221,6 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
     didReplyToTermination = false
     terminationTask = Task { [weak self] in
       guard let self else { return }
-      guard await self.applicationRuntime.portraitStudio.preparePortfolioShutdown() else {
-        self.restoreOperatorWindow?()
-        let alert = NSAlert()
-        alert.messageText = "Portrait portfolio autosave needs recovery"
-        alert.informativeText = "Pending portrait edits remain available. Return to Portrait Studio, resolve the write error, and use Recover autosave before closing."
-        alert.addButton(withTitle: "Return to portfolio")
-        alert.runModal()
-        self.didReplyToTermination = true
-        self.terminationTask = nil
-        if let pending = self.pendingDrawingPreparation {
-          self.pendingDrawingPreparation = nil
-          self.showDrawingPreparation(pending, foreground: false)
-        }
-        self.replyToTermination(sender, false)
-        return
-      }
       self.cancelDrawingDestinationRecovery()
       self.destinationFileServer.closeAdmission()
       await self.applicationRuntime.shutdown()

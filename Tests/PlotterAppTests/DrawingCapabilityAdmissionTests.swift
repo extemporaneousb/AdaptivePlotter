@@ -46,7 +46,7 @@ struct DrawingCapabilityAdmissionTests {
   func importExportAndHandoff() async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
-    let app = fixture.application, library = app.portraitStudio.library
+    let app = fixture.application, library = app.receivedDrawings.library
     do {
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
       let prior = try drawingTestValue(program: program)
@@ -63,14 +63,14 @@ struct DrawingCapabilityAdmissionTests {
       }
       #expect(unsupported.executionReference(for: program) == nil)
       let before = app.drawingDraftSnapshot
-      let priorRef = app.portraitStudio.projectedDrawing?.reference
-      let priorSelected = app.portraitStudio.sketches.selected?.reference
+      let priorRef = app.receivedDrawings.projectedDrawing?.reference
+      let priorSelected = app.receivedDrawings.sketches.selected?.reference
       let references = try await library.drawings().entries.map(\.reference)
       #expect(await app.projectDrawing(unsupported) != nil)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == before.projection.draftRevision)
       #expect(app.drawingDraftSnapshot.authoredProgram == before.authoredProgram && app.drawingDraftSnapshot.plan == before.plan)
-      #expect(app.portraitStudio.projectedDrawing?.reference == priorRef)
-      #expect(app.portraitStudio.sketches.selected?.reference == priorSelected)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == priorRef)
+      #expect(app.receivedDrawings.sketches.selected?.reference == priorSelected)
       #expect(try await library.drawings().entries.map(\.reference) == references)
       #expect(await fixture.planGate.request == nil)
       let exported = carrier.bag.root.appendingPathComponent("preserved")
@@ -86,7 +86,7 @@ struct DrawingCapabilityAdmissionTests {
   func runCannotStripRequirements(border: Bool) async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
-    let app = fixture.application, library = app.portraitStudio.library
+    let app = fixture.application, library = app.receivedDrawings.library
     do {
       try await fixture.submit(.showTarget)
       if border { try await fixture.submit(.setDrawBorder(true)) }
@@ -100,9 +100,9 @@ struct DrawingCapabilityAdmissionTests {
       let unsupported = try await library.drawing(carrier.reference)
       // Save legitimately preserves unsupported bytes. It also supplies an
       // existing public path to a known denied projection, without a test setter.
-      _ = try await app.portraitStudio.saveAuthoredDrawing(unsupported, isStillCurrent: { true })
-      #expect(app.portraitStudio.projectedDrawing?.reference == carrier.reference)
-      #expect(app.portraitStudio.projectedDrawing?.capabilities.supported.isEmpty == true)
+      _ = try await app.receivedDrawings.receiveForInspection(unsupported, isStillCurrent: { true })
+      #expect(app.receivedDrawings.projectedDrawing?.reference == carrier.reference)
+      #expect(app.receivedDrawings.projectedDrawing?.capabilities.supported.isEmpty == true)
       let execution = try #require(app.drawingDraftSnapshot.program)
       if border { #expect(execution != program) }
       #expect(app.authoredDrawing(for: execution) == nil)
@@ -122,7 +122,7 @@ struct DrawingCapabilityAdmissionTests {
       #expect(result.snapshot.planIdentity == run.planIdentity)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == before.projection.draftRevision)
       #expect(app.drawingDraftSnapshot.plan == before.plan)
-      #expect(app.portraitStudio.projectedDrawing?.reference == carrier.reference)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == carrier.reference)
       #expect(try await library.drawings().entries.map(\.reference) == references)
       #expect(try DrawingArtifactCoding.encoder().encode(await library.records(kind: PortraitDrawingAttemptBinding.kind)) == bindings)
       #expect(app.drawingEvidenceArchive == archive)

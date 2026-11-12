@@ -38,14 +38,14 @@ struct PortraitStudioNativeLayoutTests {
     try await runPanelChecks(requiresAX: true)
   }
 
-  @Test("production Portrait route retains one isolated dojo with reachable photos, branches and stage controls")
+  @Test("production Portrait route retains one isolated authoring with reachable photos, branches and stage controls")
   func productionPortraitWorkspace() async throws {
     try await runPortraitChecks(requiresAX: false)
   }
 
-  @Test("native dojo navigation and explicit choices require an AX-capable host",
+  @Test("native authoring navigation and explicit choices require an AX-capable host",
     .enabled(if: ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_AX_CHECK"] == "1"))
-  func dojoAXInteraction() async throws {
+  func authoringAXInteraction() async throws {
     await diagnoseKnownSwiftUIControl()
     try await runPortraitChecks(requiresAX: true)
   }
@@ -55,39 +55,39 @@ struct PortraitStudioNativeLayoutTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let owner = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("current-library")))
-    let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: owner)
+    let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let application = fixture.application
+    let pen = application.drawingStrokeStyle, authoring = FlowAuthoringModel(library: owner.library, strokeStyle: application.drawingStrokeStyle)
     do {
-      let pen = application.drawingStrokeStyle, dojo = owner.portfolioDojo(strokeStyle: application.drawingStrokeStyle)
-      await dojo.open()
-      await dojo.addPhoto(data: try portraitTestImage(), title: "Source 01")
-      dojo.count = 3; await dojo.generate(refining: false)
-      let anchor = try #require(dojo.roundCandidates.first)
-      await dojo.browseCandidate(anchor.id)
-      await dojo.generate(refining: true)
-      await dojo.generate(refining: false)
-      await dojo.browseCandidate(anchor.id, prune: true)
-      await dojo.edit(.remove, ids: [try #require(dojo.program?.strokes.first?.id)])
-      await dojo.edit(.completeTarget)
-      await dojo.presentRanking(scope: .round(try #require(dojo.round?.id)), count: 2)
-      await dojo.fit()
-      for index in 2...18 { await dojo.addPhoto(data: try portraitTestImage(), title: String(format: "Source %02d", index)) }
-      await dojo.browseCandidate(anchor.id)
-      try #require(dojo.error == nil && dojo.document?.sources.count == 18)
-      try #require(dojo.document?.rounds.count == 3)
-      #expect(dojo.document?.purpose == .artist && dojo.directory.path.hasPrefix(directory.path))
-      let store = try #require(dojo.store)
-      let renders = dojo.document?.candidates.count ?? 0
-      let stages: [FlowDojoModel.Stage] = requiresAX ? [.explore] : FlowDojoModel.Stage.allCases
+      await authoring.open()
+      await authoring.addPhoto(data: try portraitTestImage(), title: "Source 01")
+      authoring.count = 3; await authoring.generate(refining: false)
+      let anchor = try #require(authoring.roundCandidates.first)
+      await authoring.browseCandidate(anchor.id)
+      await authoring.generate(refining: true)
+      await authoring.generate(refining: false)
+      await authoring.browseCandidate(anchor.id, prune: true)
+      await authoring.edit(.remove, ids: [try #require(authoring.program?.strokes.first?.id)])
+      await authoring.edit(.completeTarget)
+      await authoring.presentRanking(scope: .round(try #require(authoring.round?.id)), count: 2)
+      await authoring.fit()
+      for index in 2...18 { await authoring.addPhoto(data: try portraitTestImage(), title: String(format: "Source %02d", index)) }
+      await authoring.browseCandidate(anchor.id)
+      try #require(authoring.error == nil && authoring.document?.sources.count == 18)
+      try #require(authoring.document?.rounds.count == 3)
+      #expect(authoring.document?.purpose == .artist && authoring.directory.path.hasPrefix(directory.path))
+      let store = try #require(authoring.store)
+      let renders = authoring.document?.candidates.count ?? 0
+      let stages: [FlowAuthoringModel.Stage] = requiresAX ? [.explore] : FlowAuthoringModel.Stage.allCases
       for size in [NSSize(width: 1000, height: 550), NSSize(width: 1280, height: 650)] {
         for stage in stages {
-          dojo.stage = stage
-          let revision = dojo.document?.revision, choices = dojo.document?.choices.count
-          let selectedSource = dojo.selectedSource?.id, selectedCandidate = dojo.candidate?.id
-          let programHash = dojo.program?.contentHash
+          authoring.stage = stage
+          let revision = authoring.document?.revision, choices = authoring.document?.choices.count
+          let selectedSource = authoring.selectedSource?.id, selectedCandidate = authoring.candidate?.id
+          let programHash = authoring.program?.contentHash
           let host = NSHostingController(rootView:
-            PlotterApplicationRuntimeView(application: application).panelContent(.portraitStudio)
+            FlowAuthoringView(model: authoring, camera: owner, selectCamera: { nil })
               .background(Color(nsColor: .windowBackgroundColor))
               .environment(\.colorScheme, .light))
           host.sizingOptions = []
@@ -99,33 +99,33 @@ struct PortraitStudioNativeLayoutTests {
           window.contentViewController = host; window.setContentSize(size); window.orderFront(nil)
           do {
             await settle(host.view)
-            let name = "dojo-" + stage.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
+            let name = "authoring-" + stage.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
             try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: name)
-            try assertDojoGeometry(host: host.view, window: window, size: size, stage: stage, dojo: dojo)
-            #expect(owner.portfolioDojo(strokeStyle: pen) === dojo && dojo.store === store)
-            #expect((dojo.document?.candidates.count ?? 0) == renders)
+            try assertAuthoringGeometry(host: host.view, window: window, size: size, stage: stage, authoring: authoring)
+            #expect(authoring.store === store)
+            #expect((authoring.document?.candidates.count ?? 0) == renders)
             #expect(!owner.cameraIsRunning && !owner.isCapturing && owner.preview.frame == nil)
-            #expect(dojo.document?.revision == revision && dojo.document?.choices.count == choices)
-            #expect(dojo.selectedSource?.id == selectedSource && dojo.candidate?.id == selectedCandidate)
-            #expect(dojo.program?.contentHash == programHash && dojo.stage == stage)
+            #expect(authoring.document?.revision == revision && authoring.document?.choices.count == choices)
+            #expect(authoring.selectedSource?.id == selectedSource && authoring.candidate?.id == selectedCandidate)
+            #expect(authoring.program?.contentHash == programHash && authoring.stage == stage)
             if requiresAX {
-              try await exerciseDojoAX(dojo, in: window, host: host.view)
-              #expect((dojo.document?.candidates.count ?? 0) == renders)
+              try await exerciseAuthoringAX(authoring, in: window, host: host.view)
+              #expect((authoring.document?.candidates.count ?? 0) == renders)
             } else {
               let scrollers = views(host.view).compactMap { $0 as? NSScrollView }.filter {
                 !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
               }
               for scroll in scrollers { try await assertReachableDocument(scroll, host: host.view) }
-              #expect(dojo.document?.revision == revision && dojo.document?.choices.count == choices,
+              #expect(authoring.document?.revision == revision && authoring.document?.choices.count == choices,
                 "Scrolling photo, branch and drawing documents must not create feedback or navigation records.")
-              #expect(dojo.selectedSource?.id == selectedSource && dojo.candidate?.id == selectedCandidate)
-              #expect(dojo.document?.candidates.count ?? 0 == renders)
+              #expect(authoring.selectedSource?.id == selectedSource && authoring.candidate?.id == selectedCandidate)
+              #expect(authoring.document?.candidates.count ?? 0 == renders)
               try captureOptionalSnapshots(host: host.view, width: Int(size.width), stage: name + "-scrolled")
               if stage == .fit {
-                let observation = try renderedDojoLabels(host.view)
-                let visible = observation.labels.map(normalizeDojoLabel)
+                let observation = try renderedAuthoringLabels(host.view)
+                let visible = observation.labels.map(normalizeAuthoringLabel)
                 for title in ["Curation stage", "Results", "Activate"] {
-                  #expect(visible.contains { $0.contains(normalizeDojoLabel(title)) },
+                  #expect(visible.contains { $0.contains(normalizeAuthoringLabel(title)) },
                     "Fit history and the pinned stage selector must remain reachable after scrolling at \(size): \(visible). OCR modes: \(observation.diagnostic)")
                 }
               }
@@ -134,11 +134,11 @@ struct PortraitStudioNativeLayoutTests {
           } catch { window.close(); throw error }
         }
       }
-      await application.shutdown()
-    } catch { await application.shutdown(); throw error }
+      _ = await authoring.shutdown(); await owner.shutdown(); await application.shutdown()
+    } catch { _ = await authoring.shutdown(); await owner.shutdown(); await application.shutdown(); throw error }
   }
 
-  private func assertDojoGeometry(host: NSView, window: NSWindow, size: NSSize, stage: FlowDojoModel.Stage, dojo: FlowDojoModel) throws {
+  private func assertAuthoringGeometry(host: NSView, window: NSWindow, size: NSSize, stage: FlowAuthoringModel.Stage, authoring: FlowAuthoringModel) throws {
     #expect(!window.isKeyWindow)
     #expect(abs(host.bounds.width - size.width) < 2 && abs(host.bounds.height - size.height) < 2)
     let bounds = host.bounds.insetBy(dx: -2, dy: -2)
@@ -147,7 +147,7 @@ struct PortraitStudioNativeLayoutTests {
       !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0
     }
     let sidebar = scrolls.filter { $0.convert($0.bounds, to: host).maxX < size.width / 2 }
-    #expect(sidebar.count == 2, "The production dojo needs separate photo and branch scrollers.")
+    #expect(sidebar.count == 2, "The production authoring needs separate photo and branch scrollers.")
     for scroll in scrolls {
       let rect = scroll.convert(scroll.bounds, to: host)
       #expect(bounds.contains(rect), "Embedded \(stage.rawValue) viewport is clipped at \(size): \(rect)")
@@ -173,26 +173,26 @@ struct PortraitStudioNativeLayoutTests {
           "Embedded document control overflows horizontally: \(rect) in \(host.bounds)")
       }
     }
-    let observation = try renderedDojoLabels(host)
-    let labels = observation.labels.map(normalizeDojoLabel)
-    let required = ["Flow Edge Dojo", "Import Photo", "Capture Photo", "Branches",
+    let observation = try renderedAuthoringLabels(host)
+    let labels = observation.labels.map(normalizeAuthoringLabel)
+    let required = ["Flow Edge", "Import Photo", "Capture Photo", "Branches",
       "Curation stage", "Explore", "Prune", "Rank", "Fit & deploy"]
       + (stage == .explore ? ["Broad exploration", "Compare this set"]
         : stage == .prune ? ["Finish pruning", "Original"]
         : stage == .rank ? ["Rank by artistic preference", "Next pair"] : ["Fit portfolio"])
     for title in required {
-      #expect(labels.contains { $0.contains(normalizeDojoLabel(title)) },
+      #expect(labels.contains { $0.contains(normalizeAuthoringLabel(title)) },
         "Embedded \(stage.rawValue) core control '\(title)' is not visible at \(size): \(labels). OCR modes: \(observation.diagnostic)")
     }
     if stage == .fit {
-      #expect(dojo.activeCheckpoint == nil)
-      #expect(labels.contains { $0.contains(normalizeDojoLabel("No active checkpoint")) },
+      #expect(authoring.activeCheckpoint == nil)
+      #expect(labels.contains { $0.contains(normalizeAuthoringLabel("No active checkpoint")) },
         "The exact inactive checkpoint status must be visible at \(size): \(labels). OCR modes: \(observation.diagnostic)")
     }
     #expect(labels.contains { $0.hasPrefix("branches") }, "Branch access must be visible without scrolling the photo library.")
   }
 
-  private func assertVisibleBranchRow(_ clip: NSClipView, host: NSView, size: NSSize, stage: FlowDojoModel.Stage) throws {
+  private func assertVisibleBranchRow(_ clip: NSClipView, host: NSView, size: NSSize, stage: FlowAuthoringModel.Stage) throws {
     // Rich SwiftUI plain-button rows need not have NSButton backing views.
     // Inspect only the real branch viewport so a photo-row label cannot satisfy
     // the drawing-row contract, while strict action semantics remain in AX tests.
@@ -211,7 +211,7 @@ struct PortraitStudioNativeLayoutTests {
     let bitmap = NSBitmapImageRep(cgImage: image)
     if let path = ProcessInfo.processInfo.environment["PORTRAIT_NATIVE_LAYOUT_SNAPSHOT_DIR"], path.hasPrefix("/") {
       let name = stage.rawValue.lowercased().replacingOccurrences(of: " ", with: "-")
-      let url = URL(fileURLWithPath: path).appendingPathComponent("studio-\(Int(size.width))-dojo-\(name)-branches.png")
+      let url = URL(fileURLWithPath: path).appendingPathComponent("studio-\(Int(size.width))-authoring-\(name)-branches.png")
       try #require(bitmap.representation(using: .png, properties: [:])).write(to: url)
     }
     let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate
@@ -219,11 +219,11 @@ struct PortraitStudioNativeLayoutTests {
     try VNImageRequestHandler(cgImage: image).perform([request])
     let rows = (request.results ?? []).compactMap { observation -> (String, CGRect)? in
       guard let text = observation.topCandidates(1).first?.string else { return nil }
-      return (normalizeDojoLabel(text), observation.boundingBox)
+      return (normalizeAuthoringLabel(text), observation.boundingBox)
     }
     let labels = rows.map(\.0)
     for text in ["Branches", "Set 1", "Drawing 1", "1 removed target"] {
-      #expect(labels.contains { $0.contains(normalizeDojoLabel(text)) },
+      #expect(labels.contains { $0.contains(normalizeAuthoringLabel(text)) },
         "Branch viewport must show its heading and complete first drawing at \(size): \(labels)")
     }
     let title = try #require(rows.first { $0.0 == "drawing1" }?.1)
@@ -254,7 +254,7 @@ struct PortraitStudioNativeLayoutTests {
         reachedStableEnd = true; break
       }
     }
-    #expect(clip.bounds.origin != before, "An overflowing dojo document must allow navigation to its end.")
+    #expect(clip.bounds.origin != before, "An overflowing authoring document must allow navigation to its end.")
     #expect(reachedStableEnd,
       "The final photo, branch or drawing must be reachable after bounded layout settling: document=\(document.bounds), visible=\(clip.bounds)")
   }
@@ -268,7 +268,7 @@ struct PortraitStudioNativeLayoutTests {
     return found
   }
 
-  private func renderedDojoLabels(_ host: NSView) throws -> (labels: [String], diagnostic: String) {
+  private func renderedAuthoringLabels(_ host: NSView) throws -> (labels: [String], diagnostic: String) {
     let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
     host.cacheDisplay(in: host.bounds, to: bitmap)
     let image = try #require(bitmap.cgImage)
@@ -279,7 +279,7 @@ struct PortraitStudioNativeLayoutTests {
       let request = VNRecognizeTextRequest(); request.recognitionLevel = level
       request.recognitionLanguages = ["en-US"]; request.minimumTextHeight = 0.005
       request.usesLanguageCorrection = true
-      request.customWords = ["checkpoint", "No active checkpoint", "Fit portfolio", "Flow Edge Dojo"]
+      request.customWords = ["checkpoint", "No active checkpoint", "Fit portfolio", "Flow Edge"]
       try VNImageRequestHandler(cgImage: image).perform([request])
       let candidates = (request.results ?? []).flatMap { $0.topCandidates(5).map(\.string) }
       labels += candidates
@@ -294,47 +294,47 @@ struct PortraitStudioNativeLayoutTests {
     return (labels, modes.joined(separator: "\n"))
   }
 
-  private func normalizeDojoLabel(_ value: String) -> String {
+  private func normalizeAuthoringLabel(_ value: String) -> String {
     value.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
   }
 
-  private func exerciseDojoAX(_ dojo: FlowDojoModel, in window: NSWindow, host: NSView) async throws {
-    for id in ["flowDojo.workspace", "flowDojo.broad", "flowDojo.refine"] {
+  private func exerciseAuthoringAX(_ authoring: FlowAuthoringModel, in window: NSWindow, host: NSView) async throws {
+    for id in ["flowAuthoring.workspace", "flowAuthoring.broad", "flowAuthoring.refine"] {
       _ = try requiredElement(id, in: window)
     }
     // SwiftUI can expose the workspace's inherited identifier on these header
     // buttons. Their exact accessible action label is the native fallback.
-    for (id, title) in [("flowDojo.importPhoto", "Import Photo"), ("flowDojo.openCamera", "Capture Photo")] {
+    for (id, title) in [("flowAuthoring.importPhoto", "Import Photo"), ("flowAuthoring.openCamera", "Capture Photo")] {
       _ = try #require(descendants(window).first { element in
         element.accessibilityIdentifier() == id || (element.accessibilityRole() == .button
           && [element.accessibilityLabel(), (element as? NSButton)?.title].compactMap { $0 }
-            .contains { normalizeDojoLabel($0) == normalizeDojoLabel(title) })
+            .contains { normalizeAuthoringLabel($0) == normalizeAuthoringLabel(title) })
       }, "Missing native header action: \(title).")
     }
     #expect(!descendants(window).contains { ["portrait.style", "portrait.adjustmentInspector", "portrait.exploration.next"].contains($0.accessibilityIdentifier() ?? "") })
-    let originalChoices = dojo.document?.choices.count ?? 0
-    let candidate = try #require(dojo.roundCandidates.first)
+    let originalChoices = authoring.document?.choices.count ?? 0
+    let candidate = try #require(authoring.roundCandidates.first)
     let browse = try #require(descendants(window).first { element in
       element.accessibilityRole() == .button
         && [element.accessibilityLabel(), (element as? NSButton)?.title].compactMap { $0 }
-          .contains { normalizeDojoLabel($0) == "openprune" }
+          .contains { normalizeAuthoringLabel($0) == "openprune" }
     }, "Missing native Open / prune action.")
     reveal(browse, in: window); await settle(host)
     #expect(browse.accessibilityPerformPress())
     let browseDeadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while dojo.stage != .prune && ContinuousClock.now < browseDeadline { try await Task.sleep(for: .milliseconds(10)) }
-    #expect(dojo.stage == .prune && dojo.candidate?.id == candidate.id)
-    #expect(dojo.document?.choices.count == originalChoices, "Opening a drawing must not cast a preference vote.")
-    dojo.stage = .explore; await settle(host)
-    let choice = try requiredElement("flowDojo.choose.\(candidate.slot)", in: window)
+    while authoring.stage != .prune && ContinuousClock.now < browseDeadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(authoring.stage == .prune && authoring.candidate?.id == candidate.id)
+    #expect(authoring.document?.choices.count == originalChoices, "Opening a drawing must not cast a preference vote.")
+    authoring.stage = .explore; await settle(host)
+    let choice = try requiredElement("flowAuthoring.choose.\(candidate.slot)", in: window)
     reveal(choice, in: window); await settle(host)
     #expect(choice.accessibilityPerformPress())
     let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while (dojo.document?.choices.count ?? 0) == originalChoices && ContinuousClock.now < deadline {
+    while (authoring.document?.choices.count ?? 0) == originalChoices && ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(10))
     }
-    #expect(dojo.document?.choices.count == originalChoices + 1)
-    #expect(dojo.candidate?.id == candidate.id && dojo.stage == .explore)
+    #expect(authoring.document?.choices.count == originalChoices + 1)
+    #expect(authoring.candidate?.id == candidate.id && authoring.stage == .explore)
   }
 
   private func runPanelChecks(requiresAX: Bool) async throws {
@@ -345,8 +345,8 @@ struct PortraitStudioNativeLayoutTests {
     do {
       let first = try portraitPersistenceCandidate(seed: 801)
       let second = try portraitPersistenceCandidate(seed: 802)
-      let firstValue = try await application.portraitStudio.sketches.retain(drawingTestValue(program: first.program), reason: "save")
-      let secondValue = try await application.portraitStudio.sketches.retain(drawingTestValue(program: second.program), reason: "save")
+      let firstValue = try await application.receivedDrawings.sketches.retain(drawingTestValue(program: first.program), reason: "save")
+      let secondValue = try await application.receivedDrawings.sketches.retain(drawingTestValue(program: second.program), reason: "save")
       let firstRef = try #require(firstValue.reference), secondRef = try #require(secondValue.reference)
       #expect(application.drawingMaterials.createNominal(name: "Native layout nominal material", widthMM: 1.2) == nil)
       // Only the synthetic draft owner is touched. No Draw or movement request
@@ -361,7 +361,7 @@ struct PortraitStudioNativeLayoutTests {
       try #require(selectionOutcome == .accepted(requestID: selectionRequest.id),
         "Synthetic draft selection was refused: \(selectionOutcome).")
       for width in [300, 390, 600] {
-        try await application.portraitStudio.sketches.select(firstRef)
+        try await application.receivedDrawings.sketches.select(firstRef)
         try await inspectPanel(application: application, width: width, alternateSelection: secondRef, requiresAX: requiresAX)
       }
       await application.shutdown()
@@ -399,9 +399,9 @@ struct PortraitStudioNativeLayoutTests {
       try assertControlsFitHorizontally(in: window, width: width)
     }
 
-    try await application.portraitStudio.sketches.select(alternateSelection)
+    try await application.receivedDrawings.sketches.select(alternateSelection)
     await settle(host.view)
-    #expect(application.portraitStudio.sketches.selected?.reference == alternateSelection)
+    #expect(application.receivedDrawings.sketches.selected?.reference == alternateSelection)
     #expect(application.drawingStudioPresentation.drawingPreview == drawingPreview,
       "Browsing a saved Studio drawing must not substitute the Drawing panel's program or plan.")
     try assertHostedGeometry(host: host.view, window: window, width: width)

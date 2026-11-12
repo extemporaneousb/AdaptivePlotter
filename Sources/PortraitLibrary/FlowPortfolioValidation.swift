@@ -167,7 +167,7 @@ enum FlowPortfolioValidation {
         switch presentation.scope {
         case .portfolio: break
         case .candidate(let id): try require(id == candidate.id, "Ranked drawing scope is inconsistent.")
-        case .source(let id): try require(id == candidate.sourceID, "Ranked photo scope is inconsistent.")
+        case .source(let id): try require(state.photoSourceIDs(for: id).contains(candidate.sourceID), "Ranked photo scope is inconsistent.")
         case .round(let id): try require(id == candidate.roundID, "Ranked round scope is inconsistent.")
         }
       }

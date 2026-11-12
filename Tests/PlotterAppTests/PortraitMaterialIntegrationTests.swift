@@ -14,20 +14,20 @@ struct PortraitMaterialIntegrationTests {
   func immutableAdaptation() async throws {
     let library = DrawingFirstTestStorage.library()
     let model = PortraitStudioModel(library: library)
-    let dojo = model.portfolioDojo(strokeStyle: try portraitTestStyle())
-    await dojo.open()
-    await dojo.addPhoto(data: try portraitTestImage(), title: "Synthetic material source")
-    dojo.count = 3
-    await dojo.generate(refining: false)
-    let candidate = try #require(dojo.roundCandidates.first, "\(dojo.error ?? "No candidate")")
-    await dojo.selectCandidate(candidate.id)
-    #expect(dojo.error == nil, "\(dojo.error ?? "")")
-    let parent = try await dojo.retainedDrawing()
+    let authoring = FlowAuthoringModel(library: library, strokeStyle: try portraitTestStyle())
+    await authoring.open()
+    await authoring.addPhoto(data: try portraitTestImage(), title: "Synthetic material source")
+    authoring.count = 3
+    await authoring.generate(refining: false)
+    let candidate = try #require(authoring.roundCandidates.first, "\(authoring.error ?? "No candidate")")
+    await authoring.selectCandidate(candidate.id)
+    #expect(authoring.error == nil, "\(authoring.error ?? "")")
+    let parent = try await authoring.retainedDrawing()
     let reference = try #require(parent.reference)
     try await model.projectDrawing(parent)
     let originalProducer = parent.producer.originalJSON
     let profile = try DrawingMaterialProfileRevision(name: "Declared fixture width", nominalWidthMM: 1.2)
-    let error = await model.applyMaterial(profile, drawingHeightMM: 20)
+    let error = await model.applyMaterial(profile, drawingHeightMM: 20, authoring: authoring)
     #expect(error == nil, "\(error ?? "")")
     let adapted = try #require(model.currentDrawing)
     #expect(adapted.reference != reference)
@@ -38,6 +38,6 @@ struct PortraitMaterialIntegrationTests {
     let unchanged = try await library.drawing(reference)
     #expect(unchanged.program == parent.program && unchanged.producer.originalJSON == originalProducer)
     #expect(unchanged.input == parent.input)
-    await model.shutdown(); await library.closeLibrary()
+    _ = await authoring.shutdown(); await model.shutdown(); await library.closeLibrary()
   }
 }

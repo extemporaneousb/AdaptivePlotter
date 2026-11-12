@@ -11,7 +11,7 @@ import Testing
 struct DrawingPresentationCacheTests {
   @Test("Concurrent exact requests share one materialization; render size remains part of identity")
   func deduplicationAndProfile() async throws {
-    let gate = PresentationReadGate(FlowDojoFixture.image(1))
+    let gate = PresentationReadGate(FlowAuthoringFixture.image(1))
     defer { gate.release() }
     let cache = FlowPresentationImageCache()
     let first = Task { @MainActor in await cache.load(identity: "exact-source", read: { await gate.read() }).map(ObjectIdentifier.init) }
@@ -21,7 +21,7 @@ struct DrawingPresentationCacheTests {
     let a = try #require(await first.value), b = try #require(await second.value)
     #expect(a == b && cache.decodeCount == 1)
     #expect(gate.starts == 1)
-    let smaller = try #require(await cache.load(data: FlowDojoFixture.image(1), identity: "exact-source", maximumDimension: 20))
+    let smaller = try #require(await cache.load(data: FlowAuthoringFixture.image(1), identity: "exact-source", maximumDimension: 20))
     var rect = NSRect(origin: .zero, size: smaller.size)
     #expect(try #require(smaller.cgImage(forProposedRect: &rect, context: nil, hints: nil)).width == 20)
     #expect(cache.decodeCount == 2 && cache.statistics["entries"] == 2)
@@ -29,7 +29,7 @@ struct DrawingPresentationCacheTests {
 
   @Test("Resident pixels and entries are independently bounded; oversized results are presented without retention")
   func byteAndEntryBounds() async throws {
-    let data = FlowDojoFixture.image(2)
+    let data = FlowAuthoringFixture.image(2)
     let probe = FlowPresentationImageCache()
     _ = try #require(await probe.load(data: data, identity: "probe"))
     let pixels = try #require(probe.statistics["decodedBytes"])
@@ -47,7 +47,7 @@ struct DrawingPresentationCacheTests {
 
   @Test("Worker admission is bounded, cancellation withholds pixels, and invalidated work cannot republish")
   func cancellationAndInflightBounds() async throws {
-    let gate = PresentationReadGate(FlowDojoFixture.image(3))
+    let gate = PresentationReadGate(FlowAuthoringFixture.image(3))
     defer { gate.release() }
     let cache = FlowPresentationImageCache(maximumInflight: 2)
     let requests = (0..<6).map { index in Task { @MainActor in await cache.load(identity: "request-\(index)", read: { await gate.read() }) != nil } }
@@ -59,7 +59,7 @@ struct DrawingPresentationCacheTests {
     #expect(await requests[0].value == false)
     #expect(cache.statistics["peakInflight"] == 2 && cache.statistics["inflight"] == 0)
 
-    let oldGate = PresentationReadGate(FlowDojoFixture.image(4))
+    let oldGate = PresentationReadGate(FlowAuthoringFixture.image(4))
     defer { oldGate.release() }
     let old = (0..<2).map { index in Task { @MainActor in
       await cache.load(identity: "superseded-\(index)", read: { await oldGate.read() }) != nil
@@ -69,7 +69,7 @@ struct DrawingPresentationCacheTests {
     // Repeated invalidation must not free admission slots while it remains alive.
     for _ in 0..<4 { cache.invalidate() }
     #expect(cache.statistics["inflight"] == 2)
-    let currentGate = PresentationReadGate(FlowDojoFixture.image(5))
+    let currentGate = PresentationReadGate(FlowAuthoringFixture.image(5))
     defer { currentGate.release() }
     let current = Task { @MainActor in await cache.load(identity: "superseded-0", read: { await currentGate.read() }) != nil }
     await Task.yield()
@@ -86,7 +86,7 @@ struct DrawingPresentationCacheTests {
 
   @Test("A valid encoded image above the authoring import limit still gets an uncached bounded preview")
   func largeEncodedImage() async throws {
-    let png = FlowDojoFixture.image(1)
+    let png = FlowAuthoringFixture.image(1)
     let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
     let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
     let encoded = NSMutableData()
@@ -112,7 +112,7 @@ struct DrawingPresentationCacheTests {
     var rect = NSRect(origin: .zero, size: preview.size)
     #expect(try #require(preview.cgImage(forProposedRect: &rect, context: nil, hints: nil)).width == 20)
     #expect(cache.statistics["entries"] == 0 && cache.statistics["residentByteCost"] == 0)
-    let thumbnails = FlowDojoThumbnailCache(maximumBytes: 1)
+    let thumbnails = FlowAuthoringThumbnailCache(maximumBytes: 1)
     let original = padded
     let encodedThumbnail = try await thumbnails.load(key: "large-encoded-image") { original }
     #expect(!encodedThumbnail.isEmpty && encodedThumbnail.count < padded.count)
@@ -121,20 +121,20 @@ struct DrawingPresentationCacheTests {
 
   @Test("Encoded thumbnail requests coalesce and their bytes remain bounded independently of decoded pixels")
   func encodedThumbnails() async throws {
-    let gate = PresentationReadGate(FlowDojoFixture.image(1))
+    let gate = PresentationReadGate(FlowAuthoringFixture.image(1))
     defer { gate.release() }
-    let cache = FlowDojoThumbnailCache(maximumEntries: 1, maximumBytes: 1024 * 1024, maximumInflight: 1)
+    let cache = FlowAuthoringThumbnailCache(maximumEntries: 1, maximumBytes: 1024 * 1024, maximumInflight: 1)
     let first = Task { try await cache.load(key: "source") { await gate.read() } }
     try await gate.waitForStarts(1)
     let second = Task { try await cache.load(key: "source") { await gate.read() } }
     await Task.yield(); gate.release()
     #expect(try await first.value == second.value)
     #expect(gate.starts == 1)
-    _ = try await cache.load(key: "other") { FlowDojoFixture.image(2) }
+    _ = try await cache.load(key: "other") { FlowAuthoringFixture.image(2) }
     let stats = await cache.statistics
     #expect(stats["entries"] == 1 && stats["encodedBytes", default: 0] <= 1024 * 1024 && stats["inflight"] == 0)
-    let tooSmall = FlowDojoThumbnailCache(maximumBytes: 1)
-    let presented = try await tooSmall.load(key: "uncached") { FlowDojoFixture.image(1) }
+    let tooSmall = FlowAuthoringThumbnailCache(maximumBytes: 1)
+    let presented = try await tooSmall.load(key: "uncached") { FlowAuthoringFixture.image(1) }
     #expect(!presented.isEmpty)
     #expect(await tooSmall.statistics["entries"] == 0)
   }

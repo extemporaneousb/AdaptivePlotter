@@ -209,4 +209,10 @@ package struct FlowPortfolioSnapshot: Codable, Equatable, Sendable {
   package func latestPrune(candidateID: UUID) -> FlowPortfolioPruneRevision? {
     pruneRevisions.last { $0.candidateID == candidateID }
   }
+  /// Multiple retained authoring occurrences may adopt one exact Photo. Keep
+  /// their historical IDs and answers while navigating the Photo's full history.
+  package func photoSourceIDs(for sourceID: UUID) -> Set<UUID> {
+    guard let photo = sources.first(where: { $0.id == sourceID })?.photo else { return [sourceID] }
+    return Set(sources.filter { $0.photo == photo }.map(\.id))
+  }
 }

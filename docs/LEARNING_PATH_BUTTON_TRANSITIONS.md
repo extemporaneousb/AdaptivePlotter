@@ -266,14 +266,10 @@ Dependency behavior is intentionally asymmetric:
 - Exact Stop or root shutdown that displaces a published Pen Confirm yields a
   superseded confirmation: no accepted Pen evidence is recorded and no
   discovery successor appears.
-- **View** retains Show/Hide Guided Learning, Video Settings, Motion, Active
-  Learning, Drawing and Portrait Studio, with Command-Option-1 through
-  Command-Option-6. The persistent flat application bar directly exposes Plotter, Portrait Studio,
-  Drawings, Drawing, Motion and Video; Guided and Active Learning stay in View.
-  Drawings opens Drawing Reviewer, while Drawing toggles the execution pane.
-  Plotter returns from Portrait Studio to retained docks. Revealing a plotter
-  workflow selects its existing camera role without changing Learning or physical
-  Draw prerequisites. Closing dock controls retains the central Plotter canvas.
+- **View** exposes Guided Learning, Video Settings, Motion, Active Learning and
+  Drawing with Command-Option-1 through Command-Option-5. The application bar
+  toggles Drawing, Motion and Video Settings. **Execution History** in Drawing
+  opens retained run evidence. Closing dock controls retains the plotter canvas.
 - Toolbar **Use Saved Learning** follows selected LIVE controller **Connect**,
   then **Enable Motion & Raise Pen**, then canonical saved-package acceptance.
   It remains visible with Guided Learning hidden and Learning off; its disabled

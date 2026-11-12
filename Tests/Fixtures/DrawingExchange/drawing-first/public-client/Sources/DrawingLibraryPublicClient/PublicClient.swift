@@ -1,7 +1,7 @@
 import DrawingLibrary
 import Foundation
 import PlotterModel
-import PortraitCore
+import Drawing
 
 @main struct PublicClient {
   static func main() async throws {
@@ -11,7 +11,7 @@ import PortraitCore
     let style = try StrokeStyle(nominalLineWidth: 0.8, penProfileID: PenProfileID(UUID()))
     let program = try DrawingProgramCatalog.program(for: .line, style: style)
     let receipt = try DrawingProducerReceipt(id: "example.public-client", version: "1", recordJSON: Data("{}".utf8))
-    let value = try Drawing(program: program, input: .none, parent: .none, producer: receipt)
+    let value = try await PublicArtist().produce(input: program, settings: receipt).drawing
     let intent = DrawingLibraryRetentionIntent()
     let first = try await library.retain(value, title: "First", reason: "explicit-save", intent: intent)
     let second = try await library.retain(value, reason: "explicit-save")
@@ -117,4 +117,10 @@ import PortraitCore
     }
   }
   enum ClientFailure: Error { case identity, retry, page, value, copy, conflict, records, parents, photo }
+}
+
+private struct PublicArtist: DrawingProducing {
+  func produce(input: DrawingProgram, settings: DrawingProducerReceipt) async throws -> DrawingProduction<String> {
+    DrawingProduction(drawing: try Drawing(program: input, input: .none, parent: .none, producer: settings), artifacts: "public artist result")
+  }
 }

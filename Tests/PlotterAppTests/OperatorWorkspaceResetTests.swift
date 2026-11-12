@@ -18,6 +18,8 @@ extension PlotterApplicationRuntimeTests {
     let app = plotterApplicationRuntime(machine: machine,
       statePersistencePort: ResetStatePersistencePort(checkpointStore: box),
       tipCalibrationSemanticIdentities: identities, log: EventLog())
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     let durableBefore = box.checkpoint
@@ -50,6 +52,8 @@ extension PlotterApplicationRuntimeTests {
     let app = plotterApplicationRuntime(machine: machine,
       statePersistencePort: ResetStatePersistencePort(checkpointStore: box),
       tipCalibrationSemanticIdentities: identities, log: EventLog())
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     let durableBefore = box.checkpoint
@@ -105,6 +109,8 @@ extension PlotterApplicationRuntimeTests {
       }, statePersistencePort: ResetStatePersistencePort(checkpointStore: box),
       tipCalibrationSemanticIdentities: identities, boundaryRuntimeAccess: runtimeAccess,
       log: EventLog())
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await app.performTestExerciseAction(.applySavedLearning, for: app.testCurrentLearningPathItemID)
@@ -238,6 +244,8 @@ extension PlotterApplicationRuntimeTests {
       statePersistencePort: actions,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -343,6 +351,8 @@ extension PlotterApplicationRuntimeTests {
       statePersistencePort: actions,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -411,6 +421,8 @@ extension PlotterApplicationRuntimeTests {
       boundaryRuntimeAccess: runtimeAccess,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.performTestExerciseAction(
@@ -473,6 +485,8 @@ extension PlotterApplicationRuntimeTests {
       camera: try TestObservationCameraSession(),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -533,6 +547,8 @@ extension PlotterApplicationRuntimeTests {
       statePersistencePort: actions,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -587,6 +603,8 @@ extension PlotterApplicationRuntimeTests {
       loadPenCapAppearanceSelection: { nil },
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     let savedOwner = workspace.testCurrentLearningPathItemID
@@ -724,6 +742,8 @@ extension PlotterApplicationRuntimeTests {
       statePersistencePort: checkpointActions,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -801,6 +821,8 @@ extension PlotterApplicationRuntimeTests {
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
+    await first.awaitDrawingHistoryRecovery()
+    if first.savedLearningRecoveryIsPending { await first.loadDrawingEvidenceArchive() }
     await first.establishMachineSession(machine.descriptor)
     await submitControllerSession(first, .requestPassiveProbe)
     await submitObservationConfigurationForTest(
@@ -844,6 +866,8 @@ extension PlotterApplicationRuntimeTests {
     #expect(relaunched.testSelectedBoundaryDirection == .negativeX)
     #expect(relaunched.machineSnapshot == nil)
     #expect(!relaunched.controllerSessionProjection.sessionEstablished)
+    await relaunched.awaitDrawingHistoryRecovery()
+    if relaunched.savedLearningRecoveryIsPending { await relaunched.loadDrawingEvidenceArchive() }
     await relaunched.establishMachineSession(machine.descriptor)
     await submitControllerSession(relaunched, .requestPassiveProbe)
     await submitObservationConfigurationForTest(

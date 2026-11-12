@@ -43,12 +43,9 @@ than generating another **Start**, **Continue**, or acceptance button. The
 complete Learning Path button graph is
 [Learning Path Button Transitions](LEARNING_PATH_BUTTON_TRANSITIONS.md).
 
-The persistent flat application bar below the native session toolbar directly exposes
-Plotter, Portrait Studio, Drawings, Drawing,
-Motion and Video. Guided Learning and Active Learning retain their View-menu
-routes. Drawings opens the retained Drawing Reviewer; Drawing opens the execution
-pane. Returning to Plotter retains dock and workflow state.
-
+The plotter application bar toggles Drawing, Motion and Video Settings. Guided
+Learning and Active Learning are in the View menu. **Execution History** in the
+Drawing panel opens retained run evidence.
 For toolbar restoration, select the LIVE controller, choose **Connect**, then
 **Enable Motion & Raise Pen**, then **Use Saved Learning**. The last control stays
 visible with Guided Learning hidden and Learning switched off, and identifies its
@@ -668,13 +665,10 @@ separate facts; completion does not assert general adaptive-drawing readiness.
 
 ## Portrait Studio — prepare, place, draw, and observe
 
-1. Reveal **Portrait Studio** from **View**, including before Learning completion.
-   Use the persistent camera button for a burst or import a photo, then adjust
-   framing and the chosen style. Expand Styles to compare the five existing
-   algorithms; folded Styles renders only the chosen algorithm.
-   **Send to Drawing** saves the candidate, installs its immutable program,
-   selects the plotter camera role and opens Drawing. **Save Imagination** is optional
-   library storage. Neither action moves hardware. Complete Exercise 2.1 before drawing.
+1. In the Portrait Studio application, import or capture a photo. Generate a
+   Flow Edge panel, choose a drawing and refine or prune it as desired. Send the
+   selected immutable revision to AdaptivePlotter. Review its placement in Drawing.
+   Complete Exercise 2.1 before physical drawing.
    Use **Review Comparison** in **Video Settings** to return to the pinned exact
    post-frame. Close its canvas box with **×**, or use **Resume Live Preview** in
    Video Settings before placement. Closing retains the comparison and removes
@@ -724,8 +718,7 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    redundantly normalizes Pen Up again, performs plan travel, lower, each finite segment,
    raise, and the logical-stroke checkpoint sequence. **Stop** is capability-
    bound to that owner. Competing plans are refused without replacing active
-   progress. The command-bar Stop remains reachable when Motion, Portrait Studio,
-   or any other panel is hidden or redocked; unavailable requests show their remedy.
+   progress. The command-bar Stop remains reachable when Motion or another panel is hidden or redocked. Unavailable requests show their remedy.
 8. On controller-completed execution, require final MPos at the observation
    location, capture a strictly newer post frame, associate new ink against all
    planned polylines, and retain intended, observed, and residual overlays on

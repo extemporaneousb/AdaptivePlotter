@@ -63,7 +63,7 @@ import Testing
   func nativePhotoReturn() async throws {
     let f = try await DrawingWorkbenchApplicationFixture.make()
     defer { f.stores.remove() }
-    let app = f.application, library = app.portraitStudio.sketches.library
+    let app = f.application, library = app.receivedDrawings.sketches.library
     let pixels = try DrawingImageAsset.gray8(Data([0, 64, 128, 255]), width: 2, height: 2)
     let source = try DrawingImageRecords.photo(identity: .init(issuer: UUID()), original: pixels, width: 2, height: 2,
       acquired: .unknown(provenance: "synthetic native result fixture"), imported: .unknown(provenance: "synthetic native result fixture"), captureFactsJSON: Data("{}".utf8))
@@ -79,7 +79,7 @@ import Testing
     let parentRef = try await library.retain(parent, reason: "native result parent").reference
     let child = try Drawing(program: program, input: .present(input.reference), parent: .present(parentRef),
       producer: .init(id: "example.result-child", version: "1", recordJSON: Data("{}".utf8)))
-    let selected = try await app.portraitStudio.sketches.retain(child, reason: "native result")
+    let selected = try await app.receivedDrawings.sketches.retain(child, reason: "native result")
     #expect(await app.projectDrawing(selected) == nil)
     try await f.submit(.fitInDrawableRegion); try await f.submit(.assertPaperCoverage)
     try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }

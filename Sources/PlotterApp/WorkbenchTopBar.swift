@@ -58,42 +58,6 @@ struct WorkbenchSavedLearningPresentation: Equatable {
   }
 }
 
-/// Toolbar destinations describe visible surfaces, not retained dock membership.
-enum WorkbenchToolbarDestination: String, CaseIterable, Identifiable {
-  case plotter, portraitStudio, drawings
-  static var allCases: [Self] { [.drawings, .portraitStudio, .plotter] }
-
-  var id: String { rawValue }
-  var title: String {
-    switch self {
-    case .plotter: "Plotter"
-    case .portraitStudio: "Drawing Studio"
-    case .drawings: "Library"
-    }
-  }
-  var systemImage: String {
-    switch self {
-    case .plotter: "video"
-    case .portraitStudio: "person.crop.rectangle"
-    case .drawings: "square.grid.2x2"
-    }
-  }
-  var panel: WorkbenchPanel? {
-    switch self {
-    case .portraitStudio: .portraitStudio
-    case .plotter, .drawings: nil
-    }
-  }
-  func isSelected(layout: WorkbenchLayoutState, reviewerIsPresented: Bool) -> Bool {
-    if self == .drawings { return reviewerIsPresented }
-    if reviewerIsPresented { return false }
-    if self == .plotter { return !reviewerIsPresented && !layout.isPresented(.portraitStudio) }
-    guard let panel else { return false }
-    return layout.isPresented(panel)
-      && (panel == .portraitStudio || !layout.isPresented(.portraitStudio))
-  }
-}
-
 /// Session actions and global Stop stay visible independently of control panes.
 struct WorkbenchToolbar: ToolbarContent {
   let savedLearningAction: PlotterUIAction?
@@ -235,44 +199,3 @@ struct WorkbenchToolbar: ToolbarContent {
 
 /// Persistent flat application navigation keeps all ordinary view routes visible
 /// while the native title-bar toolbar reserves space for session actions and Stop.
-struct WorkbenchNavigationControls: View {
-  let layout: WorkbenchLayoutState
-  let reviewerIsPresented: Bool
-  let selectDestination: (WorkbenchToolbarDestination) -> Void
-
-  var body: some View {
-    HStack(spacing: 12) {
-      ForEach(WorkbenchToolbarDestination.allCases) { destination in
-        destinationControl(destination)
-      }
-      Spacer(minLength: 0)
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
-    .accessibilityElement(children: .contain)
-    .accessibilityIdentifier("workbench.navigation")
-  }
-
-  private func destinationControl(_ destination: WorkbenchToolbarDestination) -> some View {
-    Toggle(isOn: Binding(
-      get: { destination.isSelected(layout: layout, reviewerIsPresented: reviewerIsPresented) },
-      set: { _ in selectDestination(destination) }
-    )) {
-      Label(destination.title, systemImage: destination.systemImage)
-        .labelStyle(.titleAndIcon)
-        .font(.callout)
-        .fontWeight(destination.isSelected(layout: layout,
-          reviewerIsPresented: reviewerIsPresented) ? .semibold : .regular)
-        .fixedSize()
-    }
-    .toggleStyle(.button)
-    .buttonStyle(.borderless)
-    .foregroundStyle(destination.isSelected(layout: layout,
-      reviewerIsPresented: reviewerIsPresented) ? Color.accentColor : Color.primary)
-    .accessibilityIdentifier("workbench.destination.\(destination.rawValue)")
-    .accessibilityValue(destination.isSelected(layout: layout,
-      reviewerIsPresented: reviewerIsPresented) ? "Shown" : "Hidden")
-    .help(destination.title)
-  }
-
-}

@@ -95,6 +95,8 @@ struct PenCapRecoveryRegressionTests {
       statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: { store.load() },
         saveCheckpoint: { try store.save($0) }, clearCheckpoint: { store.clear() }),
       boundaryRuntimeAccess: boundary, log: log)
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, nil))
@@ -468,6 +470,8 @@ struct PenCapRecoveryRegressionTests {
       residualEffectPort: TestApplicationResidualEffectPort(discoverDevices: { [machine.descriptor] },
         readNanoseconds: { clock.read() }), loadPenCapAppearanceSelection: { nil }, log: EventLog())
     await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))
@@ -544,6 +548,8 @@ struct PenCapRecoveryRegressionTests {
       residualEffectPort: TestApplicationResidualEffectPort(discoverDevices: { [machine.descriptor] },
         readNanoseconds: { clock.next() }, recordTelemetry: { await observed.record($0) }),
       boundaryRuntimeAccess: boundary, log: log)
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, nil))
@@ -947,6 +953,8 @@ private func makeCameraReturnFixture(automaticallySettlesTravel: Bool = true, pe
     statePersistencePort: TestApplicationStatePersistencePort(loadCheckpoint: { store.load() },
       saveCheckpoint: { store.save($0) }, clearCheckpoint: { store.clear() }),
     boundaryRuntimeAccess: boundary, log: log)
+  await app.awaitDrawingHistoryRecovery()
+  if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
   await app.establishMachineSession(machine.descriptor)
   await submitControllerSession(app, .requestPassiveProbe)
   await submitObservationConfigurationForTest(app, .selectSource(.live, nil))

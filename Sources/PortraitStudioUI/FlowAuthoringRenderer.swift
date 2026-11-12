@@ -6,7 +6,7 @@ import PortraitArtists
 import PortraitCore
 
 /// One off-main worker retains expensive source analysis across a round.
-package actor FlowDojoRenderer {
+package actor FlowAuthoringRenderer {
   package nonisolated static let analysisOptions = PortraitAnalysisOptions(cropToFace: true, removeBackground: true, faceCropMargin: 0.18)
   private var preparedSource: PortraitSourcePreparation?
   private var sourceHash: String?

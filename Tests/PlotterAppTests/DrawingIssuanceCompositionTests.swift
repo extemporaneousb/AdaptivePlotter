@@ -17,7 +17,7 @@ import Testing
   func nativeOriginalRequest(_ photo: Bool) async throws {
     let f = try await DrawingWorkbenchApplicationFixture.make()
     defer { f.stores.remove() }
-    let app = f.application, library = app.portraitStudio.sketches.library
+    let app = f.application, library = app.receivedDrawings.sketches.library
     var expected: DrawingRef?
     var expectedInput: ImageInputRef?
     var expectedParent: DrawingRef?
@@ -38,7 +38,7 @@ import Testing
       expectedParent = try await library.retain(parent, reason: "issuance fixture parent").reference
       let drawing = try Drawing(program: program, input: .present(input.reference), parent: .present(try #require(expectedParent)),
         producer: .init(id: "example.issuance-child", version: "1", recordJSON: Data("{}".utf8)))
-      let retained = try await app.portraitStudio.sketches.retain(drawing, reason: "issuance fixture")
+      let retained = try await app.receivedDrawings.sketches.retain(drawing, reason: "issuance fixture")
       expected = retained.reference
       #expect(await app.projectDrawing(retained) == nil)
     }
@@ -83,7 +83,7 @@ import Testing
   func jobPublicationBlocksPaperMutation(_ afterCommit: Bool) async throws {
     let f = try await DrawingWorkbenchApplicationFixture.make()
     defer { f.stores.remove() }
-    let app = f.application, library = app.portraitStudio.sketches.library
+    let app = f.application, library = app.receivedDrawings.sketches.library
     try await f.submit(.fitInDrawableRegion); try await f.submit(.assertPaperCoverage)
     try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
     try await library.failNextSettledDrawingJobCommit(afterCommit: afterCommit)
@@ -132,7 +132,7 @@ import Testing
     if case .refused = await app.submitPlotterUIRequest(original) {} else { Issue.record("Stale projection was replaced with current plan") }
     #expect(await f.planGate.request == nil)
     #expect(await f.machine.requestedPenCommands == before)
-    #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
+    #expect(try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
     await app.shutdown()
   }
 }

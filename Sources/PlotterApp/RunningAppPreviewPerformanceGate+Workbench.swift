@@ -11,18 +11,11 @@ struct NativeWorkbenchPlacementProof: Codable, Equatable, Sendable {
   let body: WorkbenchNativeControlVisibility
 }
 
-struct NativePortraitWorkspaceProof: Codable, Equatable, Sendable {
-  let width: Int
-  let header: WorkbenchNativeControlVisibility
-  let capture: WorkbenchNativeControlVisibility
-}
-
 struct NativeWorkbenchReport: Encodable {
   let schema = "adaptiveplotter.native-workbench.v3"
   let provenance = "Actual signed SwiftUI App/Window and CGEvent input; simulated startup; no real camera, controller, motion or ink. Held Drawing Stop is separate software evidence."
   var failures: [String] = []
   var placements: [NativeWorkbenchPlacementProof] = []
-  var portraitWorkspaces: [NativePortraitWorkspaceProof] = []
   var bitmaps: [String] = []
   var inputs: [WorkbenchNativeInputSample] = []
   var fittingDrawingBodies: [WorkbenchNativeFittingBodyEvidence] = []
@@ -38,10 +31,9 @@ struct NativeWorkbenchReport: Encodable {
   static func bodyControlIdentifier(for panel: WorkbenchPanel) -> String {
     switch panel {
     case .guidedLearning: "learning.exerciseActions"
-    case .videoSettings: "workbench.video.cameraRole"
+    case .videoSettings: "workbench.video.zoom"
     case .motion: "motion.penDown"
     case .activeLearning: "learning.coverage.prepare"
-    case .portraitStudio: "portrait.capture"
     case .drawing: "drawing.draw"
     }
   }
@@ -61,17 +53,7 @@ struct NativeWorkbenchReport: Encodable {
       || Set(placements.map { "\($0.panel.rawValue).\($0.slot.rawValue).\($0.width)" }) != expected {
       result.append("The five dock controls lack complete header/body hit proofs at every slot and width.")
     }
-    if bitmaps.count != 10 || Set(bitmaps).count != 10 { result.append("The ten actual dock/workspace layout bitmaps were not retained.") }
-    if portraitWorkspaces.count != 2 || Set(portraitWorkspaces.map(\.width)) != [1_000, 1_600]
-      || portraitWorkspaces.contains(where: {
-        $0.header.identifier != "workbench.hide.portraitStudio"
-          || $0.capture.identifier != "portrait.capture"
-          || $0.header.frame.isEmpty || $0.capture.frame.isEmpty
-          || $0.header.panelIdentifier != "workbench.panel.portraitStudio"
-          || $0.capture.panelIdentifier != "workbench.panel.portraitStudio"
-          || !$0.header.fitsEveryContainingClip || !$0.capture.fitsEveryContainingClip
-          || $0.capture.containingClipCount != 0
-      }) { result.append("The full Portrait Studio workspace lacks unclipped persistent capture/exit hit proofs at both widths.") }
+    if bitmaps.count != 8 || Set(bitmaps).count != 8 { result.append("The eight actual dock layout bitmaps were not retained.") }
     if placements.contains(where: {
       $0.header.identifier != "workbench.hide.\($0.panel.rawValue)"
         || $0.body.identifier != Self.bodyControlIdentifier(for: $0.panel)
@@ -211,29 +193,6 @@ extension RunningAppPreviewPerformanceGate {
             }
           }
         }
-      }
-      for width in [1_000, 1_600] {
-        layout.wrappedValue = WorkbenchLayoutState(presented: [.drawing])
-        window.setContentSize(NSSize(width: CGFloat(width), height: 700))
-        report.inputs.append(try await probe.togglePane(.portraitStudio) {
-          layout.wrappedValue.isPresented(.portraitStudio)
-            && RunningAppNativeInputProbe.controlFrame("workbench.panel.portraitStudio") != nil
-            && RunningAppNativeInputProbe.controlFrame("workbench.video.canvas") == nil
-        })
-        let panelID = "workbench.panel.portraitStudio"
-        let header = try RunningAppNativeInputProbe.inspectControl("workbench.hide.portraitStudio",
-          in: window, panelIdentifier: panelID)
-        let capture = try RunningAppNativeInputProbe.inspectControl("portrait.capture",
-          in: window, panelIdentifier: panelID)
-        report.portraitWorkspaces.append(.init(width: width, header: header, capture: capture))
-        let image = directory.appendingPathComponent("portrait-workspace-\(width).png")
-        try captureNativeWorkbench(window, to: image)
-        report.bitmaps.append(image.path)
-        report.inputs.append(try await probe.click("workbench.hide.portraitStudio") {
-          !layout.wrappedValue.isPresented(.portraitStudio)
-            && RunningAppNativeInputProbe.controlFrame(panelID) == nil
-            && RunningAppNativeInputProbe.controlFrame("workbench.panel.drawing") != nil
-        })
       }
       for width in [1_000, 1_600] {
         layout.wrappedValue = WorkbenchLayoutState(presented: [])

@@ -45,25 +45,9 @@ struct WorkbenchTopBarLayoutTests {
     #expect(disconnect.title == "Disconnect")
   }
 
-  @Test("top row is the three workspaces; device panes stay Plotter-local")
-  func toolbarDestinations() {
-    #expect(WorkbenchToolbarDestination.allCases.map(\.title)
-      == ["Library", "Drawing Studio", "Plotter"])
-    #expect(WorkbenchToolbarDestination.allCases.compactMap(\.panel)
-      == [.portraitStudio])
-  }
-
-  @Test("toolbar selection reflects visible workspace while preserving retained docks")
-  func toolbarSelectionTracksVisibleSurfaces() {
-    var layout = WorkbenchLayoutState(presented: [.drawing, .motion])
-    #expect(WorkbenchToolbarDestination.plotter.isSelected(layout: layout, reviewerIsPresented: false))
-    layout.setPresented(.portraitStudio, true)
-    #expect(WorkbenchToolbarDestination.portraitStudio.isSelected(layout: layout, reviewerIsPresented: false))
-    #expect(!WorkbenchToolbarDestination.plotter.isSelected(layout: layout, reviewerIsPresented: false))
-    #expect(layout.isPresented(.drawing))
-    #expect(WorkbenchToolbarDestination.drawings.isSelected(layout: layout, reviewerIsPresented: true))
-    layout.setPresented(.portraitStudio, false)
-    #expect(WorkbenchToolbarDestination.plotter.isSelected(layout: layout, reviewerIsPresented: false))
+  @Test("Plotter offers only execution and device panels")
+  func executionPanels() {
+    #expect(WorkbenchPanel.allCases.map(\.rawValue) == ["guidedLearning", "videoSettings", "motion", "activeLearning", "drawing"])
   }
 
   @Test("toolbar Saved Learning follows connection, motion and canonical action availability")

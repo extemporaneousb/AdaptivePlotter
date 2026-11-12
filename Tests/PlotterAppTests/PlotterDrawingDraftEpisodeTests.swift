@@ -1155,7 +1155,7 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(staleEdit.comparedDraftRevision == asserted.projection.draftRevision)
     #expect(
       staleEdit.remedy
-        == "Use the current Drawing Studio projection and retry the requested edit."
+        == "Use the current Drawing placement and retry the requested edit."
     )
     #expect(staleEditResult.snapshot.evidenceRole == opened.evidenceRole)
     #expect(staleEditResult.snapshot.paperCoverageObservation == asserted.paperCoverageObservation)

@@ -14,7 +14,7 @@ package final class PortraitCameraPreviewModel {
 }
 
 /// Camera acquisition and the current authored value. The shared Library owns
-/// durable drawings; the Dojo owns generation, curation and learning actions.
+/// durable drawings; the Authoring owns generation, curation and learning actions.
 @Observable @MainActor
 package final class PortraitStudioModel {
   package let library: DrawingLibrary
@@ -25,7 +25,6 @@ package final class PortraitStudioModel {
   package var selectedRef: DrawingRef? { currentDrawing?.reference }
   package private(set) var projectedDrawing: Drawing?
   package var selectedPhoto: Data? { portfolioPhoto?.data }
-  package private(set) var embeddedDojo: FlowDojoModel?
   package private(set) var devices: [CameraDevice] = []
   package var selectedDeviceID: CameraDeviceID?
   package private(set) var cameraIsRunning = false
@@ -51,12 +50,11 @@ package final class PortraitStudioModel {
   @ObservationIgnored private var acquisitionRevision: UInt64 = 0
   @ObservationIgnored private var cameraGeneration: UInt64 = 0
   @ObservationIgnored private var isShutdown = false
-  @ObservationIgnored private var portfolioShutdownStarted = false
   @ObservationIgnored private var selectionRevision: UInt64 = 0
 
   package init(camera: CameraCapture = CameraCapture(materializationPolicy:
     LiveFrameMaterializationPolicy(minimumPreviewIntervalNanoseconds: 33_333_333)),
-    library: DrawingLibrary = DrawingLibrary(directoryURL: DrawingLibrary.defaultDirectoryURL),
+    library: DrawingLibrary = DrawingLibrary(directoryURL: FlowAuthoringModel.defaultDirectory),
     drawingLoader: (@Sendable (DrawingRef) async throws -> Drawing)? = nil,
     photoAcquirer: any PortraitPhotoAcquiring = PortraitImageAnalyzer(),
     frameSource: (any PortraitFrameAcquiring)? = nil,
@@ -67,18 +65,6 @@ package final class PortraitStudioModel {
     self.camera = camera; self.photoAcquirer = photoAcquirer
     self.frameSource = frameSource ?? PortraitCameraFrameSource(camera: camera)
     self.captureClock = captureClock; self.photoRetention = photoRetention
-  }
-  package func portfolioDojo(strokeStyle: StrokeStyle, nominalPenWidthMM: Double? = nil) -> FlowDojoModel {
-    if let embeddedDojo { embeddedDojo.updateStrokeStyle(strokeStyle, nominalPenWidthMM: nominalPenWidthMM); return embeddedDojo }
-    let dojo = FlowDojoModel(library: library, strokeStyle: strokeStyle, nominalPenWidthMM: nominalPenWidthMM)
-    if portfolioShutdownStarted { dojo.closeMutationAdmission() }
-    embeddedDojo = dojo; return dojo
-  }
-  package func preparePortfolioShutdown() async -> Bool {
-    portfolioShutdownStarted = true
-    let ready = await embeddedDojo?.shutdown() ?? true
-    if !ready { portfolioShutdownStarted = false }
-    return ready
   }
   package func discover(excluding plotterDeviceID: CameraDeviceID?) async {
     await camera.discoverDevices()
@@ -226,7 +212,7 @@ package final class PortraitStudioModel {
     acquisitionWorker = nil; materialWorker = nil; materialWorkerEpoch = nil
     illuminationTask?.cancel(); illuminationTask = nil
     isCapturing = false; screenIlluminationActive = false; capturePhase = nil
-    worker?.cancel(); material?.cancel(); embeddedDojo?.cancel()
+    worker?.cancel(); material?.cancel()
     _ = await worker?.result
     _ = await material?.result
     guard acquisitionRevision == revision else { return }
@@ -298,8 +284,8 @@ package final class PortraitStudioModel {
       let claim = try? JSONDecoder().decode(PortraitFlowProducerClaim.self, from: drawing.producer.originalJSON) else { return nil }
     return claim.settings.materialContext
   }
-  package func applyMaterial(_ profile: DrawingMaterialProfileRevision, drawingHeightMM: Double) async -> String? {
-    guard let parent = currentDrawing, let reference = parent.reference, let store = embeddedDojo?.store else {
+  package func applyMaterial(_ profile: DrawingMaterialProfileRevision, drawingHeightMM: Double, authoring: FlowAuthoringModel) async -> String? {
+    guard let parent = currentDrawing, let reference = parent.reference, let store = authoring.store else {
       return "The selected drawing has no known Flow source and recipe for material adaptation."
     }
     do {
@@ -336,7 +322,6 @@ package final class PortraitStudioModel {
     guard !isShutdown else { return }
     isShutdown = true; selectionRevision &+= 1
     illuminationTask?.cancel(); illuminationTask = nil; screenIlluminationActive = false
-    _ = await preparePortfolioShutdown()
     await cancelRendering(); await stopCamera(); await sketches.shutdown()
   }
 }

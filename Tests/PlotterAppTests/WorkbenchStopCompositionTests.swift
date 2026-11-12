@@ -47,8 +47,8 @@ struct WorkbenchStopCompositionTests {
   func heldDrawingStopAcknowledgesBeforeSettlement() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(library: DrawingFirstTestStorage.library())
-    let fixture = try await DrawingWorkbenchApplicationFixture.make(releasePlanOnStop: false, portraitStudio: studio)
+    let studio = ReceivedDrawingStore(library: DrawingFirstTestStorage.library())
+    let fixture = try await DrawingWorkbenchApplicationFixture.make(releasePlanOnStop: false, receivedDrawings: studio)
     defer { fixture.stores.remove() }
     let application = fixture.application
     var run: Task<PlotterUIRequestDisposition, Never>?
@@ -121,7 +121,6 @@ struct WorkbenchStopCompositionTests {
       #expect(application.drawingRunSnapshot?.projection.environment == .live)
       var layout = WorkbenchLayoutState()
       layout.setPresented(.motion, false)
-      layout.setPresented(.portraitStudio, false)
       let projection = application.testPlotterUIProjection().semantic
       let stops = WorkbenchStopPresentation.actions(in: projection)
       try #require(stops.count == 1)
@@ -167,7 +166,7 @@ struct WorkbenchStopCompositionTests {
         await application.shutdown(); return
       }
       #expect(archive.records.filter { $0.recordID == terminal.record.recordID }.count == 1)
-      #expect(!layout.isPresented(.motion) && !layout.isPresented(.portraitStudio))
+      #expect(!layout.isPresented(.motion))
       try await verifyDrawingRunPublicationOrdering(
         application: application, runtime: fixture.runRuntime,
         publications: publications, terminalRunID: runID)

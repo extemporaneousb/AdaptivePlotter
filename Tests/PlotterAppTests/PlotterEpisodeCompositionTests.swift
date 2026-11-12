@@ -241,11 +241,11 @@ struct PlotterEpisodeCompositionTests {
     // The second call observes `.starting` and must not replay discovery or
     // create a second startup lane.
     await application.performApplicationStartup(policy)
-    #expect(discoveryCount.value == 1)
+    #expect(discoveryCount.value == 0)
 
     let openProjection = application.testPlotterUIProjection(includesLearningPath: true).semantic
     let openRequest = try #require(
-      openProjection.request(for: PlotterAppUIActionID.learningMode)
+      openProjection.request(for: PlotterAppUIActionID.drawingDraft(.showTarget))
     )
     let completion = AsyncCompletionProbe()
     let shutdown = Task {
@@ -285,6 +285,8 @@ struct PlotterEpisodeCompositionTests {
       )
     )
     let application = fixture.application
+    await application.awaitDrawingHistoryRecovery()
+    if application.savedLearningRecoveryIsPending { await application.loadDrawingEvidenceArchive() }
     await application.establishMachineSession(fixture.machine.descriptor)
     await submitControllerSession(application, .requestPassiveProbe)
     await submitObservationConfigurationForTest(application, .selectSource(.live, nil))
@@ -368,6 +370,8 @@ struct PlotterEpisodeCompositionTests {
       loadPenCapAppearanceSelection: { nil }
     )
     let application = fixture.application
+    await application.awaitDrawingHistoryRecovery()
+    if application.savedLearningRecoveryIsPending { await application.loadDrawingEvidenceArchive() }
     await application.establishMachineSession(fixture.machine.descriptor)
     await submitControllerSession(application, .requestPassiveProbe)
     let owner = application.testCurrentLearningPathItemID

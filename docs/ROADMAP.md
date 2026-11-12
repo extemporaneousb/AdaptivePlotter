@@ -65,7 +65,7 @@ the work.
 | 4. Integrated software release | Complete the remaining DX-20 regression and scale cases on the integrated tree, then DX-21 independent final review. Reuse applicable native evidence from the first delivery. | Both app routes, current-format integrity/recovery, responsiveness and simulated return pass their gates. |
 | 5. Attended deployment | DX-22 follows DX-21 and requires separate operator authorization. | Signed-app handoff and attended ink evidence each have their own result. |
 
-The personal archive converter covers the retained photo and plot subset of DX-17a/b. Broader historical continuity is deferred. Any change to an
+DX-17a/b covers the personal photo and plot archive and the Flow Edge portfolio recovery described in the [Studio guide](PORTRAIT_STUDIO.md#recover-an-existing-artist-portfolio). Any change to an
 episode-owned runtime seam still requires a named eligible package under the
 [episode workflow](../.codex/guidance/adaptiveplotter-workflow.md). A blocked
 seam cannot block the native Drawing workflow. Production data, physical motion
@@ -113,16 +113,11 @@ physical/model-promotion claim follows.
 `e52c17b76503de6e28d868dffb153e68b0582e33`, all ten bounded caller-declared artifact
 criteria current/met. The [canonical receipt](CURRENT_EVIDENCE.md#dx-10-canonical-adoption-2026-11-08)
 records the actual gate, verified adoption and separate unknown terminal environment.
-The implementation boundary is in
-`DrawingLibrary{Reads,Sources,Records,Results,Attempts}`, `PortraitSketchCollection`,
-`FlowPortfolioStore/Graph`, `PortraitDrawingAttemptBinding`, `FlowDojoModel`, shared
-`DrawingLibrary{Browser,Navigation,SourceView}` and actual embedded/standalone route owners.
-The top row uses Library/Drawing Studio/Plotter; optional contextual Photo metadata
-replaces Curate, exact existing Photo adoption preserves identity/metadata, typed
-current-format collection/Photo/Input/Drawing/branch bookmarks reopen without fuzzy
-fallback, and result snapshots/staged bindings/raw evidence remain distinct. Existing
-Stop and raw possible-ink authority remain accessible and current; no issuance bridge
-is claimed. See [scoped software observations](CURRENT_EVIDENCE.md#dx-10-library-and-drawing-studio-cutover-2026-11-08).
+The original DX-10 routes supported exact photo selection, prepared inputs and
+restoring an immutable drawing/branch bookmark. Counts distinguish returned
+snapshots, staged bindings and raw attempt evidence. See the
+[dated DX-10 observations](CURRENT_EVIDENCE.md#dx-10-library-and-drawing-studio-cutover-2026-11-08)
+for the original owners and validation scope.
 
 Native focus/button/sheet/AX and signed-app interaction remain bounded by actual host
 evidence. The bounded DX-11/current-app DX-18/caller-proven DX-19/native-authoring DX-20
@@ -136,11 +131,11 @@ physical gates remain unfinished; historical schemas/files/layout continuity sta
 of this release.
 
 **DX-11 — Interactive performance and cache discipline.** Allowed:
-DX-08/10 UI/model files, `Sources/PortraitStudioUI/{FlowDojoRenderer,FlowPresentationImageCache,FlowDojoPresentation,FramePresentationImageCache,PortraitPlanePreview}.swift`,
+DX-08/10 UI/model files, `Sources/PortraitStudioUI/{FlowAuthoringRenderer,FlowPresentationImageCache,FlowAuthoringPresentation,FramePresentationImageCache,PortraitPlanePreview}.swift`,
 `Sources/PortraitLibrary/` query/cache implementations and targeted performance tests.
 Remove decode/allocation from SwiftUI body (including `NSImage(data:)` in
-`FlowDojoView`), avoid checkpoint revalidation/training-summary rebuild on every
-`FlowDojoModel.refresh`, bound preview cache and key by exact revision/input/render
+`FlowAuthoringView`), avoid checkpoint revalidation/training-summary rebuild on every
+`FlowAuthoringModel.refresh`, bound preview cache and key by exact revision/input/render
 context. Add cancellation and generation guards against stale async selection.
 Gate: budgets below, unchanged geometry/feedback hashes, decode/query instrumentation,
 rapid navigation and close/reopen tests. Recovery: invalidate derived caches only;
@@ -250,11 +245,9 @@ never mutate a checkpoint's prior dataset or activate physical correction.
 **DX-17a/b — Personal archive conversion.** The offline converter recovers original photos,
 archived geometry and attributable historical runs into a new current-format library. The
 [operator instructions](PORTRAIT_STUDIO.md#recover-historical-photos-and-plotted-drawings)
-cover the default selection, additional candidates and raw evidence. General archive upgrades,
-restored training history and live legacy readers remain deferred.
+cover source photos, additional candidates and raw plot evidence. Offline Flow Edge recovery also restores the artist’s decisions and preserves the original fit artifacts.
 
-**DX-18 — Current-format apps and supported tools.** Package the actual standalone
-and embedded routes with their existing bundle IDs. Exercise launch, current file
+**DX-18 — Current-format apps and supported tools.** Package the Studio and Plotter applications with their existing bundle IDs. Exercise launch, current file
 handling and explicit export/import between fresh libraries. A retired format
 can be refused without modifying it. Keep the independent current-format reader,
 SwiftSketch worker and converter usable. Test the current CLI, failed opens and
@@ -270,8 +263,7 @@ and historical user files can remain in their original format.
 
 **DX-20 — Native regression and final scale/performance gate.** Allowed:
 related native/app integration/performance tests and harnesses, targeted fixes only
-within owning prior tickets, Current Evidence receipts. Exercise standalone and
-embedded Studio, source-free import, photo stream, photo metadata, prepared inputs, Choose,
+within owning prior tickets, Current Evidence receipts. Exercise the native Studio and Plotter handoff, source-free import, photo stream, photo metadata, prepared inputs, Choose,
 Refine, no-op/changed prune, undo, Rank commit/advance, Fit, exact Plot selection,
 park/reopen/overlay/readiness, simulated cancellation/result return and offline
 inspection. Include keyboard/focus, accessibility, window close/reopen and restarts;
@@ -348,8 +340,7 @@ choice for contract review while preserving the drawing/job/attempt identities.
 
 ## Portrait Studio: remaining acceptance
 
-The shipped baseline is the Flow Edge Dojo: one portfolio curation, ranking,
-pruning and fitting loop shared by standalone and embedded Studio. Its current
+Portrait Studio owns the Flow Edge curation, ranking, pruning and fitting loop. Its current
 operator/model contract is in [Portrait Studio](PORTRAIT_STUDIO.md), its authority
 boundaries in [Product Contract](PRODUCT_CONTRACT.md), and software receipts in
 [Current Evidence](CURRENT_EVIDENCE.md). Earlier multi-artist, SwiftSketch and

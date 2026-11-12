@@ -992,7 +992,6 @@ struct PlotterDrawingRunEpisodeTests {
       diagnostics: [], visitedCandidateCount: 1)
     var layout = WorkbenchLayoutState()
     layout.setPresented(.motion, false)
-    layout.setPresented(.portraitStudio, false)
     let visibleStop = try #require(WorkbenchStopPresentation.actions(in: projection).first)
     #expect(projection.request(for: visibleStop.id)?.intent == .drawingRun(stopIntent))
     let stopped = await harness.submit(PlotterDrawingRunSubmission(

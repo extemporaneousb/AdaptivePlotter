@@ -790,7 +790,7 @@ public actor PlotterDrawingDraftRuntime {
         facts: facts,
         owner: Authority.draft,
         reason: .staleProjection,
-        remedy: "Use the current Drawing Studio projection and retry the requested edit."
+      remedy: "Use the current Drawing placement and retry the requested edit."
       )
     }
 

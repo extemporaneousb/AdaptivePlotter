@@ -44,6 +44,8 @@ class HistoricalDrawingTests(unittest.TestCase):
                  operation('c', 'redo', 'b', 'a')]
         prunes = replay_masks(edits, {'drawing': {'strokeCount': 3}})
         self.assertEqual([e['removedIndices'] for e in prunes.values()], [[1], [], [1]])
+        self.assertEqual([e['undoOperationIDs'] for e in prunes.values()], [['a'], [], ['a']])
+        self.assertEqual([e['redoOperationIDs'] for e in prunes.values()], [[], ['a'], []])
         edits[2]['operationID'] = 'different'
         with self.assertRaisesRegex(ValueError, 'operation order'):
             replay_masks(edits, {'drawing': {'strokeCount': 3}})
@@ -54,6 +56,23 @@ class HistoricalDrawingTests(unittest.TestCase):
         begin = png.index(b'IDAT') + 4
         length = int.from_bytes(png[begin-8:begin-4], 'big')
         self.assertEqual(zlib.decompress(png[begin:begin+length]), bytes([0, 1, 2, 3, 0, 4, 5, 6]))
+
+    def test_compact_pruning_reconstructs_complete_history_and_refuses_contradictions(self):
+        def edit(key, action, parent, indices, operation=None):
+            return dict(id=key, action=action, parentRevisionID=parent, candidateID='drawing',
+                        affectedIndices=indices, operationID=operation, removedIndices=[],
+                        undoOperationIDs=[], redoOperationIDs=[])
+        edits = [edit('a', 'remove', None, [1]), edit('b', 'restore', 'a', [1]),
+                 edit('c', 'undo', 'b', [1], 'b'), edit('d', 'redo', 'c', [1], 'b'),
+                 edit('e', 'completeTarget', 'd', [])]
+        result = replay_masks(edits, {'drawing': {'strokeCount': 3}})
+        self.assertEqual(result['e']['removedIndices'], [])
+        self.assertEqual(result['e']['undoOperationIDs'], ['a', 'b'])
+        self.assertEqual(result['e']['redoOperationIDs'], [])
+        self.assertEqual(result['c']['redoOperationIDs'], ['b'])
+        edits[0]['undoOperationIDs'] = ['unrelated']
+        with self.assertRaisesRegex(ValueError, 'Contradictory archived pruning'):
+            replay_masks(edits, {'drawing': {'strokeCount': 3}})
 
     def test_incomplete_portfolio_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:

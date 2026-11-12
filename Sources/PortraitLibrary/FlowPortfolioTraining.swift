@@ -205,6 +205,10 @@ extension FlowPortfolioStore {
     for (judgmentID, ref) in pairs {
       try Task.checkCancellation()
       let package = try await storage.library.feedback(ref.publication)
+      try autoreleasepool {
+      let previousBatch = budget.batchedFiles
+      budget.batchedFiles = package.files
+      defer { budget.batchedFiles = previousBatch }
       if ref.ranking != nil { _ = try FlowFeedbackReader.value(FlowPortfolioRanking.self, reference: ref, id: judgmentID, package: package, budget: budget) }
       else if document.choices.contains(where: { $0.id == judgmentID }) { _ = try FlowFeedbackReader.value(FlowPortfolioChoice.self, reference: ref, id: judgmentID, package: package, budget: budget) }
       else { _ = try FlowFeedbackReader.value(FlowPortfolioPruneRevision.self, reference: ref, id: judgmentID, package: package, budget: budget) }
@@ -223,6 +227,8 @@ extension FlowPortfolioStore {
         for asset in assessment.supportingAssets { try copyAsset(asset, from: package) }
         let record = try ExchangeJSON.validate(assessment.originalJSON)
         if let region = record["regionOrStrokes"] { try copyAsset(FlowFeedbackReader.decodeJSON(region, ExchangeAsset.self), from: package) }
+      }
+      try package.files.revalidateSelected()
       }
     }
     var entries: [FlowFrozenTrainingEntry] = []
@@ -338,9 +344,14 @@ enum FlowTrainingReader {
       Set(manifest.curation.map(\.id)).count == manifest.curation.count,
       Set(manifest.excludedCandidateIDs).count == manifest.excludedCandidateIDs.count else {
       throw FlowPortfolioError.unavailable("Unsupported or malformed training manifest.")
-    }; return manifest
+    }
+    if budget.batchedFiles !== package.files { try package.files.revalidateSelected() }
+    return manifest
   }
   static func inputs(package: ValidatedExchangePackage, budget: FlowFeatureReadBudget = .init()) throws -> FlowPortfolioTrainingInputs {
+    let previousBatch = budget.batchedFiles
+    budget.batchedFiles = package.files
+    defer { budget.batchedFiles = previousBatch }
     let manifest = try manifest(package: package, budget: budget)
     let exactFeatureAssets = try FlowFeedbackReader.featureAssets(package, budget: budget)
     let publication = DrawingLibraryFeedbackRef(publication: package)
@@ -464,12 +475,13 @@ enum FlowTrainingReader {
         throw FlowPortfolioError.invalid("Frozen training entry differs from exact feature/label basis.")
       }
       elements += root.1.strokes.count * FlowArtistFeatures.strokeCount + FlowArtistFeatures.drawingCount; labelCount += entry.labels.count
-      guard elements <= 8_000_000, labelCount <= 20_000 else { throw FlowPortfolioError.unavailable("Frozen training allocation budget exceeded.") }
+      guard FlowArtistTrainingLimits.accepts(featureValueCount: elements, explicitLabelCount: labelCount) else { throw FlowPortfolioError.unavailable("Frozen training allocation budget exceeded.") }
       examples.append(.init(id: entry.exampleID.uuidString, sourceGroupID: entry.group, recipe: entry.recipe,
         features: selected.1.drawing, strokeFeatures: root.1.strokes, strokeLabels: entry.labels,
         baseDrawingID: entry.candidateID.uuidString, removedIndices: entry.removedIndices))
     }
     guard manifest.holdoutGroupIDs == FlowArtistTraining.holdoutGroups(examples.map(\.sourceGroupID), seed: manifest.seed) else { throw FlowPortfolioError.invalid("Frozen partition differs from exact groups/seed.") }
+    try package.files.revalidateSelected()
     return .init(examples: examples, rankings: manifest.rankings, seed: manifest.seed, configuration: manifest.configuration, holdoutGroupIDs: manifest.holdoutGroupIDs)
   }
 }

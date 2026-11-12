@@ -23,14 +23,14 @@ struct PortraitHandoffTests {
       let plan = try #require(app.drawingDraftSnapshot.artworkPlan?.contentHash)
       let executionPlan = app.drawingDraftSnapshot.plan?.contentHash
       try await fixture.submit(.hideTarget)
-      let retained = try #require(app.portraitStudio.projectedDrawing)
+      let retained = try #require(app.receivedDrawings.projectedDrawing)
       #expect(await app.projectDrawing(retained) == nil)
       #expect(app.drawingTargetIsVisible)
       #expect(app.drawingDraftSnapshot.artworkPlan?.placement == placement)
       #expect(app.drawingDraftSnapshot.artworkPlan?.contentHash == plan)
       #expect(app.drawingDraftSnapshot.plan?.contentHash == executionPlan)
       #expect(app.drawingDraftSnapshot.drawBorder == drawBorder)
-      #expect(app.portraitStudio.projectedDrawing?.executionReference(for: candidate.program)?.candidateID == retained.reference?.digest.description)
+      #expect(app.receivedDrawings.projectedDrawing?.executionReference(for: candidate.program)?.candidateID == retained.reference?.digest.description)
       await app.shutdown()
     } catch { await app.shutdown(); throw error }
   }

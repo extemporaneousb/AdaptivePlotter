@@ -5,7 +5,7 @@ import PortraitLibrary
 
 /// Training reads only a frozen portfolio revision. Human edits and model proposals
 /// stay distinct; all variants of linked sources share one partition group.
-package enum FlowDojoTraining {
+package enum FlowAuthoringTraining {
   /// Enforce the trainer's declared limits before allocating expanded features.
   package struct Budget {
     private var examples = 0
@@ -21,8 +21,9 @@ package enum FlowDojoTraining {
       let nextElements = featureElements + ((includeRoot ? 1 : 0) + revisionCount)
         * (FlowArtistFeatures.drawingCount + strokeCount * FlowArtistFeatures.strokeCount)
       let nextLabels = labels + labelCount
-      guard nextExamples <= 5_000, nextElements <= 8_000_000, nextLabels <= 20_000 else {
-        throw FlowPortfolioError.unavailable("This local fit exceeds 5,000 examples, 8 million feature values, or 20,000 explicit stroke labels. Exclude some drawings or sources from training; their portfolio records remain intact.")
+      guard nextExamples <= 5_000,
+        FlowArtistTrainingLimits.accepts(featureValueCount: nextElements, explicitLabelCount: nextLabels) else {
+        throw FlowPortfolioError.unavailable("This local fit exceeds 5,000 examples, 10 million feature values, or 20,000 explicit stroke labels. Exclude some drawings or sources from training; their portfolio records remain intact.")
       }
       examples = nextExamples; featureElements = nextElements; labels = nextLabels
     }

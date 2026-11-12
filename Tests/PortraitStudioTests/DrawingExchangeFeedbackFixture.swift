@@ -22,7 +22,7 @@ struct DrawingExchangeFeedbackFixture {
     try await store.loadRecords()
     var sources: [FlowPortfolioSource] = [], candidates: [[FlowPortfolioCandidate]] = []
     for index in 0..<sourceCount {
-      let source = try await store.addSource(data: FlowDojoFixture.image(index + 1), title: "Synthetic source \(index)")
+      let source = try await store.addSource(data: FlowAuthoringFixture.image(index + 1), title: "Synthetic source \(index)")
       sources.append(source)
       candidates.append(try await round(store: store, source: source.id, count: candidateCount))
     }

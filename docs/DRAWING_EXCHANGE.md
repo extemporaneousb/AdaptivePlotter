@@ -34,12 +34,12 @@ A source or parent declaration is one of `{"state":"none"}`, `{"state":"present"
 
 ## Swift API and dependency direction
 
-The following signatures specify responsibility and cost. They are Swift interface sketches for implementation, not already-shipped declarations. Keep the package internal until there is a real external Swift client. The wire spec is independently consumable.
+The following interface sketches specify responsibility and cost. Swift clients can import the `Drawing` package product. The wire format can also be read independently.
 
 | Existing owner | Adopted boundary | Remove after callers move |
 |---|---|---|
 | `PlotterModel.DrawingProgram`, geometry, canonical encoder, placement and planner | Reuse the original program instance, stable stroke IDs and verified content hash. Compute field bounds and stroke summary once per materialized revision where consumers repeatedly need them. | Per-view geometry hashing, ID reconstruction and duplicate bounds walkers with the same semantics. Keep camera/machine-space bounds separate. |
-| Existing `PortraitCore` authoring/exchange contracts | House a producer-independent Drawing value, typed refs, asset descriptors, v1 record codecs, capabilities, pure edits and closure validation in the authoring model. Store photos/inputs lazily by reference. The shared module depends on the geometry model. | The native/transferred/source-free switches outside their importers and validators. Keep v1 decoding and preservation of original bytes. |
+| `Drawing` authoring/exchange contracts | House a producer-independent Drawing value, typed refs, asset descriptors, v1 record codecs, capabilities, pure edits and closure validation in the authoring model. Store photos/inputs lazily by reference. The shared module depends on the geometry model. | The native/transferred/source-free switches outside their importers and validators. Keep v1 decoding and preservation of original bytes. |
 | `PortraitArtists`, Studio render workers | Compile concrete producers with associated Input/Settings types. Emit the common program, optional input reference and validated receipt. UI owns transient proposals and edit state. | Producer-specific write-on-generation, direct physical ports and reconstructed photo identities. Capture adapters belong in app composition. |
 | `PortraitLibrary` and the existing SQLite owner | One actor/write lease for retain/load/page/purge/import/mount. Commit selected ancestry and assets together. Emit immutable summary pages and exact typed references. Raw evidence lookup uses read-only projections. | Full archive loads for browsing, per-producer query fallbacks, portfolio-as-library routing and parallel UI autosaves. |
 | Application composition and the existing draft/run runtimes | Resolve and validate a DrawingRef outside the device runtime. Pass one immutable selection carrying ref, program and verified authored provenance. Each effect remains with its current owner. | Package reimport during embedded Send, unbound program-plus-side-channel selection, ad hoc per-view readiness and mapping of failure to a lone string. |
@@ -93,7 +93,7 @@ Before moving a hot path record a comparable baseline using the same build confi
 
 ### Current derived presentation and cursor implementation
 
-The current Dojo image body displays an asynchronously prepared image. Its derived
+The portrait image view displays an asynchronously prepared image. Its derived
 cache keys immutable caller identity plus decode dimension, bounds resident entries/
 bytes and actual unsettled workers, and uses cancellation/generation guards. Encoded
 provider retention counts toward the decoded-cache budget. Current checkpoint and
@@ -112,7 +112,7 @@ limits; it does not establish the remaining full-scale/media/native gates.
 
 ## Current local destination boundary
 
-`PortraitCore.DrawingDestinationRequest` defines Describe, Prepare, Submit, Status,
+`DrawingDestinationRequest` defines Describe, Prepare, Submit, Status,
 Cancel and ExportResult; `DrawingDestinationReply` carries typed descriptions,
 tickets, decisions, refusals, cancellation acknowledgement/settlement and result URLs.
 `PortraitLibrary.DrawingDestinationService` and its file adapters use the same contract.
@@ -333,7 +333,7 @@ retry, no-ink or other live physical authority; historical run attributions rema
 
 ## Shared membership editor boundary, 2026-11-08
 
-The embedded and standalone Drawing browsers share one `DrawingLibraryBrowser`
+At the DX-08 landing, the embedded and standalone Drawing browsers shared one `DrawingLibraryBrowser`
 and `DrawingMembershipEditor`, borrowing the existing `PortraitSketchCollection`.
 UI request/sheet state is transient; it is not another collection or selection
 owner. The native canvas uses stable stroke IDs, and only admitted `.edit`/`.preview`
@@ -514,7 +514,7 @@ A fresh Flow producer validates its supplied artifacts. The app's default read
 registry does not semantically revalidate arbitrary persisted Flow receipts;
 known-program preview/plot/edit support and byte preservation are distinct from
 producer verification. Generic regeneration/training capabilities must remain
-unadvertised without that proof. Current Dojo learning/material operations use
+unadvertised without that proof. Current Flow Edge learning/material operations use
 exact domain capsules and references; this does not complete future portable
 producer-proof, mount, job or result-adoption gates.
 

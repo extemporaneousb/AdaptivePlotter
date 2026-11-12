@@ -321,7 +321,7 @@ round. The region outline may remain skewed because it represents the learned
 controller boundary. **Metric** targets intentionally retain controller distances
 and are not the proportion check for this increment.
 
-Then project the selected face with **Show on Plotter Video**, inspect placement,
+Then send the selected Studio drawing to AdaptivePlotter, inspect placement,
 and draw through the ordinary attended path below. Record whether the actual ink
 matches the prediction and whether the face proportions look right. Existing
 ratings retain their stated screen/physical objective; this increment does not
@@ -330,13 +330,9 @@ from independent physical dimensions. Native and ink acceptance must be recorded
 after this attended run, not inferred from software tests or a signed bundle.
 
 
-1. Show **Guided Learning**, **Video Settings**, **Motion**, and **Portrait Studio**
-   from native **View** Show/Hide commands. Panes fill right, left, lower-right,
-   lower-left around the permanent canvas; native dividers resize them.
-   Apply **Use Saved Learning** and verify the complete accepted checkpoint,
-   including Border completion. Selecting Portrait preparation uses the face
-   camera in the permanent canvas; **Show on Plotter Video** selects the
-   plotter camera while retaining the portrait controls.
+1. Open Portrait Studio for authoring. In AdaptivePlotter, choose **Guided
+   Learning**, **Video Settings** and **Motion** from **View**. Apply **Use Saved
+   Learning** and verify the accepted checkpoint, including Border completion.
 2. Inspect the fresh plotter frame, controller position, accepted region, and
    actual contact plane. An existing sheet assertion does not detect paper
    edges. Only assert **Sheet Covers Target** after inspecting the sheet.
@@ -346,8 +342,8 @@ after this attended run, not inferred from software tests or a signed bundle.
    separately. The synthetic held Drawing Run test proves prompt typed software
    Stop acceptance before deliberately held lower work settles; it supplies no
    native input or actual-controller Stop evidence.
-4. Import the face reference in Portrait Studio, choose the portrait style,
-   and use **Show on Plotter Video**. Fit retains the explicitly authored rotation.
+4. Import the face reference in Portrait Studio, select a Flow Edge drawing and
+   prepare it in AdaptivePlotter. Review its rotation in the Drawing panel.
    Adjust scale/placement so the first portrait occupies one half of the region.
    Inspect the complete immutable plan and exact plotter frame before **Draw**.
    No pre-run Learning/evidence-role selector is required.
@@ -417,7 +413,7 @@ longer a prerequisite for this diagnostic check.
 
 ## Trainable Drawing Studio campaign — DS-10 acceptance
 
-This section is the attended procedure for the 2026-09-13 campaign. It is a
+This section describes the historical signed UI for the 2026-09-13 campaign. For the current two-app handoff, use section 6 above. It is a
 procedure, not an execution receipt. Keep four outcomes separate: delivered
 software, observed native interaction, learned preference quality, and attended
 physical behavior. A completed fit or controller run does not close the latter

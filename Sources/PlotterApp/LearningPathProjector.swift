@@ -27,7 +27,7 @@ enum ExactWorkflowVisionOwner: String, CaseIterable, Hashable, Sendable {
     case .cameraCalibration: "camera calibration"
     case .sparseTipCalibration: "pen-tip calibration"
     case .borderValidation: "Drawing Border validation"
-    case .drawingStudio: "Drawing Studio validation"
+    case .drawingStudio: "Drawing validation"
     }
   }
 }

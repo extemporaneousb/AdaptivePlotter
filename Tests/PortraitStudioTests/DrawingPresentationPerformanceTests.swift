@@ -30,7 +30,7 @@ struct DrawingPresentationPerformanceTests {
     let clone = FileManager.default.temporaryDirectory.appendingPathComponent("drawing-presentation-clone-" + UUID().uuidString)
     try FileManager.default.copyItem(at: fixture, to: clone)
     defer { try? FileManager.default.removeItem(at: clone) }
-    let model = FlowDojoModel(directory: clone, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: clone, render: FlowAuthoringFixture.render)
     let decoder = FlowPresentationImageCache.shared
     var samples: [[String: Any]] = []
     var renderedPixelDigest: String?
@@ -117,10 +117,10 @@ struct DrawingPresentationPerformanceTests {
   }
 
   private func seed(_ directory: URL) async throws {
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     await model.open(); model.count = 3
     for index in 1...4 {
-      await model.addPhoto(data: FlowDojoFixture.image(index), title: "Frozen synthetic source \(index)")
+      await model.addPhoto(data: FlowAuthoringFixture.image(index), title: "Frozen synthetic source \(index)")
       await model.generate(refining: false)
       for candidate in model.roundCandidates {
         await model.selectCandidate(candidate.id)

@@ -1,5 +1,4 @@
 import PortraitLibrary
-import PortraitStudioUI
 import Foundation
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
@@ -125,7 +124,6 @@ actor PlotterObservationConfigurationRuntime {
   }
 
   private let lower: any PlotterObservationCameraSessionPort
-  private let portrait: PortraitStudioModel?
   private let recordingStore: EpisodeRecordingStore?
   private let capabilityID = UUID()
   private var revision: UInt64 = 0
@@ -145,12 +143,10 @@ actor PlotterObservationConfigurationRuntime {
 
   init(
     lower: any PlotterObservationCameraSessionPort,
-    recordingStore: EpisodeRecordingStore? = nil,
-    portrait: PortraitStudioModel? = nil
+    recordingStore: EpisodeRecordingStore? = nil
   ) {
     self.lower = lower
     self.recordingStore = recordingStore
-    self.portrait = portrait
   }
 
   func reference() -> PlotterObservationConfigurationReference {
@@ -328,8 +324,6 @@ actor PlotterObservationConfigurationRuntime {
     // Admission already joined any prior role drain. Its settled role names
     // the capture to stop; a newer desired role does not describe that capture.
     guard admittedRole == .portrait else { return }
-    await portrait?.stopCamera()
-    await portrait?.cancelRendering()
     // A newer role request can be accepted while this older source operation
     // settles. Its drain joins this operation before starting the chosen
     // camera; retain that newer choice instead of overwriting it here.
@@ -341,6 +335,7 @@ actor PlotterObservationConfigurationRuntime {
   private func selectCameraRole(_ role: WorkbenchCameraRole) async
     -> PlotterObservationConfigurationDisposition
   {
+    guard role == .plotter else { return .refused("Photo capture belongs to Portrait Studio.") }
     if cameraRole.role == role, !cameraRole.isTransitioning, cameraRole.error == nil,
       cameraRoleTask == nil, activeSubmission == nil
     {
@@ -348,13 +343,7 @@ actor PlotterObservationConfigurationRuntime {
       switch role {
       case .plotter:
         alreadyRunning = await lower.snapshot().state == .running
-      case .portrait:
-        if let portrait {
-          let snapshot = await portrait.cameraDiagnostics()
-          let selectedDeviceID = await portrait.selectedDeviceID
-          alreadyRunning = snapshot.state == .running
-            && snapshot.selectedDeviceID == selectedDeviceID
-        } else { alreadyRunning = false }
+      case .portrait: alreadyRunning = false
       }
       // Snapshot reads suspend. A newer selection may have arrived meanwhile.
       if alreadyRunning, cameraRole.role == role, !cameraRole.isTransitioning,
@@ -400,25 +389,12 @@ actor PlotterObservationConfigurationRuntime {
         let stopped = await lower.stop()
         try await recordStopSettlement()
         publish(.camera(stopped))
-        await portrait?.stopCamera()
-        await portrait?.cancelRendering()
-        try requireOpenEffectBoundary()
+                try requireOpenEffectBoundary()
         // Both drivers have settled before deciding which newest choice starts.
         guard requestRevision == cameraRoleRequestRevision else { continue }
         switch role {
         case .portrait:
-          guard let portrait else {
-            throw LearningPathOperationError.requiredState("Portrait capture is unavailable. Reopen the application and retry Portrait Studio.")
-          }
-          await portrait.discover(excluding: stopped.selectedDeviceID)
-          try requireOpenEffectBoundary()
-          guard requestRevision == cameraRoleRequestRevision else { continue }
-          await portrait.startCamera()
-          try requireOpenEffectBoundary()
-          guard requestRevision == cameraRoleRequestRevision else { continue }
-          if let error = await portrait.cameraStatus {
-            throw LearningPathOperationError.requiredState(error)
-          }
+          throw LearningPathOperationError.requiredState("Photo capture belongs to Portrait Studio.")
         case .plotter:
           let lifecycle = await lower.startLifecycle()
           try requireOpenEffectBoundary()
@@ -495,7 +471,6 @@ actor PlotterObservationConfigurationRuntime {
       _ = await submission.task.value
     }
     await roleTask?.value
-    await portrait?.shutdown()
     await stopAmbientSubscriptions()
     await recordPendingStartCancellation()
     try? await recordStopRequest()

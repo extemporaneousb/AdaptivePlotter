@@ -4,7 +4,7 @@ import PortraitCore
 import UniformTypeIdentifiers
 
 @MainActor
-package enum FlowDojoFiles {
+package enum FlowAuthoringFiles {
   private static var activePanel: NSSavePanel?
   package static func cancelPanel() { activePanel?.cancel(nil) }
   package static func openPhotoCollection() async -> URL? {

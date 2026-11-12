@@ -9,16 +9,16 @@ import PortraitLibrary
 import PortraitStudioUI
 import Testing
 
-@Suite("Flow Edge dojo autosaved interaction", .serialized)
+@Suite("Flow Edge authoring autosaved interaction", .serialized)
 @MainActor
-struct FlowDojoTests {
+struct FlowAuthoringTests {
   @Test("Failed Rank publication preserves the comparison and durable recovery records one response without geometry", arguments: [LibraryExchangeCatalogBoundary.beforeSQLPublication, .afterSQLCommit])
   func canonicalRankFailure(boundary: LibraryExchangeCatalogBoundary) async throws {
     let directory = DrawingExchangeFeedbackFixture.root()
     defer { try? FileManager.default.removeItem(at: directory) }
     let library = DrawingLibrary(directoryURL: directory)
-    let model = FlowDojoModel(directory: directory, library: library, purpose: .validationFixture, render: FlowDojoFixture.render)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "Rank failure")
+    let model = FlowAuthoringModel(directory: directory, library: library, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "Rank failure")
     model.count = 3; await model.generate(refining: false)
     let round = try #require(model.round)
     await model.presentRanking(scope: .round(round.id), count: 2)
@@ -54,7 +54,7 @@ struct FlowDojoTests {
   func invalidSourceIsAdmissionFailure() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     await model.open()
     let revision = model.document?.revision
     await model.addPhoto(data: Data("not a PNG or JPEG".utf8), title: "Invalid source")
@@ -62,7 +62,7 @@ struct FlowDojoTests {
     #expect(model.document?.sources.isEmpty == true && model.document?.revision == revision)
     await model.importPhotoCollection(directory.appendingPathComponent("missing-photo-set"))
     #expect(model.error != nil && !model.needsRecovery && model.document?.sources.isEmpty == true)
-    await model.addPhoto(data: FlowDojoFixture.image(1), title: "Valid source after refusal")
+    await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "Valid source after refusal")
     #expect(model.error == nil && !model.needsRecovery && model.document?.sources.count == 1)
     #expect(await model.shutdown())
   }
@@ -71,10 +71,10 @@ struct FlowDojoTests {
   func liveAdmission() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, nominalPenWidthMM: -1,
-      purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, nominalPenWidthMM: -1,
+      purpose: .validationFixture, render: FlowAuthoringFixture.render)
     model.count = 3
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(2), title: "Admission source")
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(2), title: "Admission source")
     await model.generate(refining: false)
     #expect(model.roundCandidates.isEmpty)
     #expect(model.round?.failures.count == 3)
@@ -97,10 +97,10 @@ struct FlowDojoTests {
   func autosavedJourney() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     model.count = 3
     await model.open(); #expect(model.error == nil)
-    await model.addPhoto(data: FlowDojoFixture.image(1), title: "Synthetic source")
+    await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "Synthetic source")
     await model.generate(refining: false)
     #expect(model.error == nil); #expect(model.roundCandidates.count == 3)
     let chosen = try #require(model.roundCandidates.first)
@@ -125,7 +125,7 @@ struct FlowDojoTests {
     for (index, item) in presentation.items.enumerated() { await model.rank(item: item.id, position: index + 1) }
     let ranks = model.ranks
     await model.shutdown()
-    let reopened = FlowDojoModel(directory: directory, render: FlowDojoFixture.render)
+    let reopened = FlowAuthoringModel(directory: directory, render: FlowAuthoringFixture.render)
     await reopened.open()
     #expect(reopened.error == nil)
     #expect(reopened.presentation?.id == presentation.id)
@@ -138,8 +138,8 @@ struct FlowDojoTests {
   func autosaveFailureRecovery() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(3), title: "Failure fixture")
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(3), title: "Failure fixture")
     model.count = 3; await model.generate(refining: false)
     await model.selectCandidate(try #require(model.roundCandidates.first).id)
     let program = try #require(model.program), first = program.strokes[0].id, second = program.strokes[1].id
@@ -165,8 +165,8 @@ struct FlowDojoTests {
   func sourceCurationFailureIsAtomic() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(4), title: "Curation failure fixture")
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(4), title: "Curation failure fixture")
     let sourceID = try #require(model.selectedSource?.id)
     let records = directory.appendingPathComponent("objects/sha256"), retained = directory.appendingPathComponent("objects/sha256-paused")
     try FileManager.default.moveItem(at: records, to: retained); try Data([0]).write(to: records)
@@ -191,8 +191,8 @@ struct FlowDojoTests {
   func fitInstallFailureRetainsReport() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let gate = FlowDojoFitGate()
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture,
+    let gate = FlowAuthoringFitGate()
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture,
       fit: { _, _ in await gate.run() })
     await model.open()
     let fitting = Task { await model.fit() }
@@ -211,7 +211,7 @@ struct FlowDojoTests {
     #expect(await gate.calls == 1)
     let fitID = try #require(model.document?.fits.first?.id)
     #expect(await model.shutdown())
-    let reopened = FlowDojoModel(directory: directory)
+    let reopened = FlowAuthoringModel(directory: directory)
     await reopened.open(); await reopened.showReport(fitID)
     #expect(reopened.error == nil)
     #expect(reopened.fitReport?.summary == "TEST FIXTURE unavailable result retained across install failure")
@@ -225,8 +225,8 @@ struct FlowDojoTests {
   func choicesRetainChangedAlternatives() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(5), title: "Choice identity fixture")
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(5), title: "Choice identity fixture")
     model.count = 3; await model.generate(refining: false)
     let a = try #require(model.roundCandidates.first), b = model.roundCandidates[1]
     await model.selectCandidate(a.id); await model.selectCandidate(a.id)
@@ -249,15 +249,15 @@ struct FlowDojoTests {
   func materialStyleIsFrozenPerRound() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let gate = FlowDojoRenderGate()
+    let gate = FlowAuthoringRenderGate()
     let first = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
     let second = try StrokeStyle(nominalLineWidth: 0.8, penProfileID: PenProfileID())
-    let model = FlowDojoModel(directory: directory, strokeStyle: first, purpose: .validationFixture,
+    let model = FlowAuthoringModel(directory: directory, strokeStyle: first, purpose: .validationFixture,
       render: { data, recipe, pen in
         await gate.suspendFirst()
-        return try await FlowDojoFixture.render(data, recipe, pen)
+        return try await FlowAuthoringFixture.render(data, recipe, pen)
       })
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(7), title: "Material context fixture")
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(7), title: "Material context fixture")
     model.count = 3
     let rendering = Task { await model.generate(refining: false) }
     await gate.waitForStart(); model.updateStrokeStyle(second); await gate.release(); await rendering.value
@@ -283,39 +283,33 @@ struct FlowDojoTests {
   func shutdownAdmissionIsClosedBeforeAwait() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let gate = FlowDojoRenderGate()
-    let model = FlowDojoModel(directory: root.appendingPathComponent("active.flowportfolio"), purpose: .validationFixture,
+    let gate = FlowAuthoringRenderGate()
+    let model = FlowAuthoringModel(directory: root.appendingPathComponent("active.flowportfolio"), purpose: .validationFixture,
       render: { data, recipe, pen in
         await gate.suspendFirst()
-        return try await FlowDojoFixture.render(data, recipe, pen)
+        return try await FlowAuthoringFixture.render(data, recipe, pen)
       })
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(1), title: "Before shutdown")
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(1), title: "Before shutdown")
     let rendering = Task { await model.generate(refining: false) }
     await gate.waitForStart()
     let closing = Task { await model.shutdown() }
     while model.acceptsChanges { await Task.yield() }
-    await model.addPhoto(data: FlowDojoFixture.image(2), title: "Late unadmitted photo")
+    await model.addPhoto(data: FlowAuthoringFixture.image(2), title: "Late unadmitted photo")
     #expect(model.document?.sources.count == 1)
     await gate.release(); await rendering.value
     #expect(await closing.value); #expect(!model.acceptsChanges); #expect(model.store == nil)
-    let lateURL = root.appendingPathComponent("late-library")
-    let owner = PortraitStudioModel(library: DrawingLibrary(directoryURL: lateURL))
-    #expect(await owner.preparePortfolioShutdown())
-    let late = owner.portfolioDojo(strokeStyle: model.strokeStyle)
-    await late.open()
-    #expect(!late.acceptsChanges); #expect(late.store == nil)
-    #expect(!FileManager.default.fileExists(atPath: lateURL.path))
-    await owner.shutdown()
+    await model.open()
+    #expect(!model.acceptsChanges && model.store == nil)
   }
 
   @Test("Quit joins the complete recovery drain, including edits admitted behind a paused fit")
   func shutdownJoinsRecoveryDrain() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let gate = FlowDojoFitGate()
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture,
-      render: FlowDojoFixture.render, fit: { _, _ in await gate.run() })
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(8), title: "Recovery shutdown fixture")
+    let gate = FlowAuthoringFitGate()
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture,
+      render: FlowAuthoringFixture.render, fit: { _, _ in await gate.run() })
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(8), title: "Recovery shutdown fixture")
     model.count = 3; await model.generate(refining: false)
     await model.selectCandidate(try #require(model.roundCandidates.first?.id))
     let program = try #require(model.program), first = program.strokes[0].id, second = program.strokes[1].id
@@ -332,7 +326,7 @@ struct FlowDojoTests {
     #expect(await closing.value)
     #expect(model.removedIDs == [first, second]); #expect(model.document?.pruneRevisions.count == 2)
     #expect(model.document?.fits.count == 1); #expect(model.error == nil); #expect(model.store == nil)
-    let reopened = FlowDojoModel(directory: directory)
+    let reopened = FlowAuthoringModel(directory: directory)
     await reopened.open()
     #expect(reopened.removedIDs == [first, second]); #expect(reopened.document?.fits.count == 1)
     #expect(await reopened.shutdown())
@@ -340,15 +334,15 @@ struct FlowDojoTests {
 
   @Test("Training budgets reject expanded rows before feature allocation")
   func trainingBudgetBeforeAllocation() throws {
-    var strokes = FlowDojoTraining.Budget()
+    var strokes = FlowAuthoringTraining.Budget()
     #expect(throws: (any Error).self) { try strokes.admit(strokeCount: 10_001, revisionCount: 0, labelCount: 0) }
-    var features = FlowDojoTraining.Budget()
+    var features = FlowAuthoringTraining.Budget()
     #expect(throws: (any Error).self) { try features.admit(strokeCount: 10_000, revisionCount: 9, labelCount: 0) }
-    var labels = FlowDojoTraining.Budget()
+    var labels = FlowAuthoringTraining.Budget()
     try labels.admit(strokeCount: 10_000, revisionCount: 0, labelCount: 10_000)
     try labels.admit(strokeCount: 10_000, revisionCount: 0, labelCount: 10_000)
     #expect(throws: (any Error).self) { try labels.admit(strokeCount: 1, revisionCount: 0, labelCount: 1) }
-    var examples = FlowDojoTraining.Budget()
+    var examples = FlowAuthoringTraining.Budget()
     try examples.admit(strokeCount: 1, revisionCount: 4_999, labelCount: 0)
     #expect(throws: (any Error).self) { try examples.admit(strokeCount: 1, revisionCount: 0, labelCount: 0) }
   }
@@ -357,8 +351,8 @@ struct FlowDojoTests {
   func trainingSemantics() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
-    await model.open(); await model.addPhoto(data: FlowDojoFixture.image(2), title: "Synthetic")
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(2), title: "Synthetic")
     model.count = 3; await model.generate(refining: false)
     let candidate = try #require(model.roundCandidates.first)
     await model.selectCandidate(candidate.id)
@@ -377,7 +371,7 @@ struct FlowDojoTests {
 
 /// Explicit test oracle. It supplies varied vector fixtures for workflow tests;
 /// real Flow Edge is covered by the opt-in integration trial.
-enum FlowDojoFixture {
+enum FlowAuthoringFixture {
   static func image(_ index: Int) -> Data {
     let context = CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 160,
       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -398,14 +392,14 @@ enum FlowDojoFixture {
         style: pen, ordering: UInt32(index))
     }
     let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 100), strokes: strokes,
-      source: .init(kind: "portrait", sourceIdentifier: "synthetic-dojo-loop|" + DrawingArtifactCoding.sha256(data)))
+      source: .init(kind: "portrait", sourceIdentifier: "synthetic-authoring-loop|" + DrawingArtifactCoding.sha256(data)))
     let raster = PortraitRaster(width: 24, height: 24, luminance: (0..<576).map { Double($0 % 24) / 25 },
-      provenance: "synthetic-dojo-loop", analysisSummary: "Test-only source evidence")
+      provenance: "synthetic-authoring-loop", analysisSummary: "Test-only source evidence")
     return PortraitRenderResult(raster: raster, program: program)
   }
 }
 
-private actor FlowDojoFitGate {
+private actor FlowAuthoringFitGate {
   private var started = false
   private var startedWaiters: [CheckedContinuation<Void, Never>] = []
   private var resume: CheckedContinuation<Void, Never>?
@@ -423,7 +417,7 @@ private actor FlowDojoFitGate {
   func release() { resume?.resume(); resume = nil }
 }
 
-private actor FlowDojoRenderGate {
+private actor FlowAuthoringRenderGate {
   private var started = false
   private var startedWaiters: [CheckedContinuation<Void, Never>] = []
   private var resume: CheckedContinuation<Void, Never>?

@@ -241,7 +241,7 @@ struct DrawingBrowserTests {
     let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root)
     let acquisition = PortraitStudioModel(library: library)
-    let dojo = FlowDojoModel(directory: root, library: library)
+    let authoring = FlowAuthoringModel(directory: root, library: library)
     let delegate = PortraitStudioApplicationDelegate()
     let base = try await acquisition.sketches.retain(DrawingEditFixture.value(), reason: "save")
     let baseRef = try #require(base.reference)
@@ -249,7 +249,7 @@ struct DrawingBrowserTests {
     navigation.collection = .drawings; navigation.drawing = baseRef
     // Inspect/host the real browser property, not the main window body: this
     // performs no camera discovery, application launch or default-store access.
-    let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library, delegate: delegate,
+    let standalone = PortraitStudioAuthoringWindow(authoring: authoring, acquisition: acquisition, library: library, delegate: delegate,
       route: Binding(get: { navigation }, set: { navigation = $0 }))
     let shared = standalone.drawingBrowser
     #expect(shared.sketches === acquisition.sketches && shared.handoff != nil)
@@ -306,10 +306,10 @@ struct DrawingBrowserTests {
       #expect(acquisition.sketches.selected?.reference == child.reference)
       #expect(try await library.drawings().entries.count == count)
       window.orderOut(nil); window.contentViewController = nil
-      _ = await dojo.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
+      _ = await authoring.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
     } catch {
       window.orderOut(nil); window.contentViewController = nil
-      _ = await dojo.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
+      _ = await authoring.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
       throw error
     }
   }
@@ -320,12 +320,12 @@ struct DrawingBrowserTests {
     let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root)
     let acquisition = PortraitStudioModel(library: library)
-    let dojo = FlowDojoModel(directory: root, library: library)
+    let authoring = FlowAuthoringModel(directory: root, library: library)
     let base = try await acquisition.sketches.retain(DrawingEditFixture.value(), reason: "save")
     let baseRef = try #require(base.reference)
     var navigation = DrawingLibraryRoute()
     navigation.collection = .drawings; navigation.drawing = baseRef
-    let standalone = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library,
+    let standalone = PortraitStudioAuthoringWindow(authoring: authoring, acquisition: acquisition, library: library,
       delegate: PortraitStudioApplicationDelegate(), route: Binding(get: { navigation }, set: { navigation = $0 }))
     let shared = standalone.drawingBrowser
     #expect(shared.sketches === acquisition.sketches && shared.handoff != nil)
@@ -396,7 +396,7 @@ struct DrawingBrowserTests {
       browser.close()
       window.orderOut(nil); window.contentViewController = nil
       browserWindow.orderOut(nil); browserWindow.contentViewController = nil
-      _ = await dojo.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
+      _ = await authoring.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
       let reopenedLibrary = DrawingLibrary(directoryURL: root)
       let restoredChild = try await reopenedLibrary.drawing(try #require(saved.reference))
       #expect(restoredChild.reference == saved.reference && restoredChild.parent == .present(baseRef))
@@ -406,7 +406,7 @@ struct DrawingBrowserTests {
       browser.close()
       editorWindow?.orderOut(nil); editorWindow?.contentViewController = nil
       browserWindow.orderOut(nil); browserWindow.contentViewController = nil
-      _ = await dojo.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
+      _ = await authoring.shutdown(); await acquisition.shutdown(); await library.closeLibrary()
       throw error
     }
   }

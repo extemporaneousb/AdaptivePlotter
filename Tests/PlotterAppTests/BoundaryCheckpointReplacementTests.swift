@@ -284,6 +284,8 @@ private struct BoundaryReplacementFixture {
     let camera = try TestObservationCameraSession()
     let app = plotterApplicationRuntime(machine: machine, camera: camera,
       statePersistencePort: persistence, tipCalibrationSemanticIdentities: identities, log: log)
+    await app.loadDrawingEvidenceArchive()
+    await app.awaitDrawingHistoryRecovery()
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, nil))

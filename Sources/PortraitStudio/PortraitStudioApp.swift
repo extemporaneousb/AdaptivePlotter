@@ -8,7 +8,7 @@ import PortraitStudioUI
 @main
 struct PortraitStudioApp: App {
   @NSApplicationDelegateAdaptor(PortraitStudioApplicationDelegate.self) private var delegate
-  @State private var dojo: FlowDojoModel
+  @State private var authoring: FlowAuthoringModel
   @State private var acquisition: PortraitStudioModel
   private let launchError: String?
   private let library: DrawingLibrary
@@ -28,25 +28,25 @@ struct PortraitStudioApp: App {
     }
     let owner = DrawingLibrary(directoryURL: location, payloadValidators: DrawingDestinationResult.payloadValidators)
     library = owner
-    _dojo = State(initialValue: FlowDojoModel(directory: location, library: owner))
+    _authoring = State(initialValue: FlowAuthoringModel(directory: location, library: owner))
     _acquisition = State(initialValue: PortraitStudioModel(library: owner))
     launchError = error
   }
 
   var body: some Scene {
-    Window("Portrait Studio — Flow Edge Dojo", id: "portrait-studio") {
+    Window("Portrait Studio — Flow Edge", id: "portrait-studio") {
       if let launchError {
         ContentUnavailableView("Drawing Library configuration", systemImage: "folder.badge.questionmark", description: Text(launchError))
       } else {
-        PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library, delegate: delegate)
+        PortraitStudioAuthoringWindow(authoring: authoring, acquisition: acquisition, library: library, delegate: delegate)
       }
     }.defaultSize(width: 1440, height: 940)
   }
 }
 
-struct PortraitStudioDojoWindow: View {
+struct PortraitStudioAuthoringWindow: View {
   @Environment(\.openWindow) private var openWindow
-  @Bindable var dojo: FlowDojoModel
+  @Bindable var authoring: FlowAuthoringModel
   @Bindable var acquisition: PortraitStudioModel
   let library: DrawingLibrary
   @ObservedObject var delegate: PortraitStudioApplicationDelegate
@@ -56,9 +56,9 @@ struct PortraitStudioDojoWindow: View {
   private var route: Binding<DrawingLibraryRoute> {
     routeOverride ?? Binding(get: { .restored(savedRoute) }, set: { savedRoute = $0.encoded })
   }
-  init(dojo: FlowDojoModel, acquisition: PortraitStudioModel, library: DrawingLibrary,
+  init(authoring: FlowAuthoringModel, acquisition: PortraitStudioModel, library: DrawingLibrary,
     delegate: PortraitStudioApplicationDelegate, route: Binding<DrawingLibraryRoute>? = nil) {
-    self.dojo = dojo; self.acquisition = acquisition; self.library = library; self.delegate = delegate
+    self.authoring = authoring; self.acquisition = acquisition; self.library = library; self.delegate = delegate
     routeOverride = route
     let location = library.directoryURL.standardizedFileURL.resolvingSymlinksInPath()
     let isDefault = location == PortraitStudioApp.defaultLibraryURL.standardizedFileURL.resolvingSymlinksInPath()
@@ -95,12 +95,12 @@ struct PortraitStudioDojoWindow: View {
   }
   private func openPhoto(_ ref: PhotoRef) async -> String? {
     let openingWorkspace = route.wrappedValue.workspace
-    await dojo.open(); let failure = await dojo.selectPhoto(ref, isStillCurrent: {
+    await authoring.open(); let failure = await authoring.selectPhoto(ref, isStillCurrent: {
       route.wrappedValue.photo == ref && route.wrappedValue.workspace == openingWorkspace
     })
     guard route.wrappedValue.photo == ref, route.wrappedValue.workspace == openingWorkspace else { return "The Library selection changed." }
     if let failure { return failure }
-    guard dojo.currentPhotoRef == ref, dojo.error == nil else { return dojo.error ?? "The exact Photo is unavailable for authoring." }
+    guard authoring.currentPhotoRef == ref, authoring.error == nil else { return authoring.error ?? "The exact Photo is unavailable for authoring." }
     route.wrappedValue.workspace = .drawingStudio
     return nil
   }
@@ -118,7 +118,7 @@ struct PortraitStudioDojoWindow: View {
       }.padding(12)
       Divider()
       if route.wrappedValue.workspace == .library { drawingBrowser }
-      else { FlowDojoView(model: dojo, camera: acquisition, selectCamera: {
+      else { FlowAuthoringView(model: authoring, camera: acquisition, selectCamera: {
       await acquisition.startCamera(); return acquisition.cameraStatus
       }, handoffTitle: "Prepare in AdaptivePlotter", handoff: { drawing in
         await prepareDrawingAtDestination(drawing)
@@ -134,7 +134,7 @@ struct PortraitStudioDojoWindow: View {
       }.padding()
     }
     .task {
-      delegate.dojo = dojo
+      delegate.authoring = authoring
       installDocumentHandling()
       delegate.restorePortfolioWindow = {
         openWindow(id: "portrait-studio")
@@ -143,10 +143,10 @@ struct PortraitStudioDojoWindow: View {
       do { try await library.open() }
       catch { libraryError = "Drawing Library unavailable: " + error.localizedDescription }
       if route.wrappedValue.workspace == .drawingStudio, let ref = route.wrappedValue.photo {
-        await dojo.open(); await dojo.selectPhoto(ref, isStillCurrent: { route.wrappedValue.photo == ref && route.wrappedValue.workspace == .drawingStudio })
+        await authoring.open(); await authoring.selectPhoto(ref, isStillCurrent: { route.wrappedValue.photo == ref && route.wrappedValue.workspace == .drawingStudio })
         if route.wrappedValue.workspace == .drawingStudio, route.wrappedValue.photo == ref,
-          dojo.currentPhotoRef != ref || dojo.error != nil {
-          libraryError = dojo.error ?? "The exact Photo is unavailable for authoring."
+          authoring.currentPhotoRef != ref || authoring.error != nil {
+          libraryError = authoring.error ?? "The exact Photo is unavailable for authoring."
           route.wrappedValue.workspace = .library
         }
       }
@@ -163,7 +163,7 @@ struct PortraitStudioDojoWindow: View {
 final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, ObservableObject {
   @Published var destinationStatus: String?
   @Published var documentError: String?
-  var dojo: FlowDojoModel?
+  var authoring: FlowAuthoringModel?
   var acquisition: PortraitStudioModel?
   var library: DrawingLibrary?
   var restorePortfolioWindow: (() -> Void)?
@@ -309,7 +309,7 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     guard !terminating else { return .terminateLater }
-    if dojo?.needsRecovery == true {
+    if authoring?.needsRecovery == true {
       restorePortfolioWindow?()
       let alert = NSAlert(); alert.messageText = "Portfolio autosave needs recovery"
       alert.informativeText = "Resolve the write error and use Recover autosave before closing. Pending edits remain in this window."
@@ -318,7 +318,7 @@ final class PortraitStudioApplicationDelegate: NSObject, NSApplicationDelegate, 
     }
     terminating = true
     Task {
-      if await dojo?.shutdown() == false {
+      if await authoring?.shutdown() == false {
         terminating = false
         await drawingDocumentTask?.value
         drainDrawingDocuments()

@@ -15,16 +15,16 @@ struct DrawingTransferRouteTests {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("dx08-app-route-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let library = DrawingLibrary(directoryURL: root)
-    let studio = PortraitStudioModel(library: library)
+    let studio = ReceivedDrawingStore(library: library)
     // Existing software-only composition: fake camera/controller/stores. No
     // physical pose verification, Draw, Run or Start action is requested here.
-    let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio, verifyPhysicalPose: false)
+    let fixture = try await DrawingWorkbenchApplicationFixture.make(receivedDrawings: studio, verifyPhysicalPose: false)
     defer { fixture.stores.remove() }
     let app = fixture.application
     do {
-      let route = DrawingTransferView(application: app, close: {})
-      let shared = route.browser
-      #expect(shared.sketches === studio.sketches)
+      let shared = DrawingLibraryBrowser(sketches: PortraitSketchCollection(library: library), close: {}, handoff: { drawing, request in
+        await app.prepareDestinationDrawing(drawing, isStillCurrent: { request.isCurrent })
+      })
       let handoff = try #require(shared.handoff)
       let production = try await CatalogDrawingProducer().produce(input: .metricSquare40, settings: .init(style: app.drawingStrokeStyle))
       #expect(production.drawing.units.nominalPenWidthMM == nil && production.drawing.input == .none)

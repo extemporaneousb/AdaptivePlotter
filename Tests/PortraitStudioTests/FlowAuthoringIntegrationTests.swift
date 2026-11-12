@@ -6,18 +6,18 @@ import PortraitLibrary
 import PortraitStudioUI
 import Testing
 
-@Suite("Flow Edge dojo complete learning loop", .serialized)
+@Suite("Flow Edge authoring complete learning loop", .serialized)
 @MainActor
-struct FlowDojoIntegrationTests {
+struct FlowAuthoringIntegrationTests {
   @Test("Curate, rank, fit, deploy, reopen, generate learned proposals, correct and refit")
   func completeLoop() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let copied = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory); try? FileManager.default.removeItem(at: copied) }
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture, render: FlowDojoFixture.render)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture, render: FlowAuthoringFixture.render)
     model.count = 3; await model.open()
     for index in 1...4 {
-      await model.addPhoto(data: FlowDojoFixture.image(index), title: "TEST ORACLE source \(index)")
+      await model.addPhoto(data: FlowAuthoringFixture.image(index), title: "TEST ORACLE source \(index)")
       await model.generate(refining: false)
       try await curateRound(model)
     }
@@ -58,7 +58,7 @@ struct FlowDojoIntegrationTests {
     let revision = try #require(model.document?.revision)
     await model.shutdown()
     try FileManager.default.copyItem(at: directory, to: copied)
-    let reopened = FlowDojoModel(directory: copied, render: FlowDojoFixture.render)
+    let reopened = FlowAuthoringModel(directory: copied, render: FlowAuthoringFixture.render)
     await reopened.open(); #expect(reopened.error == nil)
     #expect(reopened.document?.revision == revision)
     #expect(reopened.activeCheckpoint?.id == secondCheckpoint)
@@ -68,18 +68,18 @@ struct FlowDojoIntegrationTests {
   }
 
   @Test("Real Flow Edge renders through the same portfolio-training-deployment loop with declared test judgments",
-    .enabled(if: ProcessInfo.processInfo.environment["FLOW_DOJO_REAL_SOURCE"] != nil))
+    .enabled(if: ProcessInfo.processInfo.environment["FLOW_AUTHORING_REAL_SOURCE"] != nil))
   func realPhotoTrial() async throws {
     let environment = ProcessInfo.processInfo.environment
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("flow-real-trial-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let sourceURL = URL(fileURLWithPath: try #require(environment["FLOW_DOJO_REAL_SOURCE"]))
+    let sourceURL = URL(fileURLWithPath: try #require(environment["FLOW_AUTHORING_REAL_SOURCE"]))
     let directory = root.appendingPathComponent("Validation.flowportfolio", isDirectory: true)
     guard !FileManager.default.fileExists(atPath: directory.path) else {
       throw FlowPortfolioError.conflict("Choose a fresh trial output; an existing validation portfolio is never overwritten.")
     }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    let model = FlowDojoModel(directory: directory, purpose: .validationFixture)
+    let model = FlowAuthoringModel(directory: directory, purpose: .validationFixture)
     model.count = 4
     let started = Date()
     await model.open()
@@ -135,7 +135,7 @@ struct FlowDojoIntegrationTests {
       if let preview = model.previews[candidate.id] { try preview.write(to: root.appendingPathComponent("learned-\(index + 1).png"), options: .atomic) }
     }
     await model.shutdown()
-    let reopened = FlowDojoModel(directory: directory)
+    let reopened = FlowAuthoringModel(directory: directory)
     await reopened.open(); #expect(reopened.error == nil)
     #expect(reopened.activeCheckpoint?.id == deployment)
     await reopened.activate(first.id); #expect(reopened.activeCheckpoint?.id == active.id)
@@ -143,7 +143,7 @@ struct FlowDojoIntegrationTests {
     await reopened.shutdown()
   }
 
-  private func curateRound(_ model: FlowDojoModel) async throws {
+  private func curateRound(_ model: FlowAuthoringModel) async throws {
     let candidates = model.roundCandidates
     #expect(candidates.count >= 2)
     for candidate in candidates {
@@ -165,7 +165,7 @@ struct FlowDojoIntegrationTests {
     try await rankByOracle(model)
   }
 
-  private func rankByOracle(_ model: FlowDojoModel) async throws {
+  private func rankByOracle(_ model: FlowAuthoringModel) async throws {
     let presentation = try #require(model.presentation)
     let candidates = Dictionary(uniqueKeysWithValues: (model.document?.candidates ?? []).map { ($0.id, $0) })
     let ordered = presentation.items.sorted { a, b in

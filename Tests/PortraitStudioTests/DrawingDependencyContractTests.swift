@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Drawing value module dependency contract")
 struct DrawingDependencyContractTests {
-  @Test("The evaluated SwiftPM graph keeps PortraitCore independent of producers and runtime")
+  @Test("The exported Drawing contract and artist dependency closure exclude machine runtime")
   func coreDependencyGraph() throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent()
@@ -50,20 +50,26 @@ struct DrawingDependencyContractTests {
         return try #require(encoded.first as? String)
       }
     }
-    #expect(graph["PortraitCore"] == ["PlotterModel"])
-    var visited = Set<String>(), pending = ["PortraitCore"]
-    while let target = pending.popLast() {
-      guard visited.insert(target).inserted else { continue }
-      pending.append(contentsOf: graph[target] ?? [])
+    func closure(of root: String) -> Set<String> {
+      var visited = Set<String>(), pending = [root]
+      while let target = pending.popLast() {
+        guard visited.insert(target).inserted else { continue }
+        pending.append(contentsOf: graph[target] ?? [])
+      }
+      return visited
     }
-    #expect(visited == ["PortraitCore", "PlotterModel"])
+    let products = try #require(manifest["products"] as? [[String: Any]])
+    let drawingProduct = try #require(products.first { $0["name"] as? String == "Drawing" })
+    #expect(drawingProduct["targets"] as? [String] == ["Drawing"])
+    #expect(graph["Drawing"] == ["PlotterModel"])
+    #expect(closure(of: "Drawing") == ["Drawing", "PlotterModel"])
+    #expect(graph["PortraitCore"] == ["Drawing"])
+    #expect(closure(of: "PortraitCore") == ["PortraitCore", "Drawing", "PlotterModel"])
     #expect(Set(graph["DrawingLibrary"] ?? []) == ["PortraitCore", "PlotterModel", "CSQLite"])
-    var libraryClosure = Set<String>(), libraryPending = ["DrawingLibrary"]
-    while let target = libraryPending.popLast() {
-      guard libraryClosure.insert(target).inserted else { continue }
-      libraryPending.append(contentsOf: graph[target] ?? [])
-    }
-    #expect(libraryClosure == ["DrawingLibrary", "PortraitCore", "PlotterModel", "CSQLite"])
+    #expect(closure(of: "DrawingLibrary") == ["DrawingLibrary", "PortraitCore", "Drawing", "PlotterModel", "CSQLite"])
+    let artistClosure = closure(of: "PortraitArtists")
+    #expect(artistClosure.contains("Drawing"))
+    #expect(!artistClosure.contains("PlotterRuntime"))
     #expect(graph["PortraitStudioUI"]?.contains("PortraitCore") == true)
     #expect(graph["PortraitStudio"]?.contains("PortraitStudioUI") == true)
     #expect(graph["PlotterApp"]?.contains("PortraitStudioUI") == true)

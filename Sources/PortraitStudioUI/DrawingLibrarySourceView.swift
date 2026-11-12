@@ -27,10 +27,13 @@ package struct DrawingLibrarySourceView: View {
         List(photos, id: \.reference, selection: Binding(get: { route.photo }, set: { ref in
           if route.selectPhoto(ref) { sketches.clearSelection() }
         })) { photo in
-          VStack(alignment: .leading) {
+          HStack(spacing: 8) {
+            DrawingLibraryThumbnail(library: sketches.library, source: .photo(photo.reference)).frame(width: 48, height: 56)
+            VStack(alignment: .leading) {
             Text((loadedPhoto == photo.reference ? metadata.title : photo.metadata.title) ?? "Photo")
             Text(photo.sortDate?.formatted(date: .abbreviated, time: .shortened) ?? "Date unknown")
               .font(.caption).foregroundStyle(.secondary)
+            }
           }.tag(photo.reference)
         }.listStyle(.sidebar)
         if cursor != nil { Button("More Photos") { Task { await loadPhotos(more: true) } } }
@@ -38,7 +41,7 @@ package struct DrawingLibrarySourceView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
           if let ref = route.photo {
-            FlowDojoImage(data: loadedPhoto == route.photo ? pixels : nil, identity: "library-photo:" + (route.photo?.digest.description ?? "none"), maximumDimension: 640).frame(height: 160)
+            FlowAuthoringImage(data: loadedPhoto == route.photo ? pixels : nil, identity: "library-photo:" + (route.photo?.digest.description ?? "none"), maximumDimension: 640).frame(height: 160)
             Button("Export Photo") { Task { await exportPhoto(ref) } }
               .help("Export the original verified Photo publication without changing its pixels or metadata.")
             if loadedPhoto == ref {
@@ -48,23 +51,29 @@ package struct DrawingLibrarySourceView: View {
               Toggle("Exclude from training", isOn: Binding(get: { metadata.excluded }, set: { value in
                 metadata.excluded = value; save(ref, .init(excluded: value), field: "Training exclusion")
               }))
-              Button("Open in Drawing Studio") { Task {
+              Button("Open in Flow Edge") { Task {
                 let message = await openStudio(ref)
                 if route.photo == ref { failure = message }
               } }
                 .disabled(authoringUnavailable != nil)
               if let authoringUnavailable { Text(authoringUnavailable).font(.caption).foregroundStyle(.secondary) }
-              Text("Prepared Inputs").font(.headline)
+              Text("Photo variants").font(.headline)
               Button("All Drawings for Photo") { route.input = nil; route.drawing = nil; sketches.clearSelection() }
               ForEach(inputs, id: \.reference) { input in
-                Button(input.reference.revision.uuidString) {
+                Button {
                   route.input = input.reference
                   route.drawing = nil; sketches.clearSelection()
-                }.font(.caption).textSelection(.enabled)
+                } label: {
+                  HStack(spacing: 8) {
+                    DrawingLibraryThumbnail(library: sketches.library, source: .input(input.reference)).frame(width: 60, height: 64)
+                    Text("Variant " + input.reference.revision.uuidString.prefix(8)).font(.caption)
+                    Spacer()
+                  }
+                }.buttonStyle(.plain)
               }
-              if inputCursor != nil { Button("More Inputs") { Task { await loadInputs(ref, more: true) } } }
+              if inputCursor != nil { Button("More Variants") { Task { await loadInputs(ref, more: true) } } }
             }
-          } else { Text("Select a Photo to browse its prepared Inputs and retained Drawings.").foregroundStyle(.secondary) }
+          } else { Text("Select a Photo to browse its originals, variants and drawings.").foregroundStyle(.secondary) }
           if let failure { Text("Photo unavailable: " + failure).foregroundStyle(.red) }
         }.padding()
       }.frame(minWidth: 250, idealWidth: 280)

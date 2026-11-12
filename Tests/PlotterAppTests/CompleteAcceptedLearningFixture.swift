@@ -198,6 +198,7 @@ final class CompleteAcceptedLearningStores {
 
 @MainActor
 func applyCompleteSavedLearning(_ application: PlotterApplicationRuntime) async throws {
+  await application.awaitDrawingHistoryRecovery()
   if application.savedLearningRecoveryIsPending { await application.loadDrawingEvidenceArchive() }
   let projection = application.testPlotterUIProjection(
     selectedItemID: application.testCurrentLearningPathItemID, includesLearningPath: true)

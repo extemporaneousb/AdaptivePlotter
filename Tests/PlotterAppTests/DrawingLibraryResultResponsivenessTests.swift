@@ -2,6 +2,7 @@ import Foundation
 import CSQLite
 import os
 @testable import DrawingLibrary
+@testable import Drawing
 @testable import PortraitCore
 @testable import PortraitLibrary
 import PlotterEpisodeModel

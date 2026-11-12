@@ -195,6 +195,7 @@ extension PlotterApplicationRuntime {
     _ kind: PlotterLearningAction,
     for owner: LearningPathItemID
   ) async {
+    await awaitDrawingHistoryRecovery()
     if savedLearningRecoveryIsPending { await loadDrawingEvidenceArchive() }
     let projection = plotterUIProjection(
       selectedItemID: owner,
@@ -666,7 +667,7 @@ func makeCausalSimulatorAppFixture(
   let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: resolvedObservationPort,
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       drawingMaterials: drawingMaterials,
       manualMotionComposition: manualMotionComposition,
       penInteractionRuntime: penInteractionRuntime,
@@ -1406,6 +1407,7 @@ func submitControllerSession(
   _ intent: PlotterControllerSessionIntent
 ) async -> PlotterControllerSessionDisposition {
   // Action fixtures complete the same startup recovery now awaited by the root view.
+  await workspace.awaitDrawingHistoryRecovery()
   if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
   return await workspace.submitControllerSessionRequest(
     workspace.controllerSessionProjection.request(intent)
@@ -1437,6 +1439,7 @@ func submitObservationConfigurationForTest(
   _ workspace: PlotterApplicationRuntime,
   _ intent: TestObservationOperatorIntent
 ) async {
+  await workspace.awaitDrawingHistoryRecovery()
   if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
   let projection = workspace.observationConfigurationProjection
   let request: PlotterObservationOperatorIntent = switch intent {
@@ -1508,7 +1511,7 @@ func plotterApplicationRuntime(
   machine: LowerMachineSessionFixture,
   camera: TestObservationCameraSession? = nil,
   observationSessionOverride: (any PlotterObservationCameraSessionPort)? = nil,
-  portraitStudio: PortraitStudioModel? = nil,
+  receivedDrawings: ReceivedDrawingStore? = nil,
   drawingMaterials: DrawingMaterialLibrary? = nil,
   capPointSelectionComposition: (@MainActor () -> PointSelectionRuntimeComposition)? = nil,
   drawingPlanBegin: (@Sendable (DrawingPlanRequest) async -> DrawingPlanAdmission)? = nil,
@@ -1630,7 +1633,7 @@ func plotterApplicationRuntime(
   let workspace = PlotterApplicationRuntime(
     machineSession: machineSession,
     observationSession: resolvedObservationPort,
-    portraitStudio: portraitStudio ?? DrawingFirstTestStorage.studio(),
+    receivedDrawings: receivedDrawings ?? DrawingFirstTestStorage.received(),
     drawingMaterials: drawingMaterials,
     capPointSelectionComposition: capPointSelectionComposition,
     manualMotionComposition: manualMotionComposition,

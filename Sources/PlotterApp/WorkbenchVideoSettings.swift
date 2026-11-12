@@ -15,15 +15,6 @@ struct WorkbenchVideoSettings: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 12) {
-        Picker("Camera", selection: Binding(get: { application.workbenchCameraRole }, set: { role in
-          cameraSelected()
-          WorkbenchRequestTelemetry.nativeActionHandled("workbench.camera.\(role.rawValue)")
-          submit(PlotterAppUIActionID.observationCameraRole(role))
-        })) {
-          Text("Plotter").tag(WorkbenchCameraRole.plotter)
-          Text("Portrait").tag(WorkbenchCameraRole.portrait)
-        }
-        .accessibilityIdentifier("workbench.video.cameraRole")
         if application.cameraRoleIsTransitioning { ProgressView().controlSize(.small) }
         if let error = requestError ?? application.cameraRoleError ?? selectedSourceError {
           Text(error).font(.caption).foregroundStyle(.orange).textSelection(.enabled)
@@ -37,7 +28,7 @@ struct WorkbenchVideoSettings: View {
   private var selectedSourceError: String? {
     switch application.workbenchCameraRole {
     case .plotter: application.cameraError ?? application.visionError
-    case .portrait: application.portraitStudio.cameraStatus
+    case .portrait: "Photo capture belongs to Portrait Studio."
     }
   }
 

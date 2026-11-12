@@ -1,3 +1,4 @@
+import Drawing
 import Foundation
 
 public enum SwiftSketchPreprocessing: String, Codable, CaseIterable, Hashable, Sendable {

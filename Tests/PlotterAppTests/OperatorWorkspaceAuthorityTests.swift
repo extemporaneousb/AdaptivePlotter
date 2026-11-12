@@ -39,7 +39,7 @@ extension PlotterApplicationRuntimeTests {
     )
     let workspace = PlotterApplicationRuntime(
       machineSession: actions,
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
         machineSession: actions,
@@ -122,7 +122,7 @@ extension PlotterApplicationRuntimeTests {
     let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
         manualMotionComposition: composition
@@ -211,7 +211,7 @@ extension PlotterApplicationRuntimeTests {
     let workspace = PlotterApplicationRuntime(
       machineSession: nil,
       observationSession: CameraComposition.makeIsolatedObservationSessionForTesting(),
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
         manualMotionComposition: composition
@@ -371,7 +371,7 @@ extension PlotterApplicationRuntimeTests {
     await composition.runtime.installTerminalPublicationGateForTesting(gate)
     let workspace = PlotterApplicationRuntime(
       machineSession: actions,
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       manualMotionComposition: composition,
       penInteractionRuntime: nominalPenInteractionRuntime(
         machineSession: actions,

@@ -3,6 +3,7 @@ import Foundation
 import PortraitCore
 import PlotterModel
 import PortraitStudioUI
+@testable import PlotterApp
 
 /// Every application test owner is injected before startup can open a catalog.
 /// The root exists only beneath the process temporary directory, never App Support.
@@ -18,6 +19,7 @@ enum DrawingFirstTestStorage {
     DrawingLibrary(directoryURL: root.appendingPathComponent(UUID().uuidString, isDirectory: true))
   }
   static func studio() -> PortraitStudioModel { PortraitStudioModel(library: library()) }
+  static func received() -> ReceivedDrawingStore { ReceivedDrawingStore(library: library()) }
 }
 
 func drawingTestValue(program: DrawingProgram) throws -> Drawing {

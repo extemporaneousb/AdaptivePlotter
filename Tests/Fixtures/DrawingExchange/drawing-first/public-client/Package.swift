@@ -8,7 +8,7 @@ let package = Package(
   dependencies: [.package(name: "AdaptivePlotter", path: repository)],
   targets: [.executableTarget(name: "DrawingLibraryPublicClient", dependencies: [
     .product(name: "DrawingLibrary", package: "AdaptivePlotter"),
-    .product(name: "PortraitCore", package: "AdaptivePlotter"),
+    .product(name: "Drawing", package: "AdaptivePlotter"),
     .product(name: "PlotterModel", package: "AdaptivePlotter"),
   ])],
   swiftLanguageModes: [.v5]

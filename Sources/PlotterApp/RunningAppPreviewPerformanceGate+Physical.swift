@@ -1,8 +1,8 @@
-import PortraitArtists
 import PortraitLibrary
 import AppKit
 import CryptoKit
 import Foundation
+import ImageIO
 import PlotterEpisodeModel
 import PlotterEpisodeRuntime
 import PlotterModel
@@ -130,7 +130,7 @@ extension RunningAppPreviewPerformanceGate {
       try physicalWrite(report, to: configuration.reportURL)
       probe.install()
       defer { probe.uninstall() }
-      revealPanel(.guidedLearning); revealPanel(.portraitStudio); revealPanel(.motion); revealPanel(.videoSettings)
+      revealPanel(.guidedLearning); revealPanel(.motion); revealPanel(.videoSettings)
 
       guard application.controllerSessionProjection.environment == .live else {
         throw WorkbenchNativeInputError.unavailable("Physical scenario requires the live environment.")
@@ -241,32 +241,10 @@ extension RunningAppPreviewPerformanceGate {
       report.manualStopSettled = true
       try await physicalExportFacts(application, directory: directory, name: "inkless-stop-settled", jog: jogDetail)
 
-      try await selectCamera(.portrait, application: application)
-      let dojo = application.portraitStudio.portfolioDojo(strokeStyle: application.drawingStrokeStyle)
-      await dojo.open()
-      let source = try Data(contentsOf: retainedPhoto)
-      await dojo.addPhoto(data: source, title: "Physical verification source", mediaType:
-        retainedPhoto.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg")
-      await dojo.generate(refining: false)
-      guard let selected = dojo.roundCandidates.first else {
-        throw WorkbenchNativeInputError.unavailable(dojo.error ?? "The current producer returned no drawing.")
-      }
-      await dojo.selectCandidate(selected.id)
-      let drawing = try await dojo.retainedDrawing()
-      let program = drawing.program
-      guard !program.strokes.isEmpty else {
-        throw WorkbenchNativeInputError.unavailable("The current producer returned an empty drawing.")
-      }
-      report.nativeInputSamples.append(try await probe.click("flowDojo.exportDrawing") {
-        RunningAppNativeInputProbe.controlValue("flowDojo.exportDrawing")?.contains("Preparing") == true
-          || application.workbenchCameraRole == .plotter
-      })
-      try await awaitWorkload("Send to Drawing did not settle with the imported portrait plan.") {
-        application.workbenchCameraRole == .plotter && !application.cameraRoleIsTransitioning
-          && application.drawingDraftSnapshot.program?.contentHash == program.contentHash
-          && application.drawingDraftSnapshot.plan != nil
-          && RunningAppNativeInputProbe.controlValue("flowDojo.exportDrawing")?.contains("Preparing") == false
-      }
+      let references = try await application.receivedDrawings.sketches.importDrawings(from: retainedPhoto)
+      guard let ref = references.first else { throw WorkbenchNativeInputError.unavailable("Supply a Drawing exported from Portrait Studio.") }
+      let drawing = try await application.receivedDrawings.library.drawing(ref)
+      if let failure = await application.projectDrawing(drawing) { throw WorkbenchNativeInputError.unavailable(failure) }
       var priorPlan: ExecutionPlanRevision?
       for index in 1...2 {
         if index == 2 {
@@ -458,8 +436,12 @@ extension RunningAppPreviewPerformanceGate {
       // A bounded export of existing immutable bytes, awaited before proceeding.
       try physicalWrite(frame, to: directory.appendingPathComponent(name + "-frame.json"))
       try frame.frame.bytes.data.write(to: directory.appendingPathComponent(name + ".pixels"), options: .atomic)
-      guard let image = FrameImageFactory.image(from: frame.frame) else { throw PortraitDrawingError.unreadableImage }
-      try PortraitImageAnalyzer.encodedImage(image).write(to: directory.appendingPathComponent(name + ".png"), options: .atomic)
+      guard let image = FrameImageFactory.image(from: frame.frame) else { throw CocoaError(.fileReadCorruptFile) }
+      let data = NSMutableData()
+      guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { throw CocoaError(.fileWriteUnknown) }
+      CGImageDestinationAddImage(destination, image, nil)
+      guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+      try (data as Data).write(to: directory.appendingPathComponent(name + ".png"), options: .atomic)
     }.value
   }
 

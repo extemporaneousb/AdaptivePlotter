@@ -3,6 +3,7 @@ import Foundation
 import CryptoKit
 import MachO
 import Testing
+@testable import Drawing
 @testable import PortraitCore
 
 @Suite("DX03 carrier measurements", .serialized)

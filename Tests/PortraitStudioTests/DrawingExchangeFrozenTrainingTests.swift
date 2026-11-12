@@ -66,7 +66,7 @@ struct DrawingExchangeFrozenTrainingTests {
     let actual = try await cold.trainingInputs(snapshotID: snapshot.id)
     #expect(actual.examples == baseline.examples && actual.rankings == baseline.rankings)
     #expect(actual.seed == baseline.seed && actual.holdoutGroupIDs == baseline.holdoutGroupIDs)
-    let adapter = try await FlowDojoTraining.dataset(store: cold, document: frozen)
+    let adapter = try await FlowAuthoringTraining.dataset(store: cold, document: frozen)
     #expect(adapter.examples == baseline.examples && adapter.rankings == baseline.rankings)
     #expect(try await coldLibrary.drawings().entries.isEmpty)
     await coldLibrary.closeLibrary()

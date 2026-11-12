@@ -1798,7 +1798,8 @@ final class PlotterApplicationRuntime:
   var drawingDestinationStartupHasSettled: Bool { startupState == .started }
   var drawingDestinationRecoveryAdmissionIsOpen: Bool { applicationAdmissionIsOpen && startupState != .cancelled }
   @ObservationIgnored lazy var drawingDestination = DrawingDestinationComposition.make(self)
-  let portraitStudio: PortraitStudioModel
+  @ObservationIgnored private var drawingHistoryRecoveryTask: Task<Void, Never>?
+  let receivedDrawings: ReceivedDrawingStore
   private var workbenchCameraSnapshot = PlotterWorkbenchCameraSnapshot()
   var workbenchCameraRole: WorkbenchCameraRole { workbenchCameraSnapshot.role }
   var cameraRoleIsTransitioning: Bool { workbenchCameraSnapshot.isTransitioning }
@@ -1859,11 +1860,14 @@ final class PlotterApplicationRuntime:
   }
   private(set) var axisMetricRecoveryError: String?
   private(set) var savedLearningRecoveryIsPending = false
+  private(set) var drawingHistoryRecoveryIsPending = false
+  private(set) var drawingHistoryRecoveryFailure: String?
   @ObservationIgnored private var legacyPenCapAppearanceForMigration: PenCapAppearanceSelection?
   private var savedLearningRecoveryUnavailableReason: String? {
-    savedLearningRecoveryIsPending
-      ? "Verifying saved Drawing and calibration evidence. Wait before changing Learning or drawing."
-      : nil
+    if drawingHistoryRecoveryIsPending || savedLearningRecoveryIsPending {
+      return "Verifying saved Drawing and calibration evidence. Wait before changing Learning or drawing."
+    }
+    return drawingHistoryRecoveryFailure
   }
   @ObservationIgnored private var pendingAxisCalibrationTerminal: ControllerAxisCalibrationTerminal?
   private(set) var incidentPackageUIState: PlotterUIIncidentPackageState = .unavailable(
@@ -2112,7 +2116,7 @@ final class PlotterApplicationRuntime:
     machineSession: (any PlotterMachineSession)? = nil,
     observationSession: (any PlotterObservationCameraSessionPort)? = nil,
     observationRecordingStore: EpisodeRecordingStore? = nil,
-    portraitStudio: PortraitStudioModel? = nil,
+    receivedDrawings: ReceivedDrawingStore? = nil,
     drawingMaterials: DrawingMaterialLibrary? = nil,
     pointSelectionRuntime: PlotterPointSelectionRuntime = PlotterPointSelectionRuntime(),
     pointSelectionRecordingDiagnostic: String? = nil,
@@ -2174,14 +2178,13 @@ final class PlotterApplicationRuntime:
       )
     )
     self.machineSession = machineSession
-    let resolvedPortraitStudio = portraitStudio ?? PortraitStudioModel()
-    self.portraitStudio = resolvedPortraitStudio
+    let resolvedDrawings = receivedDrawings ?? ReceivedDrawingStore()
+    self.receivedDrawings = resolvedDrawings
     self.drawingMaterials = drawingMaterials ?? DrawingMaterialLibrary()
     if let observationSession {
       observationRuntime = PlotterObservationConfigurationRuntime(
         lower: observationSession,
-        recordingStore: observationRecordingStore,
-        portrait: resolvedPortraitStudio
+        recordingStore: observationRecordingStore
       )
     } else {
       observationRuntime = nil
@@ -2959,19 +2962,19 @@ final class PlotterApplicationRuntime:
       if case .selectCatalogItem = submission.intent,
         let program = result.snapshot.authoredProgram {
         let revision = result.snapshot.projection.draftRevision
-        let selectionEpoch = portraitStudio.selectionEpoch
-        let priorProjection = portraitStudio.projectedDrawing?.reference
+        let selectionEpoch = receivedDrawings.selectionEpoch
+        let priorProjection = receivedDrawings.projectedDrawing?.reference
         do {
-          let retained = try await portraitStudio.sketches.retain(sourceFreeDrawing(program), reason: "choose")
+          let retained = try await receivedDrawings.sketches.retain(sourceFreeDrawing(program), reason: "choose")
           guard applicationAdmissionIsOpen,
             drawingDraftSnapshot.projection.draftRevision == revision,
             drawingDraftSnapshot.authoredProgram == program,
-            portraitStudio.selectionEpoch == selectionEpoch else { return }
-          try await portraitStudio.projectDrawing(retained, isStillCurrent: {
+            receivedDrawings.selectionEpoch == selectionEpoch else { return }
+          try await receivedDrawings.projectDrawing(retained, isStillCurrent: {
             applicationAdmissionIsOpen && !Task.isCancelled
               && drawingDraftSnapshot.projection.draftRevision == revision
               && drawingDraftSnapshot.authoredProgram == program
-              && portraitStudio.projectedDrawing?.reference == priorProjection
+              && receivedDrawings.projectedDrawing?.reference == priorProjection
           })
         } catch {
           drawingEvidenceError = error.localizedDescription
@@ -3989,7 +3992,7 @@ final class PlotterApplicationRuntime:
       admissionClosed: applicationAdmissionIsClosed,
       controllerBusyReason: positionRebasePublicationIsPending
         ? "Wait for the committed position update to publish."
-        : paperReplacementInProgressReason ?? currentCameraCalibrationBusyReason,
+        : paperReplacementInProgressReason ?? savedLearningRecoveryUnavailableReason ?? currentCameraCalibrationBusyReason,
       discoveryBusyReason: discoveryBusyReason,
       foreignOperationInFlight: axisCalibrationInProgress || passiveProbeInProgress || jogRequestInProgress
         || retainedPenRequestInProgress || jogCancelRequestInProgress
@@ -5995,7 +5998,7 @@ final class PlotterApplicationRuntime:
 
     if !isImmediateStop, let reason = savedLearningRecoveryUnavailableReason {
       switch request.intent {
-      case .learning, .learningAction, .learningReset, .boundary, .drawingRun, .paper:
+      case .learning, .learningAction, .learningReset, .boundary, .drawingRun, .paper, .manualMotion:
         return plotterUIRefusal(request, reason: .unavailableAction,
           currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
           remedy: reason)
@@ -10925,6 +10928,7 @@ final class PlotterApplicationRuntime:
   private func manualMotionRequirementReason(
     for intent: PlotterManualMotionIntent
   ) -> String? {
+    if let reason = savedLearningRecoveryUnavailableReason { return reason }
     let episodeID = manualMotionEpisodeSnapshot?.projection.episodeID
       ?? EpisodeID(rawValue: UUID())
     let state = PlotterEpisodeState(
@@ -11277,24 +11281,9 @@ final class PlotterApplicationRuntime:
       log.notice("Startup finished: \(String(describing: self.startupState), privacy: .public)")
     }
     startupState = .starting
-    do { try await portraitStudio.library.open() }
-    catch { drawingEvidenceError = "Drawing Library unavailable: " + error.localizedDescription }
-    await loadDrawingEvidenceArchive()
-    guard applicationAdmissionIsOpen, !Task.isCancelled else {
-      startupState = .cancelled
-      return
-    }
-    do { try await drawingDestination.recoverPendingJobs() }
-    catch { drawingEvidenceError = "Drawing job recovery is incomplete: " + error.localizedDescription }
-    guard applicationAdmissionIsOpen, !Task.isCancelled else {
-      startupState = .cancelled
-      return
-    }
-    await refreshSerialDevices()
-    guard applicationAdmissionIsOpen, !Task.isCancelled else {
-      startupState = .cancelled
-      return
-    }
+    drawingHistoryRecoveryIsPending = true
+    do { try await receivedDrawings.library.open() }
+    catch { drawingHistoryRecoveryFailure = "Drawing Library unavailable: " + error.localizedDescription; drawingEvidenceError = drawingHistoryRecoveryFailure }
     switch policy.startupRoute {
     case .preferredCamera:
       await startPreferredCameraAtStartup()
@@ -11313,8 +11302,37 @@ final class PlotterApplicationRuntime:
       startupState = .cancelled
       return
     }
+    if let ref = receivedDrawings.restoredReference {
+      do {
+        let drawing = try await receivedDrawings.library.drawing(ref)
+        if let failure = await projectDrawing(drawing) { drawingDestinationStatus = "Received Drawing could not be restored: " + failure }
+      } catch { drawingDestinationStatus = "Received Drawing could not be restored: " + error.localizedDescription }
+    }
     startupState = .started
+    // Archive decoding validates every retained physical attempt and can be
+    // expensive. Until it settles, drawingArchiveIsAvailable remains false in
+    // execution facts. Camera and immutable reference preview need no archive.
+    drawingHistoryRecoveryTask = Task { [weak self] in
+      guard let self else { return }
+      await self.loadDrawingEvidenceArchive()
+      guard self.applicationAdmissionIsOpen, !Task.isCancelled else { return }
+      do { try await self.drawingDestination.recoverPendingJobs() }
+      catch {
+        self.drawingHistoryRecoveryFailure = "Drawing job recovery is incomplete: " + error.localizedDescription
+        self.drawingEvidenceError = self.drawingHistoryRecoveryFailure
+      }
+      guard self.applicationAdmissionIsOpen, !Task.isCancelled else { return }
+      self.drawingHistoryRecoveryIsPending = false
+      let recoveryOutcome = self.drawingHistoryRecoveryFailure == nil ? "succeeded" : "failed"
+      log.notice("Drawing evidence and job recovery finished: \(recoveryOutcome, privacy: .public)")
+      self.markSemanticPresentationChanged()
+      if self.drawingHistoryRecoveryFailure == nil { await self.refreshSerialDevices() }
+      await self.synchronizeDrawingDraft()
+      await self.synchronizeDrawingRunProjection()
+    }
   }
+
+  func awaitDrawingHistoryRecovery() async { await drawingHistoryRecoveryTask?.value }
 
   func loadDrawingEvidenceArchive() async {
     let loadResult = await drawingEvidencePort.load()
@@ -11330,12 +11348,12 @@ final class PlotterApplicationRuntime:
     switch restored.disposition {
     case .available(let archive):
       installDrawingEvidenceArchive(archive)
-      drawingEvidenceError = nil
+      drawingEvidenceError = drawingHistoryRecoveryFailure
       restoreInteractiveLearningCompletionFromEvidence()
       restoreAxisMetricProposal()
     case .rejected(let detail):
-      drawingEvidenceError =
-        "Saved drawing evidence was rejected; Drawing Run remains unavailable: \(detail)"
+      drawingHistoryRecoveryFailure = "Saved drawing evidence was rejected; Drawing Run remains unavailable: \(detail)"
+      drawingEvidenceError = drawingHistoryRecoveryFailure
     }
   }
 
@@ -12990,10 +13008,13 @@ final class PlotterApplicationRuntime:
     if let observationRuntime {
       await observationRuntime.shutdown()
     } else {
-      await portraitStudio.shutdown()
+      await receivedDrawings.shutdown()
     }
     await windowStartupTask?.value
     windowStartupTask = nil
+    drawingHistoryRecoveryTask?.cancel()
+    await drawingHistoryRecoveryTask?.value
+    drawingHistoryRecoveryTask = nil
     await drawingMaterials.flush()
     // Persistence occurs only after admission is closed and every effect owner
     // has settled, while the source-indexed semantic state is still intact.

@@ -1,15 +1,11 @@
 # Portrait Studio
 
-Status: current operator and file-format guide for the Flow Edge Dojo. Product
-semantics belong to [Product Contract](PRODUCT_CONTRACT.md); implementation owners
-belong to [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md). Actual validation
-receipts remain in [Current Evidence](CURRENT_EVIDENCE.md). The shared Drawing contract lives in [Drawing Exchange](DRAWING_EXCHANGE.md); remaining adoption work lives in the [Roadmap](ROADMAP.md#drawing-exchange).
+Portrait Studio owns authoring and the photo library. Browse photos with or without
+drawings, explore Flow Edge alternatives, prune lines, rank drawings and fit the
+artist. Send the selected revision to AdaptivePlotter for placement and execution.
 
-Portrait Studio has one authoring journey: choose a photo, explore Flow Edge
-constructions, refine a choice, prune whole lines, rank drawings, fit the artist,
-and activate a checkpoint for subsequent rounds. The standalone app and embedded
-workspace use the same Dojo. Historical Contour, Sketch, SwiftSketch, saved-style
-and separate review interfaces are not alternative current authoring paths.
+[Product Contract](PRODUCT_CONTRACT.md) defines the operator controls and evidence.
+[Drawing Exchange](DRAWING_EXCHANGE.md) defines the files the apps exchange.
 
 ## Build and open
 
@@ -33,17 +29,16 @@ provenance checks, not notarization or evidence that the signed app was launched
 Prepared signed artifacts and software coverage are recorded in the
 [dated group receipt](CURRENT_EVIDENCE.md#current-native-drawing-workflow-group-2026-11-08).
 
-The standalone default Drawing Library is:
+Portrait Studio opens the following authoring library by default.
 
 ```text
 ~/Library/Application Support/PortraitStudio/DrawingLibrary/
 ```
 
-Embedded Studio uses `~/Library/Application Support/AdaptivePlotter/DrawingLibrary/`.
-The standalone executable accepts one absolute `--library` directory argument.
-Each library admits one writer. Close the first app before another app opens the
-same directory for writing. Old authoring formats are not active library inputs;
-historical files can be recovered with the offline converter below.
+Use `--library` with an absolute directory to open a different catalog in Studio.
+AdaptivePlotter keeps its received revisions and job records in its machine-local
+storage. Both apps can run together. The [offline conversion instructions](#recover-historical-photos-and-plotted-drawings)
+cover previous formats.
 
 Camera photos retain exact capture time, frame identity/timestamp, acquisition
 session, source pixel extent and burst-selection measurements beside their source
@@ -58,12 +53,12 @@ calibration, motion, paper-clearance or mechanical Learning controls.
 
 ## Edit a retained Drawing
 
-Open **Library** and choose **Drawings** in either app. Both routes use the same
-browser/editor and the application's existing Library/collection selection.
-AdaptivePlotter's top row is **Library**, **Drawing Studio**, **Plotter**;
-Motion/Video remain Plotter-local. Standalone has Library and Drawing Studio, without
-device authority. Exact current-format selections and collection scope reopen by ref;
-a missing/conflicting ref is unavailable rather than reattached to equal geometry.
+In Portrait Studio, open **Library** and choose **Drawings**, or select a photo
+and follow its prepared inputs to their drawings. A photo can have zero or more
+drawings. Photo rows show their images and drawing rows preview their strokes.
+Titles are optional. Titles and training annotations belong to the catalog. The original pixels,
+date facts and photo identity are immutable.
+Studio restores the selected revision by its exact reference.
 
 Select a retained drawing and choose **Edit**. Click to delete a whole stroke,
 use **Lasso** for a selection, or choose **Restore**; Undo/Redo and **Restore All**
@@ -79,28 +74,18 @@ save the button says **Close**: the save can finish, but a closed sheet or chang
 selection cannot adopt its late result. After a save error, choose Done again to
 retry the same intent; abandoning a draft releases local preparations without deleting committed
 data or recovery journals. Editing alone does not send to the plotter or record a
-Flow choice/ranking. Embedded **Send to Drawing** is a separate action opening the
-existing preparation route; only the existing explicit **Draw** action starts a run.
-The standalone browser offers inert **Export Drawing** for transfer.
-
-These operator paths have scoped software coverage. Full hosted button/sheet AX
-acceptance is a separate strict host-dependent check; no signed-app restart or
-physical plotting validation is implied. See the [dated receipt](CURRENT_EVIDENCE.md#dx-08-shared-drawing-editor-software-receipt-2026-11-08).
+Flow choice/ranking. Use the handoff action to prepare a saved revision or
+**Export Drawing** to write a portable copy.
 
 ## Prepare in AdaptivePlotter
 
-The Library's existing **Send to Drawing** action now uses the shared typed Prepare
-path. In standalone Drawing Studio, **Prepare in AdaptivePlotter** retains the exact
-Drawing and sends a `.drawingrequest`; no new destination setup, width declaration or
-learning action is required. Both Library and Dojo use the same existing selection,
-projection, fit and readiness owners. Studio sends the request to a running Plotter or, on
-cold launch, the Plotter packaged beside Studio when available. Without a current tip
-registration or Drawing Boundary, Plotter can display the exact authored reference and
-identify the missing calibration. That response contains no motion plan or execution ticket. AdaptivePlotter reveals the exact current ticket
-in Plotter's Drawing panel after saved workspace/Photo restoration. An obsolete source
-request cannot foreground or reveal another selection. Ordinary standalone Drawing
-import/open reveals its exact imported ref in the existing global Library route,
-including when the document arrives before owners or the view callback are ready.
+In Library or Flow Edge, select a drawing and choose **Prepare in AdaptivePlotter**.
+Studio records a Prepare request for the exact revision. It opens the running
+Plotter or the sibling AdaptivePlotter bundle on a cold launch. The destination
+shows the reference drawing and reports any missing tip registration or Drawing
+Boundary. Once placement is available, review the prepared drawing in the
+plotter's Drawing panel. Opening a Drawing Exchange document in Studio selects
+the imported revision in the Library.
 
 Prepare and document opening issue no Start/controller commands. Explicit native
 **Draw** uses the existing Run owner and durably binds the exact request, Drawing,
@@ -202,7 +187,7 @@ In **Library → Photos**, choose a Photo to edit its optional title, subject/se
 and training exclusion. These fields replace the Curate popover and use the same
 neutral metadata authority. Accepted edits drain before shutdown. Exclusion retains
 images, descendants and judgments; subject identity is never inferred from appearance.
-Open **Drawing Studio** adopts that exact existing Photo, preserving its dates and
+**Open in Flow Edge** uses the photo’s exact reference and preserves its dates and
 cleared metadata. Supported PNG/JPEG sources remain authorable; raw/unsupported sources
 stay browsable/exportable with an explicit authoring refusal. Photos show capture,
 import-fallback or unknown date truthfully, with exact prepared Inputs and branches.
@@ -212,16 +197,14 @@ Source-free Drawings remain available in the global Drawings collection without 
 staged raw bindings and verified current raw evidence are distinguished; snapshot or
 binding counts do not prove physical attempts or ink. Stored environment is displayed
 rather than borrowed from the current controller mode. Missing evidence remains
-unavailable. Existing global Stop remains usable across workspaces; active-run guards
-prevent editor/picker presentation from hiding it. No implicit project or Start occurs.
+unavailable. Plotter keeps Stop accessible while Studio browses or edits.
 
-For a job-bound raw attempt in AdaptivePlotter, **Export Run Result** returns that
-existing job's closed Drawing Exchange ZIP, including retained staged/interrupted
-or terminal evidence. It does not create a new attempt. Missing/corrupt evidence
+In AdaptivePlotter, open **Execution History** in the Drawing panel or **Review Run**
+after execution. Select a job-bound attempt and choose **Export Run Result** to
+write its Drawing Exchange ZIP with the retained staged, interrupted or terminal evidence. It does not create a new attempt. Missing/corrupt evidence
 produces a visible refusal while recovery and possible-ink facts stay retained.
 
-Both Library browsers offer **Import Result** and export of an exact mounted
-result. The read-only inspector shows job/attempt identity, recorded frontiers,
+The Portrait Studio Library offers **Import Result** and export of an exact mounted result. The read-only inspector shows job/attempt identity, recorded frontiers,
 missing reasons and separately attributed annotations. Open an original image
 explicitly to preview it; unsupported or oversized previews keep the retained
 original available for export. Unknown annotations do not invent a physical
@@ -331,9 +314,10 @@ revisions, regularization, iteration limit, convergence tolerance, seed and the
 inference policy. Training uses L2 regularization 0.015, at most 700 full-batch
 iterations and gradient tolerance 1e-7. Checkpoints bind the ordered digests of
 training examples and rankings rather than duplicating the complete dataset in a
-second giant JSON allocation. A local fit is bounded to eight million feature
-values and 20,000 comparisons or deletion observations; exceeding the bound
-requires a smaller included training selection and never discards portfolio data.
+second giant JSON allocation. The frozen task reader and local trainer accept up to
+ten million logical feature values and 20,000 comparisons or deletion observations.
+Examples that share verified stroke features reuse the same backing storage. If a
+selection exceeds the limit, the full portfolio remains available for a smaller fit.
 
 Deployment proposes removal at probability 0.65 or above. If that would remove
 every line, it retains the line with the lowest deletion probability, breaking
@@ -406,9 +390,8 @@ source collection is not required after import.
 Drawing Exchange v1 directory/ZIP carrier. Studio's file export writes a ZIP;
 AdaptivePlotter accepts the current directory or ZIP carrier. The closed payload
 retains the exact program, producer receipt, declared source/input and required
-parent/assets. Every reference pins issuer, revision and record digest. Embedded
-**Send to Drawing** passes the admitted Drawing and reference directly, without
-serializing and reimporting a package.
+parent/assets. Every reference pins issuer, revision and record digest. Sending a
+drawing between the applications uses an exact-revision Prepare request.
 
 Retained stroke coordinates, IDs, order and styles remain unchanged. Pruning makes
 an immutable child Drawing. An all-removed mask can remain training evidence but
@@ -425,7 +408,7 @@ reconciles that attempt and never starts another drawing. Later edits cannot mut
 placed or executed geometry.
 
 The existing raw DrawingEvidence owner retains execution, possible-ink and
-no-redraw authority. The authoring library records an exact DrawingRef association
+no-redraw authority. The destination records an exact DrawingRef association
 to an already-staged run through the existing pre-motion adapter; that association
 is not physical evidence. Controller settlement does not prove deposited ink.
 Historical plot references are available from converted Drawings and the accompanying
@@ -457,7 +440,7 @@ Open the resulting `DrawingLibrary` directory with Studio's existing `--library`
 after quitting Studio. In **Library**, select a photo to browse its prepared inputs and exact
 drawings, or use **Drawings** for the full list. Expand **Historical plot runs** on a recovered
 drawing to inspect recorded status, stroke counts and operator no-ink confirmations.
-**Send to Drawing** prepares the selected revision in AdaptivePlotter.
+Choose **Prepare in AdaptivePlotter** to send the selected revision.
 
 The default selection includes all source photo occurrences, catalog drawings associated with
 execution or possible ink, and the saved transfers. The adjacent `conversion.json` maps the old
@@ -471,8 +454,41 @@ Use `--drawing ID` for an additional catalog drawing or Flow candidate or prunin
 all stored candidate programs and nonempty Flow pruning revisions, `--photo-library DIRECTORY` for another catalog's photos, or
 `--package FILE.portraitdrawing.json` for a frozen Flow export or line edit. These options are
 offline imports into a fresh directory. Existing libraries, portfolio journals and evidence
-stay at their original paths. Rankings, training checkpoints and undo histories stay in those
-archives. Fully removed drawings are listed in the report as empty masks. A missing original preparation has an explicit unavailable Input.
+stay at their original paths. Fully removed drawings appear in the report as
+empty masks. A missing preparation stays explicitly unavailable.
+
+### Recover an existing artist portfolio
+
+For the two catalogs created by the earlier apps, quit both apps and reconcile
+their contents into a new directory. Then recover the original Flow Edge
+decisions against the photo and drawing references from the first conversion.
+
+```sh
+recovery_dir="$HOME/Documents/Studio Catalog Recovery"
+app_data="$HOME/Library/Application Support"
+python3 Tools/DrawingExchange/reconcile_catalogs.py \
+  --authoritative "$app_data/PortraitStudio/DrawingLibrary" \
+  --received "$app_data/AdaptivePlotter/DrawingLibrary" \
+  --output "$recovery_dir/DrawingLibrary"
+swift build -c release --product HistoricalDrawingImport
+python3 Tools/DrawingExchange/recover_flow_learning.py \
+  --archive "$HOME/Documents/Flow Edge Portfolio.flowportfolio" \
+  --references "$HOME/Documents/Recovered Drawing Archive/conversion.json" \
+  --library "$recovery_dir/DrawingLibrary" \
+  --importer "$(swift build -c release --show-bin-path)/HistoricalDrawingImport" \
+  --receipt "$recovery_dir/flow-recovery.json"
+```
+
+The recovered library includes the original choices, rankings and stroke edits.
+Studio uses those decisions in its current training inputs. The original fit
+reports, checkpoints and their frozen training documents retain their original
+bytes and provenance. The importer also freezes the recovered decisions, fits the
+current trainer and verifies that the task reopens. The receipt identifies the new
+fit. The artist controls activation in Studio. Open a recovered library with
+`--library`. The
+importer’s `--export-flow-history LIBRARY ARCHIVE_ID NEW_DIRECTORY` command
+recreates the original portfolio from the recovered catalog. Use the archive
+ID in the recovery receipt.
 
 ## Historical research and baseline
 
@@ -481,5 +497,5 @@ Flow Edge, Contour and Sketch renderer outputs. `make portrait-baseline-check`
 checks those frozen kernels; it does not restore their old UI. Earlier SwiftSketch
 feasibility, face-framing comparisons and sparse-surface exercises are recorded in
 [Current Evidence](CURRENT_EVIDENCE.md). Their existing libraries and signed bundles
-remain historical evidence. The current Dojo does not launch their workers or
+remain historical evidence. The current Flow Edge workspace does not launch their workers or
 route new authoring through their separate Artists, Review or Save Drawing flows.

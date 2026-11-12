@@ -55,6 +55,18 @@ extension FlowPortfolioStore {
       } else { next.candidates[index].drawing = existing }
       return []
     }
+    if candidate.drawing == nil, temporaryDrawings[candidateID] == nil,
+      let historical = try await historicalDrawing(candidateID) {
+      let photo = try await sourcePhoto(candidate.sourceID)
+      let raster = try await candidateRaster(candidateID), bytes = try await sourceData(candidate.sourceID)
+      let input = try PortraitDrawingImages.input(result: .init(raster: raster, program: historical.program),
+        data: bytes, photo: photo, identity: .init(issuer: photo.reference.issuer, revision: candidateID))
+      let prepared = try Drawing(program: historical.program, input: input.map { .present($0.reference) } ?? historical.input,
+        parent: historical.parent, producer: historical.producer, units: historical.units)
+      try admitTemporaryDrawing(prepared, input: input)
+      temporaryDrawings[candidateID] = prepared
+      if let input { drawingInputs[candidateID] = input }
+    }
     let closure = drawingInputs[candidateID].map { DrawingLibraryRetainedClosure(input: $0) } ?? .empty
     var prepared: [DrawingLibraryPreparedRetention] = []
     let drawing: Drawing
@@ -63,7 +75,10 @@ extension FlowPortfolioStore {
       let base: Drawing
       if let reference = candidate.drawing { base = try await storage.library.drawing(reference) }
       else {
-        guard let temporary = temporaryDrawings[candidateID] else { throw FlowPortfolioError.unavailable("This generated drawing was temporary; its geometry is unavailable.") }
+        let available: Drawing?
+        if let temporary = temporaryDrawings[candidateID] { available = temporary }
+        else { available = try await historicalDrawing(candidateID) }
+        guard let temporary = available else { throw FlowPortfolioError.unavailable("This generated drawing was temporary; its geometry is unavailable.") }
         let parent = try await storage.library.prepareRetention(temporary, title: candidate.title, reason: "required-edit-parent", closure: closure, intent: .init(id: candidateID))
         prepared.append(parent); base = parent.drawing; next.candidates[index].drawing = parent.reference
       }
@@ -73,6 +88,7 @@ extension FlowPortfolioStore {
       drawing = try base.applying(.membership(kept), to: reference, programID: ProgramID(revision.id))
     } else if let reference = candidate.drawing { drawing = try await storage.library.drawing(reference) }
     else if let temporary = temporaryDrawings[candidateID] { drawing = temporary }
+    else if let historical = try await historicalDrawing(candidateID) { drawing = historical }
     else { throw FlowPortfolioError.unavailable("This generated drawing was temporary; its geometry is unavailable.") }
     let retained = try await storage.library.prepareRetention(drawing, title: candidate.title,
       reason: revision == nil ? "chosen" : "committed-stroke-edit", closure: closure,

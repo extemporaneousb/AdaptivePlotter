@@ -32,7 +32,7 @@ extension PlotterApplicationRuntimeTests {
         requestJogCancel: { _ in .refused(.noActiveJog) },
         disconnect: {}
       ),
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       penInteractionRuntime: nominalPenInteractionRuntime(),
       boundaryRuntime: nominalBoundaryRuntime(),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
@@ -114,7 +114,7 @@ extension PlotterApplicationRuntimeTests {
         requestJogCancel: { _ in .refused(.noActiveJog) },
         disconnect: {}
       ),
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       penInteractionRuntime: nominalPenInteractionRuntime(),
       boundaryRuntime: nominalBoundaryRuntime(),
       drawingDraftRuntime: nominalDrawingDraftRuntime(),
@@ -159,6 +159,8 @@ extension PlotterApplicationRuntimeTests {
     )
     await machine.setPenState(.unknown)
     let workspace = plotterApplicationRuntime(machine: machine, log: log)
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
@@ -188,6 +190,8 @@ extension PlotterApplicationRuntimeTests {
       ),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.submitTestManualPen(.lower)
@@ -223,6 +227,8 @@ extension PlotterApplicationRuntimeTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let workspace = plotterApplicationRuntime(machine: machine, log: log)
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.submitTestManualPen(.lower)
@@ -261,6 +267,8 @@ extension PlotterApplicationRuntimeTests {
       ),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     let revisions = workspace.learningArtifactGraph.revisions
@@ -502,6 +510,8 @@ extension PlotterApplicationRuntimeTests {
     let log = EventLog()
     let machine = try LowerMachineSessionFixture(log: log)
     let workspace = plotterApplicationRuntime(machine: machine, log: log)
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
@@ -560,6 +570,8 @@ extension PlotterApplicationRuntimeTests {
       machine: machine,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
 
@@ -599,6 +611,8 @@ extension PlotterApplicationRuntimeTests {
       speechAnnouncer: speechAnnouncer,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -728,6 +742,8 @@ extension PlotterApplicationRuntimeTests {
       tipCalibrationSemanticIdentities: identities,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.performTestExerciseAction(
@@ -801,6 +817,8 @@ extension PlotterApplicationRuntimeTests {
       boundaryRuntimeAccess: boundaryRuntimeAccess,
       log: log
     )
+    await first.awaitDrawingHistoryRecovery()
+    if first.savedLearningRecoveryIsPending { await first.loadDrawingEvidenceArchive() }
     await first.establishMachineSession(machine.descriptor)
     await submitControllerSession(first, .requestPassiveProbe)
     await submitObservationConfigurationForTest(
@@ -887,6 +905,8 @@ extension PlotterApplicationRuntimeTests {
     // controller snapshot to this application's session before Connect.
     #expect(relaunched.machineSnapshot == nil)
     #expect(!relaunched.controllerSessionProjection.sessionEstablished)
+    await relaunched.awaitDrawingHistoryRecovery()
+    if relaunched.savedLearningRecoveryIsPending { await relaunched.loadDrawingEvidenceArchive() }
     await relaunched.establishMachineSession(machine.descriptor)
     await submitControllerSession(relaunched, .requestPassiveProbe)
     await submitObservationConfigurationForTest(
@@ -994,6 +1014,8 @@ extension PlotterApplicationRuntimeTests {
       camera: stopCamera,
       log: stopLog
     )
+    await stopWorkspace.awaitDrawingHistoryRecovery()
+    if stopWorkspace.savedLearningRecoveryIsPending { await stopWorkspace.loadDrawingEvidenceArchive() }
     await stopWorkspace.establishMachineSession(stopMachine.descriptor)
     await submitControllerSession(stopWorkspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(

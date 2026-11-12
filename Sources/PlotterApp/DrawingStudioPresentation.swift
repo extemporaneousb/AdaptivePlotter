@@ -811,7 +811,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
         OperatorRequestButton(
           title: control.intent == .start ? "Draw" : control.title, role: control.role,
           request: control.isEnabled ? request : nil,
-          unavailableReason: request == nil ? "Refresh the current Drawing Studio control." : nil,
+          unavailableReason: request == nil ? "Refresh the current Drawing control." : nil,
           sink: plotterUIIntentSink,
           nativeActionIdentifier: control.intent == .start ? "drawing.draw" : nil
         )
@@ -845,7 +845,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
   private func submit(_ intent: PlotterUIIntent) {
     guard let request = plotterUIProjection.request(matching: intent) else {
       requestRefusal = DrawingStudioRequestRefusal(
-        "Refresh the current Drawing Studio control before retrying.", presentation: presentation)
+        "Refresh the current Drawing control before retrying.", presentation: presentation)
       return
     }
     guard draftFeedback.begin() else { return }

@@ -19,7 +19,7 @@ struct AxisMetricCalibrationProductionTests {
     let app = fixture.app
     defer { fixture.stores.remove() }
     do {
-      let portraitArchive = try await app.portraitStudio.library.drawings().entries.map(\.reference)
+      let portraitArchive = try await app.receivedDrawings.library.drawings().entries.map(\.reference)
       let authoringMetadata = try await fixture.authoringLibrary.records(kind: "example.axis-independence/1").map(\.payload)
       #expect(!portraitArchive.isEmpty)
       #expect(!authoringMetadata.isEmpty)
@@ -53,7 +53,7 @@ struct AxisMetricCalibrationProductionTests {
       #expect(await fixture.machine.requestedFeeds == feedsBefore)
       #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
       #expect(await fixture.machine.requestedBoundaryRequests.isEmpty)
-      #expect(try axisMetricSnapshotData(try await app.portraitStudio.library.drawings().entries.map(\.reference)) == axisMetricSnapshotData(portraitArchive))
+      #expect(try axisMetricSnapshotData(try await app.receivedDrawings.library.drawings().entries.map(\.reference)) == axisMetricSnapshotData(portraitArchive))
       #expect(try axisMetricSnapshotData(try await fixture.authoringLibrary.records(kind: "example.axis-independence/1").map(\.payload)) == axisMetricSnapshotData(authoringMetadata))
       await app.applyAxisMetricCalibration()
       #expect(fixture.trace.snapshot().invocations == 1)
@@ -162,14 +162,14 @@ private struct AxisMetricApplicationFixture {
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
     let camera = try AcceptedDrawingCameraSession(frame: accepted.frame, clock: clock)
     let authoringLibrary = DrawingLibrary(directoryURL: stores.directory.appendingPathComponent("drawings"))
-    let portrait = PortraitStudioModel(library: authoringLibrary)
+    let portrait = ReceivedDrawingStore(library: authoringLibrary)
     if withAuthoringState {
       let program = try DrawingProgramCatalog.program(for: .line, style: portraitTestStyle())
       let producer = try DrawingProducerReceipt(id: "example.axis-drawing", version: "1", recordJSON: Data("{}".utf8))
       _ = try await authoringLibrary.retain(Drawing(program: program, input: .none, parent: .none, producer: producer), reason: "save")
       try await authoringLibrary.commitRecords([.init(kind: "example.axis-independence/1", id: UUID(), payload: Data("{\"unchanged\":true}".utf8))])
     }
-    let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera, portraitStudio: portrait,
+    let app = plotterApplicationRuntime(machine: machine, observationSessionOverride: camera, receivedDrawings: portrait,
       axisCalibration: { proposal, beforeSettingsWrite in
         trace.invoked()
         do {
@@ -199,6 +199,8 @@ private struct AxisMetricApplicationFixture {
       loadPenCapAppearanceSelection: { nil }, log: log)
     do {
       await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+      await app.awaitDrawingHistoryRecovery()
+      if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
       await app.establishMachineSession(machine.descriptor)
       await submitControllerSession(app, .requestPassiveProbe)
       await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))

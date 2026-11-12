@@ -9,6 +9,7 @@ let package = Package(
   ],
   products: [
     .library(name: "PlotterModel", targets: ["PlotterModel"]),
+    .library(name: "Drawing", targets: ["Drawing"]),
     .library(name: "PortraitCore", targets: ["PortraitCore"]),
     .library(name: "DrawingLibrary", targets: ["DrawingLibrary"]),
     .library(name: "PlotterRuntime", targets: ["PlotterRuntime"]),
@@ -17,7 +18,7 @@ let package = Package(
     .executable(name: "DrawingDestinationHarness", targets: ["DrawingDestinationHarness"]),
   ],
   targets: [
-    .executableTarget(name: "HistoricalDrawingImport", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitArtists", "PlotterModel"]),
+    .executableTarget(name: "HistoricalDrawingImport", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PlotterModel"]),
     .executableTarget(name: "DrawingDestinationHarness", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitLibrary", "PlotterModel"]),
     .target(name: "EpisodeCore"),
     .target(
@@ -25,14 +26,15 @@ let package = Package(
       dependencies: ["EpisodeCore"]
     ),
     .target(name: "PlotterModel"),
-    .target(name: "PortraitCore", dependencies: ["PlotterModel"]),
+    .target(name: "Drawing", dependencies: ["PlotterModel"]),
+    .target(name: "PortraitCore", dependencies: ["Drawing"]),
     .target(
       name: "DrawingLibrary",
       dependencies: ["PortraitCore", "PlotterModel", "CSQLite"]
     ),
     .target(
       name: "PortraitArtists",
-      dependencies: ["PortraitCore", "PlotterModel", "PlotterRuntime"]
+      dependencies: ["Drawing", "PortraitCore", "PlotterModel"]
     ),
     .target(
       name: "PortraitLibrary",
@@ -70,7 +72,7 @@ let package = Package(
       dependencies: [
         "EpisodeCore", "EpisodeRuntime", "PlotterEpisodeModel", "PlotterEpisodeRuntime", "PlotterModel",
         "PlotterRuntime", "PlotterUI", "CSQLite",
-        "DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PortraitStudioUI",
+        "DrawingLibrary", "PortraitCore", "PortraitLibrary", "PortraitStudioUI",
       ]
     ),
     .target(

@@ -1,6 +1,5 @@
 import Foundation
 import PlotterModel
-import PlotterRuntime
 
 package struct PortraitPhoto: Identifiable, Codable, Equatable, Sendable {
   package let id: UUID

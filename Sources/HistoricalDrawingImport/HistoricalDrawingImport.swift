@@ -3,6 +3,7 @@ import Foundation
 import PlotterModel
 import PortraitArtists
 import PortraitCore
+import PortraitLibrary
 
 /// Private writer for Scripts/convert_historical_drawings.py. Only the script
 /// knows the retired catalog/portfolio layouts. Both apps stay current-only.
@@ -54,6 +55,25 @@ private struct References: Encodable {
 private enum HistoricalDrawingImport {
   static func main() async {
     do {
+      if CommandLine.arguments.dropFirst().first == "--export-flow-history" {
+        guard CommandLine.arguments.count == 5, let id = UUID(uuidString: CommandLine.arguments[3]) else { throw DrawingExchangeError.malformed("--export-flow-history LIBRARY ARCHIVE_ID NEW_DIRECTORY") }
+        let library = DrawingLibrary(directoryURL: URL(fileURLWithPath: CommandLine.arguments[2]))
+        do {
+          try await FlowHistoricalLearningRecovery.exportArchive(id: id, library: library, to: URL(fileURLWithPath: CommandLine.arguments[4]))
+          await library.closeLibrary()
+        } catch { await library.closeLibrary(); throw error }
+        return
+      }
+      if CommandLine.arguments.dropFirst().first == "--flow-learning" {
+        guard CommandLine.arguments.count == 5 else { throw DrawingExchangeError.malformed("Use Tools/DrawingExchange/recover_flow_learning.py") }
+        let args = CommandLine.arguments, library = DrawingLibrary(directoryURL: URL(fileURLWithPath: CommandLine.arguments[2]))
+        do {
+          let receipt = try await FlowHistoricalLearningRecovery.recover(planURL: URL(fileURLWithPath: args[3]), library: library)
+          try DrawingArtifactCoding.encoder().encode(receipt).write(to: URL(fileURLWithPath: args[4]), options: .atomic)
+          await library.closeLibrary()
+        } catch { await library.closeLibrary(); throw error }
+        return
+      }
       if CommandLine.arguments.dropFirst().first == "--flow-prune" {
         try materializeFlowRevision()
         return

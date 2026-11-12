@@ -1,4 +1,5 @@
 @testable import PortraitLibrary
+import PortraitCore
 import AppKit
 import Foundation
 import PlotterEpisodeRuntime
@@ -60,7 +61,7 @@ struct ApplicationLifecycleTests {
     #expect(diagnostic?.contains("Point-selection recording is unavailable") == true)
 
     let workspace = PlotterApplicationRuntime(
-      portraitStudio: DrawingFirstTestStorage.studio(),
+      receivedDrawings: DrawingFirstTestStorage.received(),
       pointSelectionRuntime: composition.runtime,
       pointSelectionRecordingDiagnostic: diagnostic,
       penInteractionRuntime: nominalPenInteractionRuntime(),
@@ -137,6 +138,63 @@ struct ApplicationLifecycleTests {
     #expect(workspace.frameMode == .live)
     #expect(workspace.displayedFrame?.source == .live(camera.device.id))
     #expect(await log.values.isEmpty)
+    await workspace.shutdown()
+  }
+
+  @Test("Reference preview and camera start while held history keeps Draw, Learning, and reset unavailable", arguments: [false, true])
+  @MainActor
+  func previewBeforeHistoryVerification(rejected: Bool) async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("held-history-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let gate = ApplicationHistoryLoadGate()
+    let port = DrawingRunEvidencePort(store: DrawingRunEvidenceStore(fileURL: directory.appendingPathComponent("history.json")), archiveLoader: {
+      await gate.wait()
+      return rejected ? .rejected(.invalidArchive("Deliberate fixture rejection")) : .absent
+    })
+    let log = EventLog(), machine = try LowerMachineSessionFixture(log: log), camera = try TestObservationCameraSession()
+    let workspace = plotterApplicationRuntime(machine: machine, camera: camera, drawingEvidencePort: port, log: log)
+    await workspace.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    #expect(workspace.drawingDestinationStartupHasSettled)
+    #expect(camera.startupActionCounts.start == 1)
+    #expect(workspace.displayedFrame != nil)
+    #expect(workspace.drawingHistoryRecoveryIsPending)
+    #expect(!workspace.drawingDraftExternalFacts.revisions.drawingArchiveIsAvailable)
+    let program = try DrawingProgramCatalog.program(for: .square, style: workspace.drawingStrokeStyle)
+    let drawing = try drawingTestValue(program: program)
+    let outcome = await workspace.prepareDestinationDrawingOutcome(drawing)
+    guard case .preview(.unplaced(let ref)) = outcome else {
+      await gate.release(); await workspace.shutdown(); Issue.record("Held archive prevented reference preview"); return
+    }
+    #expect(workspace.receivedDrawings.projectedDrawing?.reference == ref)
+    let projection = workspace.testPlotterUIProjection(includesLearningPath: true)
+    #expect(projection.semantic.request(for: PlotterAppUIActionID.learningMode) == nil)
+    #expect(projection.semantic.request(matching: .drawingRun(.start)) == nil)
+    #expect(workspace.artifactResetUnavailableReason != nil)
+    #expect(projection.semantic.request(for: PlotterAppUIActionID.controllerMotion) == nil)
+    #expect(projection.manualMotion.jogControlsUnavailableReason?.contains("Verifying saved Drawing") == true)
+    #expect(projection.controllerSession.motionAuthorizationUnavailableReason?.contains("Verifying saved Drawing") == true)
+    #expect(await machine.requestedPenCommands.isEmpty)
+    #expect(await machine.requestedDrawingStrokes.isEmpty)
+    await gate.release()
+    await workspace.awaitDrawingHistoryRecovery()
+    #expect(!workspace.drawingHistoryRecoveryIsPending)
+    if rejected {
+      #expect(workspace.drawingHistoryRecoveryFailure?.contains("rejected") == true)
+      #expect(workspace.testPlotterUIProjection().semantic.request(for: PlotterAppUIActionID.learningMode) == nil)
+      #expect(!workspace.drawingDraftExternalFacts.revisions.drawingArchiveIsAvailable)
+      #expect(workspace.receivedDrawings.projectedDrawing?.reference == ref)
+      let blocked = workspace.testPlotterUIProjection()
+      #expect(blocked.manualMotion.jogControlsUnavailableReason?.contains("rejected") == true)
+      #expect(blocked.controllerSession.motionAuthorizationUnavailableReason?.contains("rejected") == true)
+      #expect(await machine.requestedPenCommands.isEmpty)
+      #expect(await machine.requestedDrawingStrokes.isEmpty)
+    } else {
+      #expect(workspace.drawingHistoryRecoveryFailure == nil)
+      #expect(workspace.drawingDraftExternalFacts.revisions.drawingArchiveIsAvailable)
+      let settled = workspace.testPlotterUIProjection()
+      #expect(settled.manualMotion.jogControlsUnavailableReason?.contains("Verifying saved Drawing") != true)
+      #expect(settled.controllerSession.motionAuthorizationUnavailableReason?.contains("Verifying saved Drawing") != true)
+    }
     await workspace.shutdown()
   }
 
@@ -312,4 +370,13 @@ private func isolatedApplicationDelegate() throws -> (delegate: AdaptivePlotterA
     composition: PlotterEpisodeComposition(application: workspace))
   #expect(delegate.applicationRuntime === workspace)
   return (delegate, directory)
+}
+
+private actor ApplicationHistoryLoadGate {
+  private var released = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+  func wait() async {
+    if !released { await withCheckedContinuation { waiters.append($0) } }
+  }
+  func release() { released = true; let pending = waiters; waiters = []; for waiter in pending { waiter.resume() } }
 }

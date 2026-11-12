@@ -1,4 +1,3 @@
-import PortraitArtists
 import DrawingLibrary
 import PortraitCore
 import PortraitLibrary
@@ -78,7 +77,7 @@ struct DrawingReviewerView: View {
   @State private var exporting: JobRef?
   @State private var exportStatus: String?
   @State private var activePanel: NSSavePanel?
-  private var library: DrawingLibrary { application.portraitStudio.library }
+  private var library: DrawingLibrary { application.receivedDrawings.library }
   private var exportPresentationIsOpen: Bool {
     application.drawingDestinationRecoveryAdmissionIsOpen
       && (NSApplication.shared.delegate as? AdaptivePlotterApplicationDelegate)?.drawingPresentationAdmissionIsOpen != false
@@ -325,5 +324,67 @@ private struct DrawingReviewImage: View {
         Image(decorative: image, scale: 1).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }.clipped()
+  }
+}
+
+/// Raw run inspection does not require an artwork association. Older evidence
+/// remains inspectable even when its Drawing identity was never recorded.
+struct DrawingRunHistoryDetail: View {
+  let application: PlotterApplicationRuntime
+  let record: DrawingRunEvidenceRecord
+  @Environment(\.drawingPresentationPolicy) private var policy
+  @State private var originalPixels = false
+  @State private var exportStatus: String?
+  @State private var panel: NSSavePanel?
+  @State private var exporting = false
+  @State private var open = true
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Run " + record.runID.rawValue.uuidString).font(.headline).textSelection(.enabled)
+      Text(String(describing: record.executionDisposition)).font(.caption)
+      if let attempt = record.attemptEvidence {
+        if let geometry = DrawingReviewGeometry.resolve(plan: attempt.intent.plan, sourceProgram: attempt.intent.context.program) {
+          Text(geometry.title).font(.headline)
+          PortraitPlaneProgramPreview(preview: geometry.preview).frame(minHeight: 220)
+          Text(geometry.explanation).font(.caption).foregroundStyle(.secondary)
+        }
+        ForEach(Array((attempt.baselines + attempt.progressFrames.map(\.media) + attempt.terminalFrames).enumerated()), id: \.offset) { _, reference in
+          DrawingReviewRetainedPhoto(application: application, reference: reference, runID: record.runID,
+            originalPixels: originalPixels).frame(height: 240)
+        }
+        if let binding = attempt.intent.issuance {
+          Button("Export Run Result") { Task { await export(binding) } }
+            .disabled(exporting).accessibilityIdentifier("drawing.reviewer.exportRunResult")
+        } else {
+          Text("This historical run has no native result delivery receipt. Its raw evidence remains available here.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
+      } else { Text(DrawingReviewGeometry.unavailableExplanation).foregroundStyle(.secondary) }
+      Toggle("Original image pixels", isOn: $originalPixels)
+      DrawingReviewNotes(application: application, scope: .run(record.runID))
+      if exporting { ProgressView("Preparing result export") }
+      if let exportStatus { Text(exportStatus).font(.caption) }
+    }.padding().onAppear { open = true }.onDisappear { open = false; panel?.cancel(nil) }
+      .onChange(of: policy.modalUnavailableReason) { _, reason in if reason != nil { panel?.cancel(nil) } }
+  }
+  private func export(_ binding: DrawingJobIssuance) async {
+    guard open, !exporting, policy.modalUnavailableReason == nil,
+      application.drawingDestinationRecoveryAdmissionIsOpen else { return }
+    exporting = true; defer { exporting = false }
+    do {
+      let result = try await DrawingRunResultExport.prepare(binding: binding, drawing: binding.drawing,
+        destination: application.drawingDestination)
+      defer { result.discard() }
+      guard open, policy.modalUnavailableReason == nil, !Task.isCancelled else { return }
+      let picker = NSSavePanel(); picker.title = "Export Run Result"
+      picker.nameFieldStringValue = "Run-\(record.runID.rawValue).zip"
+      panel = picker; defer { panel = nil }
+      guard await picker.begin() == .OK, let url = picker.url, open,
+        policy.modalUnavailableReason == nil, application.drawingDestinationRecoveryAdmissionIsOpen else { return }
+      let scoped = url.startAccessingSecurityScopedResource()
+      defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+      try await result.save(to: url)
+      if open { exportStatus = "Run result exported." }
+    } catch { if open { exportStatus = "Run result export failed: " + error.localizedDescription } }
   }
 }

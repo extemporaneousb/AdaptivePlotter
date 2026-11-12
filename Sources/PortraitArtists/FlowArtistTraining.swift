@@ -28,8 +28,8 @@ package enum FlowArtistTraining {
       if Task.isCancelled { return unavailable("Fit cancelled; the active checkpoint remains unchanged.") }
       featureElements += example.features.count + example.strokeFeatures.reduce(0) { $0 + $1.count }
       explicitLabels += example.strokeLabels.count
-      guard featureElements <= 8_000_000, explicitLabels <= 20_000 else {
-        return unavailable("This local fit exceeds 8 million feature values or 20,000 explicit stroke labels. Exclude some sources or drawings from this fit; their portfolio records remain intact.")
+      guard FlowArtistTrainingLimits.accepts(featureValueCount: featureElements, explicitLabelCount: explicitLabels) else {
+        return unavailable("This local fit exceeds 10 million feature values or 20,000 explicit stroke labels. Exclude some sources or drawings from this fit; their portfolio records remain intact.")
       }
       guard !example.id.isEmpty, !example.sourceGroupID.isEmpty,
         valid(example.features, count: FlowArtistFeatures.drawingCount),
@@ -97,7 +97,8 @@ package enum FlowArtistTraining {
       let strength = ranking.provenance == .ranking ? 1.0 : 0.2
       rankRows += rows.map { Row(x: $0.x, y: $0.y, weight: strength / Double(max(1, rows.count)), groups: $0.groups, isComparison: true) }
       maskRows += masks.map { Row(x: $0.x, y: $0.y, weight: 1 / Double(max(1, masks.count)), groups: $0.groups, isComparison: true) }
-      guard rankRows.count <= 20_000, maskRows.count + explicitLabels <= 20_000 else {
+      guard rankRows.count <= FlowArtistTrainingLimits.maximumComparisons,
+        maskRows.count + explicitLabels <= FlowArtistTrainingLimits.maximumLabels else {
         return unavailable("This local fit exceeds 20,000 comparisons or deletion observations. Curate a smaller training selection; no portfolio data was discarded.")
       }
     }

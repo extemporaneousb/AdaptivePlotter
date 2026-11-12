@@ -8,7 +8,7 @@ import PortraitLibrary
 import DrawingLibrary
 
 /// A physical authoring declaration, independent of preview geometry units.
-package struct FlowDojoAuthoringContext: Equatable, Sendable {
+package struct FlowAuthoringContext: Equatable, Sendable {
   package let strokeStyle: StrokeStyle
   package let nominalPenWidthMM: Double?
   package init(strokeStyle: StrokeStyle, nominalPenWidthMM: Double?) {
@@ -18,10 +18,10 @@ package struct FlowDojoAuthoringContext: Equatable, Sendable {
 }
 
 @Observable @MainActor
-package final class FlowDojoModel {
+package final class FlowAuthoringModel {
   package enum Stage: String, CaseIterable { case explore = "Explore", prune = "Prune", rank = "Rank", fit = "Fit & deploy" }
   package nonisolated static var defaultDirectory: URL {
-    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/AdaptivePlotter/DrawingLibrary", isDirectory: true)
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/PortraitStudio/DrawingLibrary", isDirectory: true)
   }
   package private(set) var directory: URL
   package private(set) var document: FlowPortfolioSnapshot?
@@ -47,13 +47,13 @@ package final class FlowDojoModel {
   package private(set) var fitReport: FlowArtistFitReport?
   package private(set) var activeModelIssue: String?
   package private(set) var activeCheckpoint: FlowArtistCheckpoint?
-  package private(set) var trainingProgress: FlowDojoTrainingProgress?
+  package private(set) var trainingProgress: FlowAuthoringTrainingProgress?
   /// Actual expensive refresh work; derived diagnostics, never persisted.
   package private(set) var checkpointDecodeCount = 0
   package private(set) var trainingSummaryBuildCount = 0
   @ObservationIgnored private let library: DrawingLibrary?
   @ObservationIgnored package private(set) var store: FlowPortfolioStore?
-  @ObservationIgnored private let renderer = FlowDojoRenderer()
+  @ObservationIgnored private let renderer = FlowAuthoringRenderer()
   @ObservationIgnored private var work: Task<Void, Never>?
   @ObservationIgnored private var recoveryWork: Task<Void, Never>?
   @ObservationIgnored private var rendering: Task<DrawingProduction<PortraitRenderResult>, Error>?
@@ -75,7 +75,7 @@ package final class FlowDojoModel {
   @ObservationIgnored private var activeTrainingDocument: FlowPortfolioSnapshot?
   @ObservationIgnored private var fittedSnapshot: FlowPortfolioTrainingSnapshot?
   @ObservationIgnored private var activeSnapshot: FlowPortfolioTrainingSnapshot?
-  @ObservationIgnored private var trainingProgressKey: FlowDojoTrainingProgressKey?
+  @ObservationIgnored private var trainingProgressKey: FlowAuthoringTrainingProgressKey?
   private struct CheckpointKey: Equatable {
     let portfolio: UUID
     let fit: FlowPortfolioFit
@@ -90,7 +90,7 @@ package final class FlowDojoModel {
   package private(set) var strokeStyle: StrokeStyle
   package private(set) var nominalPenWidthMM: Double?
 
-  package init(directory: URL = FlowDojoModel.defaultDirectory, library: DrawingLibrary? = nil,
+  package init(directory: URL = FlowAuthoringModel.defaultDirectory, library: DrawingLibrary? = nil,
     strokeStyle: StrokeStyle? = nil, nominalPenWidthMM: Double? = nil, purpose: FlowPortfolioPurpose? = nil,
     render: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)? = nil,
     fit: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)? = nil,
@@ -170,7 +170,7 @@ package final class FlowDojoModel {
   package var currentPhotoRef: PhotoRef? { selectedSource?.photo }
   package var drawingLibrary: DrawingLibrary? { library ?? store?.library }
   @discardableResult package func selectPhoto(_ reference: PhotoRef, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
-    guard let store, !closed, !closing, !needsRecovery else { return "Recover or reopen Drawing Studio before opening this Photo." }
+    guard let store, !closed, !closing, !needsRecovery else { return "Recover or reopen Flow Edge before opening this Photo." }
     photoSelectionRevision &+= 1; let revision = photoSelectionRevision
     await perform("Opening photo…", autosave: false) {
       guard revision == self.photoSelectionRevision, !self.closing, !self.closed, isStillCurrent() else { return }
@@ -278,7 +278,7 @@ package final class FlowDojoModel {
   package func updateStrokeStyle(_ style: StrokeStyle, nominalPenWidthMM: Double? = nil) {
     guard !closed, !closing else { return }
     strokeStyle = style
-    self.nominalPenWidthMM = FlowDojoAuthoringContext(strokeStyle: style, nominalPenWidthMM: nominalPenWidthMM).nominalPenWidthMM
+    self.nominalPenWidthMM = FlowAuthoringContext(strokeStyle: style, nominalPenWidthMM: nominalPenWidthMM).nominalPenWidthMM
   }
 
   package func generate(refining: Bool) async {
@@ -302,7 +302,7 @@ package final class FlowDojoModel {
           parent: parent?.recipe, checkpoint: checkpoint)
       }
       let round = try await store.beginRound(sourceID: source.id, recipes: recipes,
-        parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: FlowDojoRenderer.analysisOptions)
+        parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: FlowAuthoringRenderer.analysisOptions)
       self.stage = .explore; try await self.refresh()
       var scores: [(UUID, Double)] = []
       var cancelled = false
@@ -325,7 +325,7 @@ package final class FlowDojoModel {
           let photo = try await store.sourcePhoto(source.id)
           let input = PortraitFlowDrawingProducer.Input(data: data, parent: parentLink, photo: photo)
           let settings = PortraitFlowDrawingProducer.Settings(recipe: recipe,
-            analysisOptions: FlowDojoRenderer.analysisOptions, strokeStyle: pen, nominalPenWidthMM: nominalWidth)
+            analysisOptions: FlowAuthoringRenderer.analysisOptions, strokeStyle: pen, nominalPenWidthMM: nominalWidth)
           if slot == 0, let parent {
             let reused = PortraitRenderResult(raster: try await store.candidateRaster(parent.id),
               program: try await store.candidateProgram(parent.id))
@@ -351,7 +351,7 @@ package final class FlowDojoModel {
             result = production.artifacts
             admittedProgram = production.drawing.program
             try Task.checkCancellation()
-            preview = try await Task.detached { try FlowDojoRenderer.preview(admittedProgram) }.value
+            preview = try await Task.detached { try FlowAuthoringRenderer.preview(admittedProgram) }.value
             if let checkpoint {
               let inference = try await Task.detached {
                 let features = FlowArtistFeatures.strokes(recipe: recipe, program: admittedProgram, raster: result.raster)
@@ -496,7 +496,7 @@ package final class FlowDojoModel {
         self.progress = "Fitting parameter preference and line deletion…"
         let fitter = self.fitOverride
         let worker = Task.detached(priority: .userInitiated) {
-          let dataset = try await FlowDojoTraining.dataset(store: store, document: snapshot)
+          let dataset = try await FlowAuthoringTraining.dataset(store: store, document: snapshot)
           if let fitter { return try await fitter(dataset.examples, dataset.rankings) }
           return FlowArtistTraining.fit(examples: dataset.examples, rankings: dataset.rankings, seed: dataset.seed,
             configuration: dataset.configuration, frozenHoldoutGroupIDs: dataset.holdoutGroupIDs)
@@ -674,12 +674,12 @@ package final class FlowDojoModel {
       else if let activeFit { active = try await store.trainingDocument(snapshotID: activeFit.snapshotID); try assertCurrent() }
       else { active = nil }
     }
-    let summaryKey = FlowDojoTrainingProgressKey(snapshot)
-    let summary: FlowDojoTrainingProgress
+    let summaryKey = FlowAuthoringTrainingProgressKey(snapshot)
+    let summary: FlowAuthoringTrainingProgress
     if trainingProgressKey == summaryKey, let progress = trainingProgress { summary = progress.atRevision(snapshot.revision) }
     else {
       trainingSummaryBuildCount += 1
-      summary = FlowDojoTrainingProgress(document: snapshot, fittedDocument: fitted, activeDocument: active)
+      summary = FlowAuthoringTrainingProgress(document: snapshot, fittedDocument: fitted, activeDocument: active)
     }
     var pixels = sourceData, sourceHash = loadedSourceHash
     if let source {

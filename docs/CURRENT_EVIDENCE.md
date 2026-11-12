@@ -8,6 +8,38 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Portrait Studio authoring catalog and two-app handoff, 2026-11-11–12
+
+The two original writable catalogs contained 217 Photo records each, including
+one unique to each catalog. A read-only comparison and an independent check of
+the reconciled catalog found 218 distinct Photo refs, 27 prepared Input refs and
+29 immutable Drawing records, with 28 visible drawing summaries. All 56 original
+source links and the Studio photo metadata survived. The 29th Drawing record
+did not acquire a visible summary during reconciliation.
+
+A separate replay compared all 625 historical pruning revisions against their
+original stroke IDs, order and edit times, along with all 59 choices and 37
+rankings. The recovered portfolio retains the 1,470 candidates from 261 rounds,
+four archived fits and their four training documents. The current frozen task
+reopened with 358 effective examples, 83 ranking records and 1,947 explicit
+stroke labels. Fitting that task produced an experimental checkpoint and left it
+inactive. The deletion holdout contains no explicit keep labels, so the fit does
+not establish the cost of deleting a line the artist meant to keep.
+
+An AppKit host rendered the production Library browser with real recovered data.
+Photo 30 showed its source thumbnail, its original photograph, the prepared
+grayscale crop and the Flow Edge drawing thumbnail. Photo 29 was browsable with
+zero drawing rows. The Drawings collection showed distinct stroke thumbnails and
+restored the selected 41-stroke contour. This test caught an unrendered archived
+Float64 luminance input. Its display conversion now produces a grayscale preview
+and preserves the original raster bytes.
+
+The signed previous Plotter release took 157.7 seconds from launch to completion
+of startup on this Mac with 50 raw terminal records and 25 stored attempt states.
+A process sample found repeated wire-schedule construction during archive
+verification. A test holding that recovery open exercised the early reference
+preview and rejected manual and controller effects until recovery settled.
+
 ## Personal Drawing archive and signed native UI, 2026-11-11
 
 The offline recovery on this Mac retained 216 source Photo occurrences (196 distinct

@@ -45,8 +45,8 @@ struct DrawingReviewerLayoutTests {
   @Test("Empty and source-free current-format reviewer fit an offscreen owned window")
   func currentReviewer() async throws {
     _ = NSApplication.shared
-    let studio = DrawingFirstTestStorage.studio()
-    let fixture = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
+    let studio = DrawingFirstTestStorage.received()
+    let fixture = try await DrawingWorkbenchApplicationFixture.make(receivedDrawings: studio)
     defer { fixture.stores.remove() }
     for populated in [false, true] {
         let program = try DrawingProgramCatalog.program(for: .line, style: portraitTestStyle())

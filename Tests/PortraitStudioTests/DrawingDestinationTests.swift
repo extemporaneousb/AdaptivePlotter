@@ -378,14 +378,14 @@ import Testing
     let targetRoot = fixture.root.appendingPathComponent("standalone")
     let library = DrawingLibrary(directoryURL: targetRoot)
     let acquisition = PortraitStudioModel(library: library)
-    let dojo = FlowDojoModel(directory: targetRoot, library: library)
+    let authoring = FlowAuthoringModel(directory: targetRoot, library: library)
     let delegate = PortraitStudioApplicationDelegate()
     var route = DrawingLibraryRoute()
     route.workspace = .drawingStudio; route.collection = .children
     route.branchParent = fixture.reference
     route.photo = .init(issuer: UUID(), revision: UUID(), digest: .hash(Data("stale Photo route".utf8)))
     route.input = .init(issuer: UUID(), revision: UUID(), digest: .hash(Data("stale input route".utf8)))
-    let window = PortraitStudioDojoWindow(dojo: dojo, acquisition: acquisition, library: library, delegate: delegate,
+    let window = PortraitStudioAuthoringWindow(authoring: authoring, acquisition: acquisition, library: library, delegate: delegate,
       route: Binding(get: { route }, set: { route = $0 }))
     // Exercise both an event before any window owner exists and a completed
     // import whose window reveal callback has not been installed yet.
@@ -412,7 +412,7 @@ import Testing
     await delegate.settleDrawingDocuments()
     #expect(delegate.documentError != nil && route == beforeFailure)
     #expect(acquisition.sketches.selected?.reference == fixture.reference)
-    await acquisition.shutdown(); _ = await dojo.shutdown()
+    await acquisition.shutdown(); _ = await authoring.shutdown()
     await library.closeLibrary(); await fixture.library.closeLibrary()
   }
   @Test("Closing admission drains an already accepted preparation before borrowed Library shutdown")
@@ -501,31 +501,31 @@ import Testing
   @Test("A quit canceled by an admitted autosave failure restores standalone Drawing handoff admission")
   func canceledQuitRestoresDrawingAdmission() async throws {
     let fixture = try await DestinationFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
-    let dojo = FlowDojoModel(library: fixture.library, purpose: .validationFixture)
-    await dojo.open()
+    let authoring = FlowAuthoringModel(library: fixture.library, purpose: .validationFixture)
+    await authoring.open()
     let gate = StudioDocumentCommitGate()
     try await fixture.library.holdStudioPublication(gate, failAfterRelease: true)
-    let autosave = Task { await dojo.addPhoto(data: FlowDojoFixture.image(7), title: "Quit-cancel fixture") }
+    let autosave = Task { await authoring.addPhoto(data: FlowAuthoringFixture.image(7), title: "Quit-cancel fixture") }
     try await gate.waitUntilEntered()
     let delegate = PortraitStudioApplicationDelegate()
-    delegate.library = fixture.library; delegate.dojo = dojo
+    delegate.library = fixture.library; delegate.authoring = authoring
     delegate.destinationRoot = fixture.root.appendingPathComponent("canceled-quit-handoff")
     var replies: [Bool] = [], foregrounds = 0, openings = 0
     delegate.replyToTermination = { _, accepted in replies.append(accepted) }
     delegate.restorePortfolioWindow = { foregrounds += 1 }
     delegate.openDestination = { _ in openings += 1 }
-    #expect(!dojo.needsRecovery)
+    #expect(!authoring.needsRecovery)
     #expect(delegate.applicationShouldTerminate(NSApplication.shared) == .terminateLater)
     gate.release(); await autosave.value
     try await waitForTermination { !replies.isEmpty }
-    #expect(replies == [false] && foregrounds == 1 && dojo.needsRecovery)
+    #expect(replies == [false] && foregrounds == 1 && authoring.needsRecovery)
     await fixture.library.clearStudioPublicationFault()
-    await dojo.recoverAutosave()
-    #expect(!dojo.needsRecovery)
+    await authoring.recoverAutosave()
+    #expect(!authoring.needsRecovery)
     let drawing = try await fixture.library.drawing(fixture.reference)
     #expect(await delegate.prepareAtDestination(drawing) == nil)
     #expect(openings == 1 && delegate.destinationStatus?.hasPrefix("Opening the drawing preview") == true)
-    _ = await dojo.shutdown(); await fixture.library.closeLibrary()
+    _ = await authoring.shutdown(); await fixture.library.closeLibrary()
   }
 
   private func waitForTermination(_ finished: @MainActor () -> Bool) async throws {

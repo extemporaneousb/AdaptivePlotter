@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import Drawing
 @testable import PortraitCore
 
 @Suite("DX09 profile-local ranking responses", .serialized)

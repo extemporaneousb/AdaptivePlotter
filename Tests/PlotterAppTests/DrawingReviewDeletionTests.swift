@@ -29,14 +29,14 @@ struct DrawingReviewDeletionTests {
       try await waitUntil { app.drawingReviewRecords.contains(record) }
       let binding = try #require(record.attemptEvidence?.intent.issuance)
       let ref = binding.drawing
-      let drawing = try await app.portraitStudio.library.drawing(ref)
+      let drawing = try await app.receivedDrawings.library.drawing(ref)
       let attempt = try #require(record.attemptEvidence)
       let reference = try #require(attempt.intent.context.candidate)
       #expect(reference.candidateID == ref.digest.description)
       #expect(reference.contentHash.description == ref.digest.description)
       #expect(reference.sourceProgram == drawing.program)
       #expect(drawing.executionReference(for: attempt.intent.context.program) == reference)
-      let validated = try await app.portraitStudio.library.drawing(ref)
+      let validated = try await app.receivedDrawings.library.drawing(ref)
       #expect(validated.reference == ref && validated.program == drawing.program)
       #expect(reference.matches(attempt.intent.context.program))
       let paper = app.currentPaperRevisionContext

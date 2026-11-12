@@ -169,6 +169,23 @@ package final class PortraitSketchCollection {
     try await library.rename(reference, title: title)
     await load()
   }
+  /// Register the accepted name edit before the UI can initiate shutdown. Name
+  /// and Photo metadata edits use one ordered queue and the collection drain.
+  @discardableResult package func updateDrawingName(_ reference: DrawingRef, title: String?) -> Task<String?, Never> {
+    do { try admit() }
+    catch { let message = error.localizedDescription; return Task { message } }
+    let predecessor = photoMetadataWork
+    let task = Task<String?, Never> { @MainActor in
+      if let predecessor { _ = await predecessor.value }
+      defer { finished() }
+      do {
+        try await library.rename(reference, title: title)
+        return nil
+      } catch { return error.localizedDescription }
+    }
+    photoMetadataWork = task
+    return task
+  }
   package func delete(_ reference: DrawingRef) async throws {
     try admit(); defer { finished() }
     try await library.delete(reference)

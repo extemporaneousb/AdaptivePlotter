@@ -194,7 +194,15 @@ def replay_masks(edits, candidates):
             put.append(target['id'])
         else:
             require(action == 'completeTarget' and not indices, 'Unknown pruning operation')
-        revisions[key] = dict(edit, removedIndices=sorted(mask))
+        # The retired delta writer compacted derived state to missing/empty
+        # arrays. Replay those placeholders; a nonempty recorded fact must agree.
+        for field, expected in [('removedIndices', sorted(mask)), ('undoOperationIDs', undo),
+                                ('redoOperationIDs', redo)]:
+            recorded = edit.get(field)
+            require(recorded is None or isinstance(recorded, list), f'Invalid archived pruning {field}')
+            require(not recorded or recorded == expected, f'Contradictory archived pruning {field}')
+        revisions[key] = dict(edit, removedIndices=sorted(mask),
+                              undoOperationIDs=list(undo), redoOperationIDs=list(redo))
         heads[candidate] = key, mask, undo, redo
     return revisions
 

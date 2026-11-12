@@ -1646,9 +1646,8 @@ another Learning border exercise.
 The Plotter workspace keeps its video/simulation canvas permanently in the main
 window. The canvas has no close control or View-menu visibility command. Five
 optional dock panes are Guided Learning, Video Settings, Motion, Active Learning,
-and Drawing. Portrait Studio replaces the central workspace while preserving
-all dock memberships. Native View-menu Show/Hide commands and
-Command-Option-1 through Command-Option-6 retain access to all six surfaces.
+and Drawing. Native View-menu Show/Hide commands and Command-Option-1 through
+Command-Option-5 open those panels.
 Opening a dock pane fills right, left, lower-right, then lower-left. A side with
 one pane uses its full height; two panes share that side through a native
 draggable divider. Closing a pane preserves sibling slots; an empty side returns
@@ -1658,21 +1657,11 @@ dock model, and native split views save divider sizes. There is no full-width
 bottom area, position menu, move icon, automatic workflow reset, or closable Video
 canvas.
 
-A persistent application bar directly below the native title-bar toolbar exposes
-flat, labeled Plotter, Portrait Studio,
-Drawings, Drawing, Motion and Video controls. Plotter returns from Portrait Studio
-to the retained plotter docks. Portrait Studio is a workspace toggle; Drawing,
-Motion and Video toggle their corresponding control panes. Opening a retained
-pane from Portrait Studio reveals it rather than closing its hidden membership.
-Selection reflects visible surfaces, not retained docks beneath Portrait Studio.
-Drawings opens the existing Drawing Reviewer sheet; it is separate from the Drawing
-execution pane. Guided Learning and Active Learning remain reachable through View
-and have no application-bar toggles. Native Toggle buttons show selected surfaces
-with the system accent color and label weight. Keeping navigation in this always
-visible row leaves the native session toolbar room for readable controller,
-Motion authorization, Saved Learning, diagnostics and global Stop at minimum width. The motion-unavailable warning
-retains its complete reason in accessibility and help, with the full text in Motion.
-
+The application bar below the native toolbar toggles Drawing, Motion and Video
+Settings. Guided Learning and Active Learning remain available through View.
+**Execution History** in Drawing opens run evidence. Controller status, motion
+authorization, Saved Learning, diagnostics and global Stop remain in the toolbar.
+The Motion pane displays the complete reason when motion is unavailable.
 **Use Saved Learning** is directly available in the window toolbar with Guided
 Learning hidden or Learning switched off. Its toolbar availability requires LIVE,
 a selected connected controller, and Motion enabled, followed by the existing
@@ -1824,14 +1813,14 @@ native tick marks or planning every pointer movement.
 
 ### Independent Portrait Studio and immutable exchange
 
-Standalone and embedded Portrait Studio share one Flow Edge Dojo. The operator
+Portrait Studio owns photo browsing and Flow Edge authoring. The operator
 chooses a photo, explores a broad parameter panel, selects a direction, refines it,
 prunes whole lines, ranks outputs and fits/deploys a personal artist. Historical
 Contour, Sketch, SwiftSketch, saved-style, single-canvas Previous/Next and separate
 Review interfaces are not current alternative authoring routes. Earlier archives
 and frozen renderer receipts remain historical; they are not silently migrated.
 
-The Dojo's durable owner is the common Drawing Library. Source bytes, prepared
+The durable authoring catalog belongs to Portrait Studio. Source bytes, prepared
 inputs, retained Drawing revisions, recipes, round outcomes, choices, immutable
 pruning revisions, ranking features/previews, judgments, exclusions, frozen training
 snapshots, reports, checkpoints and activation history use that owner. Each
@@ -1924,19 +1913,18 @@ basis. Activation/rollback changes only future proposals, and cancellation canno
 replace the active checkpoint. The [Studio guide](PORTRAIT_STUDIO.md) owns detailed
 operator steps, fitting limits and file layout.
 
-Standalone Studio composes no machine runtime. Startup discovers cameras; capture
-requires an explicit action through the existing acquisition owner. Shutdown joins
-capture, generation, fitting and durable work. Its default library is
-`~/Library/Application Support/PortraitStudio/DrawingLibrary/`; one absolute
-`--library` argument selects another. Embedded Studio uses
-`~/Library/Application Support/AdaptivePlotter/DrawingLibrary/`. Historical
-libraries and exchange files remain untouched; historical import is deferred.
+Portrait Studio owns the authoring catalog at
+`~/Library/Application Support/PortraitStudio/DrawingLibrary/`. One absolute
+`--library` argument selects another catalog. Capture starts on explicit request.
+Shutdown joins capture, generation, fitting and admitted writes. A Photo's original
+bytes and capture facts remain immutable. A title, group or training exclusion is
+a separate catalog annotation. A photo can be browsed before it has any drawings.
 
 **Export Drawing** emits a Drawing Exchange v1 directory/ZIP carrier for the exact
 retained Drawing revision. Studio exports ZIP. Import verifies its closed payload,
 exact typed references, program and producer claims, required source/input and
 parent assets. It preserves original immutable record bytes rather than rerendering
-or inventing a candidate. Embedded handoff passes the same Drawing/ref directly.
+or inventing a candidate. Prepare sends the exact retained revision to AdaptivePlotter.
 Nominal physical pen width is optional for both fresh and retained Drawings; an
 unknown value adds no required declaration or setup step. Field-space preview width
 is separate from millimeters and measured material width.
@@ -1952,7 +1940,7 @@ carrier retains the exact authored closure, original pre-motion proposal and
 reviewed plan/options, raw state/terminal bytes and declared original media.
 Successive snapshots extend the same cumulative lineage; retry cannot mint
 dispatch permission. **Import Result** mounts that closed carrier through the
-common Library and presents read-only evidence in either application. Annotation
+Studio Library and presents the returned evidence for inspection. Annotation
 identity and target remain separate from native interpretation and physical fact.
 Bulk result import, inspection and export leave Status and Cancel available through
 the shared owner. Closing the Library joins its admitted result work before
@@ -1973,33 +1961,22 @@ editing geometry must remain visible without claiming that sheet confirmation is
 available. Quit suppresses late presentation after awaits while admitted durable
 work and lower-owner joins finish; canceling quit restores ordinary presentation.
 
-### Embedded Studio and Drawing
+### Preparing a Studio drawing on the plotter
 
-Within AdaptivePlotter, the same Dojo is a full workspace independent of plotter
-control docks. Imported-photo authoring remains available while disconnected.
-**Send to Drawing** retains the selected Drawing and passes its exact value/ref
-through the existing draft admission owners;
-it installs a selected immutable program and initially fits it. Re-showing an
-already admitted program preserves its placement. Later portfolio edits and model
-activation cannot mutate placed or executed geometry.
+Studio sends an exact, immutable Drawing revision to AdaptivePlotter. Source
+selection, authoring, pruning, ranking and artist fitting belong to Studio.
+AdaptivePlotter owns the received reference, placement, pen/material and paper
+setup, Draw, Stop and physical result review. During a run or retained terminal
+review it presents the sealed run plan. Later edits and model activation leave
+the placed or executed geometry intact.
 
-The shared Drawing panel owns placement, pen/material setup, paper coverage,
-Draw, Stop and physical result review. The workflow is Dojo → Send to Drawing →
-placement/material/paper setup → Draw. Sending, curation and fitting invoke no
-motion. During a run or retained terminal review, Drawing presents the sealed run
-plan rather than substituting a later Studio candidate. Reference previews and
-nominal pen width remain separate from measured material and physical evidence.
-
-The Drawing browser reads bounded summary pages from the common library and
-materializes only the selected exact Drawing. Generic source-free work and
-photo-derived work share that model. The selected Drawing's reviewer presents
-associated retained raw runs, labeled baseline/progress/terminal photographs and
-drawing/run/media notes. Browsing does not change the active runtime selection;
-**Send to Drawing** is explicit.
+Studio’s library shows independent photos and their prepared inputs, retained
+drawing branches and returned results. The global drawing collection also
+includes source-free drawings. Thumbnails identify both photos and drawings. Titles are optional. Browsing a row leaves artist preferences and machine state unchanged.
 
 The existing pre-motion retention adapter verifies the retained Drawing and the
 raw owner's exact successful staged-intent publication. It records the full
-DrawingRef-to-run association in the common library after checking the staged raw
+DrawingRef-to-run association in the destination store after checking the staged raw
 manifest and attempt bytes. That relation is authoring metadata; raw evidence
 continues to own execution, possible ink and no-redraw recovery. It introduces no
 planner, runner or motion authority. Failed association refuses the pre-motion

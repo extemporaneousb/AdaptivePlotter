@@ -14,6 +14,7 @@ struct LearningWorkbenchLayoutTests {
     let workspace = makeCausalSimulatorAppFixture().workspace
     await workspace.performApplicationStartup(AdaptivePlotterLaunchPolicy(
       arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"]))
+    await workspace.awaitDrawingHistoryRecovery()
     let item = LearningPathItemID.humanGuidedDiscovery(.penInteraction)
     let before = workspace.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
     #expect(!workspace.interactiveLearningIsComplete)
@@ -44,7 +45,7 @@ struct LearningWorkbenchLayoutTests {
       let projection = workspace.testPlotterUIProjection(selectedItemID: item, includesLearningPath: true)
       let view = DrawingStudioView(presentation: projection.drawingStudio,
         plotterUIProjection: projection.semantic, plotterUIIntentSink: workspace,
-        panel: .portraitStudio)
+        panel: .drawing)
       _ = NSApplication.shared
       let host = NSHostingView(rootView: view.frame(width: 390)
         .environment(\.colorScheme, .light).background(Color(nsColor: .windowBackgroundColor)))
@@ -92,7 +93,7 @@ struct LearningWorkbenchLayoutTests {
 
   @Test("closing leaves sibling slots intact and reopening fills the first vacancy")
   func closeAndReopen() {
-    var layout = WorkbenchLayoutState(presented: [.motion, .guidedLearning, .videoSettings, .portraitStudio])
+    var layout = WorkbenchLayoutState(presented: [.motion, .guidedLearning, .videoSettings, .drawing])
     layout.setPresented(.motion, false)
     #expect(layout.panels(in: .right) == [.videoSettings])
     #expect(layout.slot(of: .videoSettings) == .rightBottom)
@@ -109,24 +110,9 @@ struct LearningWorkbenchLayoutTests {
     let legacy = Data(#"{"placements":["video",{"position":"bottom","isPresented":false},"guidedLearning",{"position":"left","isPresented":false},"motion",{"position":"bottom","isPresented":true},"portraitStudio",{"position":"right","isPresented":true}]}"#.utf8)
     let layout = WorkbenchLayoutState.restored(from: legacy)
     #expect(layout.slot(of: .motion) == .right)
-    #expect(layout.slot(of: .portraitStudio) == nil)
-    #expect(layout.isPresented(.portraitStudio))
     #expect(!layout.isPresented(.videoSettings))
     #expect(!layout.isPresented(.guidedLearning))
     #expect(WorkbenchLayoutState.restored(from: Data("broken".utf8)) == WorkbenchLayoutState())
-  }
-
-  @Test("Portrait workspace preserves every dock and restores old portrait slots")
-  func portraitWorkspacePreservesDocks() {
-    var layout = WorkbenchLayoutState(presented: [.motion, .guidedLearning, .videoSettings, .drawing])
-    let before = layout
-    layout.setPresented(.portraitStudio, true)
-    #expect(layout.isPresented(.portraitStudio))
-    for panel in WorkbenchPanel.dockPanels { #expect(layout.slot(of: panel) == before.slot(of: panel)) }
-    layout = .restored(from: layout.encoded)
-    #expect(layout.isPresented(.portraitStudio))
-    layout.setPresented(.portraitStudio, false)
-    for panel in WorkbenchPanel.dockPanels { #expect(layout.slot(of: panel) == before.slot(of: panel)) }
   }
 
   @Test("exercise actions preserve readable button widths")

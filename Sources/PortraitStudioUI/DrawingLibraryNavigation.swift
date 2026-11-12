@@ -7,7 +7,7 @@ import SwiftUI
 package enum DrawingWorkspace: String, Codable, CaseIterable, Sendable {
   case library, drawingStudio, plotter
   package var title: String {
-    switch self { case .library: "Library"; case .drawingStudio: "Drawing Studio"; case .plotter: "Plotter" }
+    switch self { case .library: "Library"; case .drawingStudio: "Flow Edge"; case .plotter: "Plotter" }
   }
 }
 package enum DrawingLibraryCollection: String, Codable, Hashable, Sendable { case photos, drawings, children }

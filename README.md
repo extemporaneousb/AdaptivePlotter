@@ -6,7 +6,7 @@ inference, operator assertions, and observed ink as separate evidence classes.
 
 The application is deliberately local:
 
-- one signed application bundle and one foreground process;
+- one signed machine-control application and a separate signed Portrait Studio authoring application
 - one controller owner and one camera owner;
 - one camera-first workbench;
 - typed, bounded controller requests rather than arbitrary controller text;
@@ -20,25 +20,21 @@ The [Drawing Exchange decision and v1 specification](docs/DRAWING_EXCHANGE.md)
 defines the shared authoring and physical-result contract. The [adoption backlog](docs/ROADMAP.md#drawing-exchange)
 tracks its implementation across both applications.
 
-`PortraitStudio` is the independent Flow Edge Dojo: choose a photo, compare a
-broad panel, refine a choice, remove or restore whole lines, rank alternatives,
-and fit/deploy a personal artist. The embedded workspace uses the same journey.
-Sources, choices, edits, judgments and training records are saved incrementally
-in the common Drawing Library. Generated geometry remains temporary until chosen,
-pruned or explicitly handed to Drawing; Rank retains features and previews without
-retaining every unselected program.
+Portrait Studio owns the photo library and the Flow Edge artist. Browse a photo on
+its own, explore alternatives, prune lines, compare drawings and fit the artist.
+Studio saves choices, edits and judgments in its catalog. Selection, pruning or
+handoff retains the exact geometry. Ranking retains the features and previews
+needed to interpret the judgment.
 
 ```sh
 make portrait-studio-app
 make validate-portrait-studio-app
 ```
 
-The output is `.build/PortraitStudio.app` (`com.bullard.PortraitStudio`, version
-0.1.0). These commands build and verify it without launching. The standalone app
-accepts an absolute `--library` directory. Its default is
-`~/Library/Application Support/PortraitStudio/DrawingLibrary/`; embedded Studio uses
-`~/Library/Application Support/AdaptivePlotter/DrawingLibrary/`. Each library has one
-writer. Historical authoring files remain untouched; their import is deferred.
+The output is `.build/PortraitStudio.app` (`com.bullard.PortraitStudio`). Its
+default authoring catalog is `~/Library/Application Support/PortraitStudio/DrawingLibrary/`.
+Use an absolute `--library` path to open another catalog in Studio. AdaptivePlotter
+receives immutable drawing revisions and keeps its own job and physical-run records.
 
 The artist combines native Flow Edge parameter variation with learned line
 selection. Explicit rankings and pruning targets fit local image-conditioned
@@ -47,19 +43,10 @@ measurements; activation and rollback affect future proposals. Ordinary autosave
 does not invent labels for untouched lines. **Finish pruning** declares a complete
 target, after the edits are already durable.
 
-Export a Drawing Exchange ZIP, import it in AdaptivePlotter, and use the
-existing placement, material/paper and Draw workflow. Embedded **Send to Drawing**
-passes the retained immutable Drawing and its exact reference directly. Studio owns no machine runtime. See the
-[Studio operator and format guide](docs/PORTRAIT_STUDIO.md) for the complete loop,
-Drawing Library format, fitting limits and physical evidence boundaries. The
-[frozen development baseline](#portrait-studio-development-baseline) remains a
-historical renderer reference; it does not restore multiple authoring paths.
-
-In AdaptivePlotter, **Export Run Result** exports the existing job-bound attempt's
-exact Drawing, plan and retained raw evidence. Both Library browsers can explicitly
-**Import Result**, inspect its read-only returned evidence and export the mounted
-carrier. Export/import does not start, resume or redraw a run. Unknown environment,
-clock and observation facts remain explicit; software checks do not establish ink.
+Send the selected drawing from Studio to AdaptivePlotter, review its placement and
+material, confirm the sheet and choose **Draw**. A Drawing Exchange ZIP also carries a
+revision between the apps. An exported run result links the job, plan and available
+evidence back to the exact revision in Studio. See the [Studio guide](docs/PORTRAIT_STUDIO.md).
 
 ## Operator journey
 
@@ -81,7 +68,7 @@ Drawing Border** click previews the planned Drawing Border and owns the
 normal baseline, motion, drawing, reveal, Vision, and comparison phases. Those
 phases are visible activity, not six approval buttons. The exact post-frame
 comparison remains reviewable after the exercise finishes. That attributable
-validation enables running from **Drawing Studio**; corrected-execution model acceptance and
+validation enables running from the plotter’s **Drawing** panel. Corrected-execution model acceptance and
 adaptive readiness remain Roadmap scope and are not Learning Path stages.
 
 Connect and Enable Motion expose direct current-session facts. The explicit
@@ -329,9 +316,9 @@ An attributable observed frame may become future refinement evidence, but it
 cannot silently promote a model. Ambiguous motion or possible ink never causes
 an automatic redraw.
 
-## Drawing Studio
+## Drawing on the plotter
 
-**Active Learning** in Drawing Studio prepares a sealed coverage experiment:
+**Active Learning** in the Drawing panel prepares a sealed coverage experiment of
 32 training lines and 16 reserved holdouts across four regions and four signed
 axis directions. Review and Run each suggested line; after terminal review use
 Prepare Next Drawing, then Next Experiment Trial. The software selects informative
@@ -341,20 +328,10 @@ drawing archive. Failed or ambiguous trials stop selection. Candidates remain
 diagnostic; automatic batch execution, corrected physical holdouts, and explicit
 model acceptance are still required before adaptive drawing readiness.
 
-Open **Portrait Studio** through the toolbar or **View** to enter the shared
-Flow Edge Dojo. Import or capture a photo, generate a broad panel, choose and refine
-an artistic direction, and prune exact lines. Explore, Prune, Rank and Fit & deploy
-are stages of this one portfolio workflow. Photos, round metadata, choices, edit revisions, randomized ranking presentations
-and model reports are autosaved. Generated geometry and previews remain temporary
-until retention or Rank capture; no Save Drawing step is required for curation.
-
-**Send to Drawing** retains the selected immutable Drawing in the common library
-and passes it directly to the shared Drawing panel. Continue
-with placement, material and paper setup, then press **Draw**. Sending invokes no
-motion. Later curation or model activation cannot change an already placed drawing.
-The drawing reviewer retains bounded source/drawing/run summaries, stage photos
-and annotations. Deleting a physical result hides review/residual selection while
-preserving the execution records needed for possible-ink and no-redraw safety.
+Open the Portrait Studio application to import or capture a photo and develop a drawing.
+Explore, Prune, Rank and Fit & deploy are stages of the same Flow Edge workflow.
+Studio autosaves the artist's choices and adjustments. Send a selected revision
+to AdaptivePlotter to place it. Later edits leave that revision and its run evidence intact.
 
 Drawing also accepts the 11 deterministic catalog producers: line, polyline,
 rectangle, square, triangle, regular polygon, circle, ellipse, star, pyramid and
@@ -409,12 +386,10 @@ future declared coverage/model-comparison/holdout requirements.
 
 ## Workbench and evidence
 
-One singleton window contains the video/simulation canvas and full Portrait Studio
-workspace. Native **View** Show/Hide commands control Guided Learning, Video
-Settings, Motion, Active Learning, Drawing and Portrait Studio. The five dockable
-panels fill right, left, lower-right, then lower-left; a fifth replaces the oldest.
-Native dividers resize them. Studio temporarily fills the workspace and preserves
-the existing dock arrangement when closed.
+The plotter window contains the video/simulation canvas and five dockable panels.
+Use **View** to show or hide Guided Learning, Video Settings, Motion, Active Learning
+or Drawing. Panels fill right, left, lower-right, then lower-left. A fifth replaces
+the oldest. Native dividers resize them.
 The far-right red **Achtung!** retains current typed Stop requests with all
 panes hidden. Motion displays coherent controller reports at about 5 Hz while
 visible, labels stale/disconnected values, and separates commanded pen state
@@ -494,7 +469,7 @@ adds documentation and comparison tests. The tag was created after review and
 validation at `035e922c7171abff540865c2261e7cad613f318a`, without publishing it or replacing the running app. The tagged commit
 is a reproducible software reference, not physical or native-interaction acceptance.
 
-Flow Edge is the current Dojo's sole renderer. The tagged historical state also
+Flow Edge is the current portrait renderer. The tagged historical state also
 contains Contour and Sketch and predates the shared module extraction. Their frozen
 kernel comparisons remain useful regression references without making them current
 UI paths. The current owners and training loop are described in the

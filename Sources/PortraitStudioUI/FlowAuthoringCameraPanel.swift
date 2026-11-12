@@ -5,7 +5,7 @@ import SwiftUI
 
 /// User-opened acquisition surface. The existing camera owner remains the only
 /// session owner; rendering and portfolio navigation never start a camera.
-package struct FlowDojoCameraPanel: View {
+package struct FlowAuthoringCameraPanel: View {
   @Bindable var camera: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
   let selectCamera: () async -> String?
@@ -27,7 +27,7 @@ package struct FlowDojoCameraPanel: View {
         .environment(\.colorScheme, .dark)
         .frame(width: 580, height: 330)
         .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 8))
-        .accessibilityIdentifier("flowDojo.cameraPreview")
+        .accessibilityIdentifier("flowAuthoring.cameraPreview")
       if let phase = camera.capturePhase {
         HStack { ProgressView().controlSize(.small); Text(phase) }
       } else if camera.cameraIsStarting || busy {
@@ -58,7 +58,7 @@ package struct FlowDojoCameraPanel: View {
           }
         }.buttonStyle(.borderedProminent)
           .disabled(!camera.isCapturing && (busy || camera.selectedDeviceID == nil))
-          .accessibilityIdentifier("flowDojo.capturePhoto")
+          .accessibilityIdentifier("flowAuthoring.capturePhoto")
       }
     }.padding(20).frame(width: 620)
       .interactiveDismissDisabled(busy || camera.isCapturing)

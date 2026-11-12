@@ -8,55 +8,55 @@ import PortraitLibrary
 import PortraitStudioUI
 import Testing
 
-@Suite("Flow dojo camera readiness and reuse", .serialized)
+@Suite("Flow authoring camera readiness and reuse", .serialized)
 @MainActor
-struct FlowDojoCameraTests {
+struct FlowAuthoringCameraTests {
   @Test("Delayed first frames and a second portfolio capture reuse one camera session and save distinct originals")
   func repeatedCapture() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let driver = DojoCameraDriver()
+    let driver = AuthoringCameraDriver()
     let capture = CameraCapture(driver: driver)
-    let camera = PortraitStudioModel(camera: capture, library: DrawingLibrary(directoryURL: directory.appendingPathComponent("camera")), photoAcquirer: DojoPhotoAcquirer())
-    let dojo = FlowDojoModel(directory: directory.appendingPathComponent("portfolio"), purpose: .validationFixture)
+    let camera = PortraitStudioModel(camera: capture, library: DrawingLibrary(directoryURL: directory.appendingPathComponent("camera")), photoAcquirer: AuthoringPhotoAcquirer())
+    let authoring = FlowAuthoringModel(directory: directory.appendingPathComponent("portfolio"), purpose: .validationFixture)
     do {
       await camera.discover(excluding: nil)
       await camera.startCamera()
-      let pen = dojo.strokeStyle
+      let pen = authoring.strokeStyle
       let first = try #require(await camera.captureForPortfolio(strokeStyle: pen))
-      await dojo.open(); await dojo.addCapturedPhoto(first, title: dojo.nextPhotoTitle(capturedAt: first.capturedAt))
+      await authoring.open(); await authoring.addCapturedPhoto(first, title: authoring.nextPhotoTitle(capturedAt: first.capturedAt))
       await camera.startCamera() // Exact callback used by the standalone capture surface.
       let second = try #require(await camera.captureForPortfolio(strokeStyle: pen))
-      await dojo.addCapturedPhoto(second, title: dojo.nextPhotoTitle(capturedAt: second.capturedAt))
+      await authoring.addCapturedPhoto(second, title: authoring.nextPhotoTitle(capturedAt: second.capturedAt))
       #expect(await driver.starts == 1)
       #expect(second.captureNanoseconds! > first.captureNanoseconds!)
       #expect(second.id != first.id && second.data != first.data)
-      #expect(dojo.document?.sources.count == 2)
-      let source = try #require(dojo.document?.sources.first)
+      #expect(authoring.document?.sources.count == 2)
+      let source = try #require(authoring.document?.sources.first)
       #expect(source.captureProvenance?.photoID == first.id)
       #expect(source.captureProvenance?.frameID == first.frameID)
       #expect(source.captureProvenance?.captureNanoseconds == first.captureNanoseconds)
       #expect(source.captureProvenance?.captureSessionID == first.captureSessionID)
       #expect(source.captureProvenance?.selectionProvenance == first.selectionProvenance)
       #expect(source.captureProvenance?.imageSHA256 == source.image.sha256)
-      let firstID = try #require(dojo.document?.sources.first?.id)
-      #expect(try await dojo.store?.sourceData(firstID) == first.data)
+      let firstID = try #require(authoring.document?.sources.first?.id)
+      #expect(try await authoring.store?.sourceData(firstID) == first.data)
       let before = await capture.snapshot().diagnostics
       for _ in 0..<20 { _ = await capture.latestCaptureNanoseconds() }
       let after = await capture.snapshot().diagnostics
       #expect(after.returnOnlyExactRequestCount == before.returnOnlyExactRequestCount)
       #expect(after.exactContentHashComputationCount == before.exactContentHashComputationCount)
-      await camera.shutdown(); await dojo.shutdown()
-    } catch { await camera.shutdown(); await dojo.shutdown(); throw error }
+      await camera.shutdown(); await authoring.shutdown()
+    } catch { await camera.shutdown(); await authoring.shutdown(); throw error }
   }
 
   @Test("A stalled stream times out before illumination and cancellation can be retried")
   func stalledAndCancelled() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let clock = DojoAdvancingClock(), frames = DojoMetadataFrames(stalled: true)
-    let camera = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory), photoAcquirer: DojoPhotoAcquirer(), frameSource: frames, captureClock: clock)
-    let pen = FlowDojoModel(directory: directory.appendingPathComponent("unused")).strokeStyle
+    let clock = AuthoringAdvancingClock(), frames = AuthoringMetadataFrames(stalled: true)
+    let camera = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory), photoAcquirer: AuthoringPhotoAcquirer(), frameSource: frames, captureClock: clock)
+    let pen = FlowAuthoringModel(directory: directory.appendingPathComponent("unused")).strokeStyle
     #expect(await camera.captureForPortfolio(strokeStyle: pen) == nil)
     #expect(camera.cameraStatus?.contains("fresh video") == true)
     #expect(!camera.screenIlluminationActive && !camera.isCapturing)
@@ -66,14 +66,14 @@ struct FlowDojoCameraTests {
     #expect(camera.cameraStatus == nil)
     await camera.shutdown()
 
-    let afterReady = DojoMetadataFrames(stalled: false, stallAfterReadiness: true)
-    let interrupted = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("interrupted")), photoAcquirer: DojoPhotoAcquirer(), frameSource: afterReady, captureClock: DojoAdvancingClock())
+    let afterReady = AuthoringMetadataFrames(stalled: false, stallAfterReadiness: true)
+    let interrupted = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("interrupted")), photoAcquirer: AuthoringPhotoAcquirer(), frameSource: afterReady, captureClock: AuthoringAdvancingClock())
     #expect(await interrupted.captureForPortfolio(strokeStyle: pen) == nil)
     #expect(interrupted.cameraStatus?.contains("Restart Camera") == true)
     #expect(interrupted.cameraStatus?.contains("after the face video appears") != true)
     await interrupted.shutdown()
 
-    let waiting = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("cancelled")), frameSource: DojoMetadataFrames(stalled: true))
+    let waiting = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory.appendingPathComponent("cancelled")), frameSource: AuthoringMetadataFrames(stalled: true))
     let task = Task { await waiting.captureForPortfolio(strokeStyle: pen) }
     try await Task.sleep(for: .milliseconds(80))
     #expect(waiting.isCapturing && !waiting.screenIlluminationActive)
@@ -87,9 +87,9 @@ struct FlowDojoCameraTests {
   func cheapBoundaryAndBoundedLight() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let frames = DojoMetadataFrames(stalled: false), acquirer = DojoHeldAcquirer()
+    let frames = AuthoringMetadataFrames(stalled: false), acquirer = AuthoringHeldAcquirer()
     let camera = PortraitStudioModel(library: DrawingLibrary(directoryURL: directory), photoAcquirer: acquirer, frameSource: frames)
-    let pen = FlowDojoModel(directory: directory.appendingPathComponent("unused")).strokeStyle
+    let pen = FlowAuthoringModel(directory: directory.appendingPathComponent("unused")).strokeStyle
     let task = Task { await camera.captureForPortfolio(strokeStyle: pen) }
     for _ in 0..<100 {
       if await acquirer.entered { break }
@@ -106,12 +106,12 @@ struct FlowDojoCameraTests {
   }
 }
 
-private actor DojoCameraDriver: CameraCaptureDriver {
+private actor AuthoringCameraDriver: CameraCaptureDriver {
   private(set) var starts = 0
   private var frames: Task<Void, Never>?
   func authorizationState() async -> CameraAuthorizationState { .authorized }
   func requestAccess() async -> Bool { true }
-  func discoverDevices() async -> [CameraDevice] { [.init(id: .init(rawValue: "dojo-camera"), name: "Delayed test camera")] }
+  func discoverDevices() async -> [CameraDevice] { [.init(id: .init(rawValue: "authoring-camera"), name: "Delayed test camera")] }
   func start(deviceID: CameraDeviceID, maximumFramesPerSecond: Double?, eventHandler: @escaping @Sendable (CameraDriverEvent) -> Void) async throws -> CameraCaptureDriverStartResult {
     starts += 1
     frames = Task {
@@ -128,18 +128,18 @@ private actor DojoCameraDriver: CameraCaptureDriver {
   }
   func stop() async { let old = frames; frames = nil; old?.cancel(); await old?.value }
 }
-private actor DojoPhotoAcquirer: PortraitPhotoAcquiring {
+private actor AuthoringPhotoAcquirer: PortraitPhotoAcquiring {
   func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     guard case .frame(let frame) = input else { throw CocoaError(.fileReadUnsupportedScheme) }
-    return .init(data: FlowDojoFixture.image(Int(frame.captureNanoseconds % 250)), sourcePixelExtent: nil)
+    return .init(data: FlowAuthoringFixture.image(Int(frame.captureNanoseconds % 250)), sourcePixelExtent: nil)
   }
 }
-private actor DojoAdvancingClock: PortraitCaptureClock {
+private actor AuthoringAdvancingClock: PortraitCaptureClock {
   var time = 0.0
   func now() -> TimeInterval { time }
   func sleep(seconds: TimeInterval) async throws { try Task.checkCancellation(); time = max(time.nextUp, time + seconds); await Task.yield() }
 }
-private actor DojoMetadataFrames: PortraitFrameAcquiring {
+private actor AuthoringMetadataFrames: PortraitFrameAcquiring {
   var stalled: Bool
   var timestamp: UInt64 = 1
   private(set) var materializations = 0
@@ -164,13 +164,13 @@ private actor DojoMetadataFrames: PortraitFrameAcquiring {
       pixelFormat: .bgra8, bytes: OwnedFrameBytes(copying: Data(repeating: UInt8(timestamp % 255), count: 16)))
   }
 }
-private actor DojoHeldAcquirer: PortraitPhotoAcquiring {
+private actor AuthoringHeldAcquirer: PortraitPhotoAcquiring {
   private(set) var entered = false
   private var continuation: CheckedContinuation<Void, Never>?
   func acquire(_ input: PortraitPhotoInput) async throws -> PortraitAcquiredPhoto {
     entered = true
     await withCheckedContinuation { continuation = $0 }
-    return .init(data: FlowDojoFixture.image(7), sourcePixelExtent: nil)
+    return .init(data: FlowAuthoringFixture.image(7), sourcePixelExtent: nil)
   }
   func release() { continuation?.resume(); continuation = nil }
 }

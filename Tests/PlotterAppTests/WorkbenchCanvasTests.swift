@@ -7,16 +7,8 @@ import Testing
 struct WorkbenchCanvasTests {
   @Test("last plotter image remains visible regardless of freshness, while missing video falls back")
   func sourceSelection() {
-    func select(portrait: Bool = false, video: Bool = false, photo: Bool = false,
-      frame: Bool = false) -> WorkbenchCanvasContent {
-      .select(portrait: portrait, portraitVideoAvailable: video, portraitPhotoAvailable: photo,
-        plotterFrameAvailable: frame)
-    }
-    #expect(select() == .simulationPreview)
-    #expect(select(frame: true) == .plotter)
-    #expect(select(portrait: true, photo: true) == .portraitPhoto)
-    #expect(select(portrait: true, video: true, photo: true) == .portraitVideo)
-    #expect(select(portrait: true, frame: true) == .simulationPreview)
+    #expect(WorkbenchCanvasContent.select(plotterFrameAvailable: false) == .simulationPreview)
+    #expect(WorkbenchCanvasContent.select(plotterFrameAvailable: true) == .plotter)
   }
 
   @MainActor

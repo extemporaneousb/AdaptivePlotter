@@ -18,9 +18,9 @@ enum ExerciseActionLayoutPolicy {
 }
 
 enum WorkbenchPanel: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
-  case guidedLearning, videoSettings, motion, activeLearning, drawing, portraitStudio
+  case guidedLearning, videoSettings, motion, activeLearning, drawing
 
-  static var dockPanels: [Self] { allCases.filter { $0 != .portraitStudio } }
+  static var dockPanels: [Self] { allCases }
 
   var id: String { rawValue }
   var title: String {
@@ -30,7 +30,6 @@ enum WorkbenchPanel: String, CaseIterable, Codable, Hashable, Identifiable, Send
     case .motion: "Motion"
     case .activeLearning: "Active Learning"
     case .drawing: "Drawing"
-    case .portraitStudio: "Portrait Studio"
     }
   }
   var systemImage: String {
@@ -40,7 +39,6 @@ enum WorkbenchPanel: String, CaseIterable, Codable, Hashable, Identifiable, Send
     case .motion: "arrow.up.and.down.and.arrow.left.and.right"
     case .activeLearning: "chart.xyaxis.line"
     case .drawing: "pencil.and.outline"
-    case .portraitStudio: "person.crop.rectangle"
     }
   }
   func actionTitle(isPresented: Bool) -> String { "\(isPresented ? "Hide" : "Show") \(title)" }
@@ -69,8 +67,6 @@ enum WorkbenchSlot: String, CaseIterable, Codable, Hashable, Sendable {
 struct WorkbenchLayoutState: Codable, Equatable, Sendable {
   private var slots: [WorkbenchSlot: WorkbenchPanel] = [:]
   private var openingOrder: [WorkbenchPanel] = []
-  // Optional for decoding existing v1 layouts without rewriting their dock slots.
-  private var portraitWorkspace: Bool?
 
   init(presented: [WorkbenchPanel] = [.guidedLearning]) {
     for panel in presented { setPresented(panel, true) }
@@ -78,18 +74,14 @@ struct WorkbenchLayoutState: Codable, Equatable, Sendable {
 
   func slot(of panel: WorkbenchPanel) -> WorkbenchSlot? { slots.first { $0.value == panel }?.key }
   func isPresented(_ panel: WorkbenchPanel) -> Bool {
-    panel == .portraitStudio ? portraitWorkspace == true : slot(of: panel) != nil
+    slot(of: panel) != nil
   }
   func panels(in dock: WorkbenchDock) -> [WorkbenchPanel] {
     WorkbenchSlot.allCases.filter { $0.dock == dock }.compactMap { slots[$0] }
   }
-  var hasVisiblePanels: Bool { !slots.isEmpty || portraitWorkspace == true }
+  var hasVisiblePanels: Bool { !slots.isEmpty }
 
   mutating func setPresented(_ panel: WorkbenchPanel, _ presented: Bool) {
-    if panel == .portraitStudio {
-      portraitWorkspace = presented
-      return
-    }
     if !presented {
       if let slot = slot(of: panel) { slots[slot] = nil }
       openingOrder.removeAll { $0 == panel }
@@ -105,15 +97,10 @@ struct WorkbenchLayoutState: Codable, Equatable, Sendable {
   }
 
   static func restored(from data: Data) -> Self {
-    if var decoded = try? JSONDecoder().decode(Self.self, from: data),
+    if let decoded = try? JSONDecoder().decode(Self.self, from: data),
       Set(decoded.slots.values).count == decoded.slots.count,
       Set(decoded.openingOrder) == Set(decoded.slots.values),
       decoded.openingOrder.count == decoded.slots.count {
-      if let oldSlot = decoded.slot(of: .portraitStudio) {
-        decoded.slots[oldSlot] = nil
-        decoded.openingOrder.removeAll { $0 == .portraitStudio }
-        decoded.portraitWorkspace = true
-      }
       return decoded
     }
     // v1 used left/bottom/right docks and included a closable Video canvas.

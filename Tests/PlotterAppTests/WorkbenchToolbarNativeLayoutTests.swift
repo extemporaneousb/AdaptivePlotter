@@ -18,14 +18,7 @@ struct WorkbenchToolbarNativeLayoutTests {
       let projection = application.testPlotterUIProjection()
       #expect(projection.controllerSession.environment == .live)
       #expect(projection.controllerSession.motionAuthorizationUnavailableReason != nil)
-      let layout = WorkbenchLayoutState(presented: [.motion, .drawing])
-      let navigation = WorkbenchNavigationControls(layout: layout,
-        reviewerIsPresented: false, selectDestination: { _ in })
-      let measuredNavigation = NSHostingView(rootView: navigation.fixedSize())
-      #expect(measuredNavigation.fittingSize.width <= 1000)
       let host = NSHostingController(rootView: VStack(spacing: 0) {
-        navigation
-        Divider()
         Color.clear
       }.frame(minWidth: 1000, minHeight: 300)
         .toolbar {
@@ -55,14 +48,8 @@ struct WorkbenchToolbarNativeLayoutTests {
             "The \(identifier) control overflowed at \(width) px")
         }
         #expect(window.frame.width <= CGFloat(width) + 1)
-        // AX materialization is optional in the command-line host. Geometry and
-        // native toolbar membership are mandatory; this is not an input receipt.
         let controls = descendants(host.view)
-        if controls.contains(where: { $0.accessibilityIdentifier() == "workbench.navigation" }) {
-          for destination in WorkbenchToolbarDestination.allCases {
-            #expect(controls.contains { $0.accessibilityIdentifier() == "workbench.destination.\(destination.rawValue)" })
-          }
-        }
+        #expect(!controls.contains { $0.accessibilityIdentifier() == "workbench.navigation" })
         if let path = ProcessInfo.processInfo.environment["ADAPTIVEPLOTTER_TOOLBAR_SNAPSHOT_PATH"],
           let chrome = window.contentView?.superview,
           let bitmap = chrome.bitmapImageRepForCachingDisplay(in: chrome.bounds) {

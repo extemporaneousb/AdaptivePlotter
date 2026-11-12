@@ -316,7 +316,7 @@ extension FlowPortfolioStore {
   func canonicalValue<T: Decodable>(_ type: T.Type, reference: FlowPortfolioFeedbackReference,
     id: UUID) async throws -> T {
     let package = try await storage.library.feedback(reference.publication)
-    return try FlowFeedbackReader.value(type, reference: reference, id: id, package: package)
+    return try autoreleasepool { try FlowFeedbackReader.value(type, reference: reference, id: id, package: package) }
   }
   package func feedbackReference(for judgmentID: UUID) throws -> FlowPortfolioFeedbackReference {
     guard let ref = state.rankings.first(where: { $0.id == judgmentID })?.feedback
@@ -331,8 +331,17 @@ extension FlowPortfolioStore {
   func feedbackRows<T: Codable>(_ type: T.Type, name: String) async throws -> [T] {
     let key = kind(name), records = try await storage.library.records(kind: key)
     var values: [(Int, T)] = []
-    for row in records {
+    let ordered = try records.map { row -> (DrawingLibraryRecord, [String: Any], Int) in
       let json = try ExchangeJSON.validate(row.payload)
+      guard let ordinal = json["ordinal"] as? Int, ordinal >= 0 else { throw FlowPortfolioError.invalid("Feedback navigation order.") }
+      return (row, json, ordinal)
+    }.sorted { $0.2 < $1.2 }
+    // One bounded read invocation reuses exact immutable contexts. Chronological
+    // rows from a feedback batch are adjacent; eight contexts cap open roots.
+    var publications: [DrawingLibraryFeedbackRef: ValidatedExchangePackage] = [:]
+    var publicationOrder: [DrawingLibraryFeedbackRef] = []
+    let budget = FlowFeatureReadBudget()
+    for (row, json, _) in ordered {
       if type == FlowPortfolioPruneRevision.self, let raw = json["value"] as? [String: Any], raw["feedback"] == nil {
         let attributed = try JSONDecoder().decode(FlowLibraryEntity<FlowPortfolioPruneRevision>.self, from: row.payload)
         guard attributed.profile == key, attributed.ordinal >= 0, attributed.value.id == row.id,
@@ -342,7 +351,15 @@ extension FlowPortfolioStore {
       }
       let locator = try JSONDecoder().decode(FlowLibraryEntity<FlowFeedbackNavigation>.self, from: row.payload)
       guard locator.profile == key, locator.ordinal >= 0, locator.value.id == row.id else { throw FlowPortfolioError.invalid("Feedback navigation identity.") }
-      let value = try await canonicalValue(type, reference: locator.value.feedback, id: locator.value.id)
+      let reference = locator.value.feedback
+      let package: ValidatedExchangePackage
+      if let cached = publications[reference.publication] { package = cached }
+      else {
+        package = try await storage.library.feedback(reference.publication)
+        if publicationOrder.count == 8 { publications.removeValue(forKey: publicationOrder.removeFirst()) }
+        publications[reference.publication] = package; publicationOrder.append(reference.publication)
+      }
+      let value = try autoreleasepool { try FlowFeedbackReader.value(type, reference: reference, id: locator.value.id, package: package, budget: budget) }
       if var edit = value as? FlowPortfolioPruneRevision {
         edit.drawing = locator.value.drawing; edit.feedback = locator.value.feedback
         guard let typed = edit as? T else { throw FlowPortfolioError.invalid("Pruning navigation type.") }; values.append((locator.ordinal, typed))
@@ -362,11 +379,45 @@ final class FlowFeatureReadBudget {
   private var assets: [ExchangeDigest: ExchangeAsset] = [:]
   private var usedBytes: UInt64 = 0
   private var countedFeatures = Set<ExchangeDigest>()
+  private var sharedStrokeBases = Set<ExchangeDigest>()
   private var usedElements = 0
   fileprivate var features: [ExchangeDigest: FlowPortfolioFeatureCapsule] = [:]
   fileprivate var verifiedBytes: [ExchangeDigest: Data] = [:]
-  init(maximumBytes: UInt64 = 256 * 1024 * 1024, maximumElements: Int = 8_000_000) {
+  private let maximumCachedBytes: Int
+  private var cachedByteCount = 0
+  private var cachedByteOrder: [ExchangeDigest] = []
+  private final class Context {
+    weak var files: VerifiedExchangeFiles?
+    var assets = Set<ExchangeDigest>()
+    init(_ files: VerifiedExchangeFiles) { self.files = files }
+  }
+  private var contexts: [ObjectIdentifier: Context] = [:]
+  /// Only one resolver's enclosing task read may defer its final whole-read-set
+  /// check. Default standalone answer/ranking reads settle their own read set.
+  weak var batchedFiles: VerifiedExchangeFiles?
+  init(maximumBytes: UInt64 = 512 * 1024 * 1024, maximumElements: Int = 8_000_000,
+    maximumCachedBytes: Int = 64 * 1024 * 1024) {
     self.maximumBytes = maximumBytes; self.maximumElements = maximumElements
+    self.maximumCachedBytes = max(0, maximumCachedBytes)
+  }
+  func cacheVerified(_ bytes: Data, digest: ExchangeDigest) {
+    guard verifiedBytes[digest] == nil, bytes.count <= maximumCachedBytes else { return }
+    while cachedByteCount + bytes.count > maximumCachedBytes, !cachedByteOrder.isEmpty {
+      let old = cachedByteOrder.removeFirst()
+      if let removed = verifiedBytes.removeValue(forKey: old) { cachedByteCount -= removed.count }
+    }
+    verifiedBytes[digest] = bytes; cachedByteCount += bytes.count; cachedByteOrder.append(digest)
+  }
+  func verified(_ asset: ExchangeAsset, in files: VerifiedExchangeFiles) -> Bool {
+    let context = contexts[ObjectIdentifier(files)]
+    return context?.files === files && context?.assets.contains(asset.object) == true
+  }
+  func remember(_ asset: ExchangeAsset, in files: VerifiedExchangeFiles) {
+    let key = ObjectIdentifier(files)
+    let context: Context
+    if let old = contexts[key], old.files === files { context = old }
+    else { context = Context(files); contexts[key] = context }
+    context.assets.insert(asset.object)
   }
   func admit(_ asset: ExchangeAsset) throws {
     if let old = assets[asset.object] {
@@ -377,9 +428,10 @@ final class FlowFeatureReadBudget {
   }
   func admitFeature(_ asset: ExchangeAsset, value: FlowPortfolioFeatureCapsule) throws {
     guard !countedFeatures.contains(asset.object) else { return }
-    let count = value.drawing.count + value.strokes.reduce(0) { $0 + $1.count }
+    let basis = value.rootFeatures?.object ?? asset.object
+    let count = value.drawing.count + (sharedStrokeBases.contains(basis) ? 0 : value.strokes.reduce(0) { $0 + $1.count })
     guard count <= maximumElements - usedElements else { throw FlowPortfolioError.unavailable("Frozen historical feature budget exceeded.") }
-    usedElements += count; countedFeatures.insert(asset.object)
+    usedElements += count; countedFeatures.insert(asset.object); sharedStrokeBases.insert(basis)
   }
 }
 
@@ -411,6 +463,7 @@ enum FlowFeedbackReader {
       }
     }
     let groups = try (response["groups"].map { try decodeJSON($0, [[UUID]].self) }) ?? []
+    if budget.batchedFiles !== package.files { try package.files.revalidateSelected() }
     return (nav, shown, groups, try presentations.map { try decodeJSON($0["features"], ExchangeAsset.self) })
   }
   static func value<T: Decodable>(_ type: T.Type, reference: FlowPortfolioFeedbackReference, id: UUID,
@@ -428,6 +481,10 @@ enum FlowFeedbackReader {
     func decode<V: Decodable>(_ value: Any?, _ type: V.Type) throws -> V {
       guard let value else { throw FlowPortfolioError.invalid("Feedback field unavailable.") }
       return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]))
+    }
+    func finish(_ value: T) throws -> T {
+      if budget.batchedFiles !== package.files { try package.files.revalidateSelected() }
+      return value
     }
     if type == FlowPortfolioRanking.self {
       guard answerType == "adaptiveplotter.recorded-ranking-revision", question["id"] as? String == answerType,
@@ -461,7 +518,7 @@ enum FlowFeedbackReader {
           predecessor.presentation == shown, predecessor.features == facts.features else { throw FlowPortfolioError.invalid("Ranking supersession presentation/feature basis changed.") }
         current = prior; expected = predecessor.navigation.supersedesID
       }
-      guard current.supersedes.isEmpty, let result = rank as? T else { throw FlowPortfolioError.invalid("Ranking revision origin.") }; return result
+      guard current.supersedes.isEmpty, let result = rank as? T else { throw FlowPortfolioError.invalid("Ranking revision origin.") }; return try finish(result)
     }
     let expected = type == FlowPortfolioChoice.self ? "adaptiveplotter.flow-choice" : "adaptiveplotter.flow-pruning"
     guard answerType == expected, question["id"] as? String == expected,
@@ -484,7 +541,7 @@ enum FlowFeedbackReader {
           feature.removedIndices == item.removedIndices else { throw FlowPortfolioError.invalid("Choice feature basis.") }
       }
       choice.feedback = reference
-      guard let typed = choice as? T else { throw FlowPortfolioError.invalid("Choice type.") }; return typed
+      guard let typed = choice as? T else { throw FlowPortfolioError.invalid("Choice type.") }; return try finish(typed)
     } else if type == FlowPortfolioPruneRevision.self {
       guard Set(semantic.keys).isSubset(of: Set(["id", "createdAt", "candidateID", "parentRevisionID", "action", "affectedStrokeIDs", "removedStrokeIDs", "operationID", "undoOperationIDs", "redoOperationIDs"])) else { throw FlowPortfolioError.unavailable("Unsupported pruning answer fields.") }
       let rootBasis = try Self.feature(target, package: package, budget: budget)
@@ -501,43 +558,64 @@ enum FlowFeedbackReader {
         prune.affectedIndices.allSatisfy({ root.strokeIDs.indices.contains($0) }),
         prune.action != .modelProposal, prune.action != .inheritedSelection else { throw FlowPortfolioError.invalid("Prune stable-stroke feature basis.") }
       prune.feedback = reference
-      guard let typed = prune as? T else { throw FlowPortfolioError.invalid("Prune type.") }; return typed
+      guard let typed = prune as? T else { throw FlowPortfolioError.invalid("Prune type.") }; return try finish(typed)
     } else { throw FlowPortfolioError.invalid("Unknown feedback task type.") }
   }
 }
 
 extension FlowFeedbackReader {
-  static func exactJSON(_ asset: ExchangeAsset, package: ValidatedExchangePackage,
-    budget: FlowFeatureReadBudget, maximumBytes: Int = 128 * 1024 * 1024) throws -> Data {
+  private static func requireJSONContext(_ asset: ExchangeAsset, package: ValidatedExchangePackage,
+    budget: FlowFeatureReadBudget, maximumBytes: Int) throws {
     guard maximumBytes >= 0, asset.byteLength <= UInt64(maximumBytes),
       let index = package.index.known, index.kind == "feedback", index.requiredFeatures.isEmpty,
       asset.mediaType == "application/json", asset.encoding == "utf8-json",
       let indexed = index.assets.first(where: { $0.asset.object == asset.object }), indexed.asset == asset else {
       throw FlowPortfolioError.unavailable("Unsupported or unindexed exact JSON asset descriptor.")
     }
-    try Task.checkCancellation()
-    try budget.admit(asset)
-    if let bytes = budget.verifiedBytes[asset.object] {
+    try Task.checkCancellation(); try budget.admit(asset)
+  }
+  static func exactJSON(_ asset: ExchangeAsset, package: ValidatedExchangePackage,
+    budget: FlowFeatureReadBudget, maximumBytes: Int = 128 * 1024 * 1024) throws -> Data {
+    try requireJSONContext(asset, package: package, budget: budget, maximumBytes: maximumBytes)
+    if let bytes = budget.verifiedBytes[asset.object], budget.verified(asset, in: package.files) {
       // ValidatedExchangePackage established these fingerprints through carrier
       // or catalog admission. Recheck this context before reusing exact bytes.
-      try package.files.revalidateSelected()
+      try package.files.verify(asset.object)
       return bytes
     }
     let bytes = try package.files.record(asset.object, maximumBytes: maximumBytes)
     try asset.validate(bytes, maximumBytes: maximumBytes)
-    budget.verifiedBytes[asset.object] = bytes
+    budget.remember(asset, in: package.files)
+    budget.cacheVerified(bytes, digest: asset.object)
     return bytes
   }
-  static func feature(_ asset: ExchangeAsset, package: ValidatedExchangePackage, budget: FlowFeatureReadBudget = .init()) throws -> FlowPortfolioFeatureCapsule {
-    let bytes = try exactJSON(asset, package: package, budget: budget)
+  static func feature(_ asset: ExchangeAsset, package: ValidatedExchangePackage, budget: FlowFeatureReadBudget = .init(), allowRootReference: Bool = true) throws -> FlowPortfolioFeatureCapsule {
     let cacheKey = asset.object
     let cached = budget.features[cacheKey]
-    let value = try cached ?? JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: bytes)
+    var value: FlowPortfolioFeatureCapsule
+    if let cached {
+      try requireJSONContext(asset, package: package, budget: budget, maximumBytes: 128 * 1024 * 1024)
+      if budget.verified(asset, in: package.files) { try package.files.verify(asset.object) }
+      else { _ = try exactJSON(asset, package: package, budget: budget) }
+      value = cached
+    } else { value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: exactJSON(asset, package: package, budget: budget)) }
     let config = try exactJSON(value.extractor.record, package: package, budget: budget, maximumBytes: 1024 * 1024)
     let receipt = try exactJSON(value.producer.record, package: package, budget: budget, maximumBytes: 1024 * 1024)
     if let root = value.rootFeatures {
-      guard root.object != asset.object else { throw FlowPortfolioError.invalid("Self-referential root feature basis.") }
-      _ = try exactJSON(root, package: package, budget: budget)
+      guard allowRootReference, root.object != asset.object else { throw FlowPortfolioError.invalid("Cyclic root feature basis.") }
+      let base = try feature(root, package: package, budget: budget, allowRootReference: false)
+      guard base.rootFeatures == nil, base.id == value.candidateID, base.candidateID == value.candidateID,
+        base.sourceID == value.sourceID, base.programDigest == value.programDigest, base.strokeIDs == value.strokeIDs,
+        base.recipe == value.recipe,
+        base.producer.id == value.producer.id, base.producer.version == value.producer.version, base.producer.record == value.producer.record,
+        base.extractor.id == value.extractor.id, base.extractor.version == value.extractor.version, base.extractor.record == value.extractor.record,
+        base.strokes == value.strokes else { throw FlowPortfolioError.invalid("Edited features differ from their exact stable stroke basis.") }
+      // Native verification can be established after temporary capture, during
+      // retention/admission. Keep each observed flag; the exact basis receipts
+      // and numerical vectors above must still agree.
+      // Value-semantic arrays share the verified root's storage. Distinct mask
+      // drawing features/answers remain independently cached and validated.
+      value.strokes = base.strokes
     }
     if cached == nil {
       guard value.profile == "adaptiveplotter.flow-features/3", value.requiredFeatures.isEmpty,
@@ -579,6 +657,7 @@ extension FlowFeedbackReader {
       let value = try feature(asset, package: package, budget: budget)
       if let root = value.rootFeatures { assets.append(root) }
     }
+    if budget.batchedFiles !== package.files { try package.files.revalidateSelected() }
     return Array(Set(assets)).sorted { $0.object.description < $1.object.description }
   }
   static func decodeJSON<T: Decodable>(_ value: Any?, _ type: T.Type) throws -> T {

@@ -46,7 +46,7 @@ extension PlotterApplicationRuntime {
 
   private func retainStagedDrawing(_ intent: DrawingRunIntent) async throws {
     let drawing: Drawing
-    if let binding = intent.issuance { drawing = try await portraitStudio.sketches.library.drawing(binding.drawing) }
+    if let binding = intent.issuance { drawing = try await receivedDrawings.sketches.library.drawing(binding.drawing) }
     else {
       guard let authored = authoredDrawing(for: intent.context.program) else { throw DrawingRunEvidenceError.invalidAttemptContext }
       drawing = authored
@@ -70,7 +70,7 @@ extension PlotterApplicationRuntime {
       }
     }
     try assertCurrent()
-    try await portraitStudio.sketches.bindDrawingAttempt(intent, drawing: drawing, archive: archive, archiveURL: drawingEvidencePort.archiveURL)
+    try await receivedDrawings.sketches.bindDrawingAttempt(intent, drawing: drawing, archive: archive, archiveURL: drawingEvidencePort.archiveURL)
     try assertCurrent()
   }
 

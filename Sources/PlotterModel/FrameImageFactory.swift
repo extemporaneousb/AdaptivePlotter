@@ -1,6 +1,4 @@
 import CoreGraphics
-import PlotterModel
-import PlotterRuntime
 
 package enum FrameImageFactory {
   package static func image(from frame: StampedFrame) -> CGImage? {

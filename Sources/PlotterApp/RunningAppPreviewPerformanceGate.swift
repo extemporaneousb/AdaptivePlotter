@@ -1,4 +1,3 @@
-import PortraitArtists
 import AppKit
 import Foundation
 import PlotterEpisodeModel
@@ -264,7 +263,6 @@ enum RunningAppPreviewPerformanceGate {
     var passiveChanges = Set<String>()
     for panel in WorkbenchPanel.allCases {
       revealPanel(panel)
-      await application.portraitStudio.awaitRendering()
       try? await clock.sleep(for: .milliseconds(150))
       var observation = WorkbenchQuietPanelObservation()
       for _ in 0..<6 {
@@ -329,7 +327,6 @@ enum RunningAppPreviewPerformanceGate {
     }
     probe.uninstall()
     revealPanel(.motion)
-    await application.portraitStudio.awaitRendering()
     let end = application.previewIsolationDiagnostics
     let interactionLatencies = await interactionProbe.value
     let analysisEnd = await analysisCount(application)

@@ -69,7 +69,7 @@ struct RunningAppPreviewPerformanceGateTests {
     let complete = completeNativeWorkbenchReport()
     #expect(complete.verificationFailures.isEmpty)
     var missingWidth = complete
-    missingWidth.portraitWorkspaces.removeAll { $0.width == 1_000 }
+    missingWidth.placements.removeAll { $0.width == 1_000 }
     #expect(!missingWidth.verificationFailures.isEmpty)
     var headerOnly = complete
     let first = headerOnly.placements[0]
@@ -229,16 +229,7 @@ struct RunningAppPreviewPerformanceGateTests {
         }
       }
     }
-    result.portraitWorkspaces = [1_000, 1_600].map { width in
-      .init(width: width,
-        header: .init(identifier: "workbench.hide.portraitStudio",
-          frame: CGRect(x: 20, y: 20, width: 80, height: 30), containingClipCount: 0, scrolledClipCount: 0,
-          panelIdentifier: "workbench.panel.portraitStudio", fitsEveryContainingClip: true),
-        capture: .init(identifier: "portrait.capture",
-          frame: CGRect(x: 20, y: 60, width: 30, height: 30), containingClipCount: 0, scrolledClipCount: 0,
-          panelIdentifier: "workbench.panel.portraitStudio", fitsEveryContainingClip: true))
-    }
-    result.bitmaps = (0..<10).map { "layout-\($0).png" }
+    result.bitmaps = (0..<8).map { "layout-\($0).png" }
     result.learningStates = [false, true]
     result.acceptedArtifactsUnchanged = true
     result.windowPreferencesUnchanged = true

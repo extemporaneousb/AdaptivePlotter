@@ -102,7 +102,7 @@ struct FlowPortfolioTests {
   }
 
   private func temporary() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("drawing-flow-" + UUID().uuidString) }
-  static var photo: Data { FlowDojoFixture.image(1) }
+  static var photo: Data { FlowAuthoringFixture.image(1) }
   static let raster = PortraitRaster(width: 2, height: 2, luminance: [0,1,1,0], provenance: "synthetic-fixture", analysisSummary: "Synthetic geometry; no human quality evidence")
   static func program() throws -> DrawingProgram {
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())

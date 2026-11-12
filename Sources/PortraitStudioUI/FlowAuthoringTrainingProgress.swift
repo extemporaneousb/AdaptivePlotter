@@ -1,11 +1,12 @@
 import Foundation
 import PortraitArtists
 import PortraitLibrary
+import PortraitCore
 
 /// UI coverage projects the same resolver used to freeze training inputs.
-package typealias FlowDojoSupervision = FlowPortfolioSupervision
+package typealias FlowAuthoringSupervision = FlowPortfolioSupervision
 
-package struct FlowDojoPhotoProgress: Equatable, Sendable {
+package struct FlowAuthoringPhotoProgress: Equatable, Sendable {
   package var candidateCount = 0
   package var supervisedCandidateCount = 0
   package var choiceCount = 0
@@ -21,7 +22,7 @@ package struct FlowDojoPhotoProgress: Equatable, Sendable {
 
 /// Counts describe effective current feedback, never approvals inferred from browsing.
 /// Comparison counts precede numeric feature-degeneracy filtering; fit reports remain authoritative.
-package struct FlowDojoTrainingProgress: Equatable, Sendable {
+package struct FlowAuthoringTrainingProgress: Equatable, Sendable {
   package private(set) var revision: Int
   package let photoCount: Int
   package let includedPhotoCount: Int
@@ -50,31 +51,39 @@ package struct FlowDojoTrainingProgress: Equatable, Sendable {
   package let pendingChoiceCount: Int
   package let pendingRankingCount: Int
   package let pendingLabelCandidateCount: Int
-  private let photos: [UUID: FlowDojoPhotoProgress]
+  private let photos: [UUID: FlowAuthoringPhotoProgress]
 
   package init(document: FlowPortfolioSnapshot, fittedDocument: FlowPortfolioSnapshot? = nil,
     activeDocument: FlowPortfolioSnapshot? = nil) {
-    let plan = FlowDojoSupervision.plan(document)
-    revision = document.revision; photoCount = document.sources.count
-    includedPhotoCount = document.sources.filter { !$0.excluded }.count
+    let plan = FlowAuthoringSupervision.plan(document)
+    var firstSourceByPhoto: [PhotoRef: UUID] = [:], photoKeys: [UUID: UUID] = [:]
+    for source in document.sources {
+      if let photo = source.photo {
+        let key = firstSourceByPhoto[photo] ?? source.id
+        firstSourceByPhoto[photo] = key; photoKeys[source.id] = key
+      } else { photoKeys[source.id] = source.id }
+    }
+    func photoKey(_ source: UUID) -> UUID { photoKeys[source] ?? source }
+    revision = document.revision; photoCount = Set(photoKeys.values).count
+    includedPhotoCount = Set(document.sources.filter { !$0.excluded }.map { photoKey($0.id) }).count
     generatedDrawingCount = document.candidates.count
-    var values = Dictionary(uniqueKeysWithValues: document.sources.map { ($0.id, FlowDojoPhotoProgress()) })
-    for c in document.candidates { values[c.sourceID, default: .init()].candidateCount += 1 }
+    var values = Dictionary(uniqueKeysWithValues: Set(photoKeys.values).map { ($0, FlowAuthoringPhotoProgress()) })
+    for c in document.candidates { values[photoKey(c.sourceID), default: .init()].candidateCount += 1 }
     var itemSources: [String: UUID] = [:]
     var roots: [String: UUID] = [:]
     var masks: [String: [Int]] = [:]
     let latestEdits = Dictionary(grouping: document.pruneRevisions, by: \.candidateID).compactMapValues(\.last)
     for entry in plan.entries {
       let c = entry.candidate
-      values[c.sourceID, default: .init()].supervisedCandidateCount += 1
-      values[c.sourceID, default: .init()].removeLabelCount += entry.labels.removedCount
-      values[c.sourceID, default: .init()].keepLabelCount += entry.labels.count - entry.labels.removedCount
+      values[photoKey(c.sourceID), default: .init()].supervisedCandidateCount += 1
+      values[photoKey(c.sourceID), default: .init()].removeLabelCount += entry.labels.removedCount
+      values[photoKey(c.sourceID), default: .init()].keepLabelCount += entry.labels.count - entry.labels.removedCount
       if !entry.labels.isEmpty {
-        if latestEdits[c.id]?.action == .completeTarget { values[c.sourceID, default: .init()].completedTargetCount += 1 }
-        else { values[c.sourceID, default: .init()].partialCorrectionCount += 1 }
+        if latestEdits[c.id]?.action == .completeTarget { values[photoKey(c.sourceID), default: .init()].completedTargetCount += 1 }
+        else { values[photoKey(c.sourceID), default: .init()].partialCorrectionCount += 1 }
       }
-      itemSources[c.id.uuidString] = c.sourceID; roots[c.id.uuidString] = c.id; masks[c.id.uuidString] = []
-      for edit in entry.revisions { itemSources[edit.id.uuidString] = c.sourceID; roots[edit.id.uuidString] = c.id; masks[edit.id.uuidString] = edit.removedIndices }
+      itemSources[c.id.uuidString] = photoKey(c.sourceID); roots[c.id.uuidString] = c.id; masks[c.id.uuidString] = []
+      for edit in entry.revisions { itemSources[edit.id.uuidString] = photoKey(c.sourceID); roots[edit.id.uuidString] = c.id; masks[edit.id.uuidString] = edit.removedIndices }
     }
     var choicePairs = 0, rankPairs = 0, ties = 0, maskPairs = 0
     for ranking in plan.rankings {
@@ -101,7 +110,7 @@ package struct FlowDojoTrainingProgress: Equatable, Sendable {
         }
       } }
     }
-    photos = values
+    photos = Dictionary(uniqueKeysWithValues: document.sources.map { ($0.id, values[photoKey($0.id)] ?? .init()) })
     choiceCount = plan.choices.count; choiceComparisonCount = choicePairs
     rankingCount = plan.explicitRankings.count; rankingComparisonCount = rankPairs; tieComparisonCount = ties
     removeLabelCount = values.values.reduce(0) { $0 + $1.removeLabelCount }
@@ -109,7 +118,7 @@ package struct FlowDojoTrainingProgress: Equatable, Sendable {
     completedTargetCount = values.values.reduce(0) { $0 + $1.completedTargetCount }
     partialCorrectionCount = values.values.reduce(0) { $0 + $1.partialCorrectionCount }
     supervisedCandidateCount = plan.entries.count
-    feedbackPhotoCount = Set(plan.entries.map { $0.candidate.sourceID }).count
+    feedbackPhotoCount = Set(plan.entries.map { photoKey($0.candidate.sourceID) }).count
     feedbackGroupCount = Set(plan.entries.map(\.group)).count
     exampleCount = plan.entries.reduce(0) { $0 + ($1.includeRoot ? 1 : 0) + $1.revisions.count }
     featureValueCount = plan.entries.reduce(0) { sum, entry in
@@ -122,36 +131,38 @@ package struct FlowDojoTrainingProgress: Equatable, Sendable {
     let active = document.fits.first(where: { $0.id == document.activeFitID }).flatMap { snapshots[$0.snapshotID] }
     latestFitAttemptRevision = attempt?.portfolioRevision
     latestFitRevision = latest?.portfolioRevision; activeFitRevision = active?.portfolioRevision
-    func comparison(_ frozen: FlowPortfolioSnapshot?, metadata: FlowPortfolioTrainingSnapshot?) -> FlowDojoSupervision.Plan? {
-      guard let metadata else { return FlowDojoSupervision.plan(.empty(purpose: document.purpose)) }
+    func comparison(_ frozen: FlowPortfolioSnapshot?, metadata: FlowPortfolioTrainingSnapshot?) -> FlowAuthoringSupervision.Plan? {
+      guard let metadata else { return FlowAuthoringSupervision.plan(.empty(purpose: document.purpose)) }
       guard let frozen, frozen.id == document.id, frozen.revision == metadata.portfolioRevision else { return nil }
-      return FlowDojoSupervision.plan(frozen)
+      return FlowAuthoringSupervision.plan(frozen)
     }
     let fittedPlan = comparison(fittedDocument, metadata: latest)
     let activePlan = comparison(activeDocument, metadata: active)
-    let signature = FlowDojoSupervision.Signature(plan)
-    hasTrainingChanges = fittedPlan.map { signature != FlowDojoSupervision.Signature($0) }
-    activeHasTrainingChanges = activePlan.map { signature != FlowDojoSupervision.Signature($0) }
+    let signature = FlowAuthoringSupervision.Signature(plan)
+    hasTrainingChanges = fittedPlan.map { signature != FlowAuthoringSupervision.Signature($0) }
+    activeHasTrainingChanges = activePlan.map { signature != FlowAuthoringSupervision.Signature($0) }
     func differences<K: Hashable, V: Equatable>(_ current: [K: V], _ prior: [K: V]) -> Int {
       Set(current.keys).union(prior.keys).filter { current[$0] != prior[$0] }.count
     }
-    func choices(_ value: FlowDojoSupervision.Plan) -> [String: [[String]]] {
+    func choices(_ value: FlowAuthoringSupervision.Plan) -> [String: [[String]]] {
       Dictionary(uniqueKeysWithValues: value.rankings.filter { $0.provenance == .choice }.map { ($0.id, $0.tiers) })
     }
-    func explicit(_ value: FlowDojoSupervision.Plan) -> [UUID: [[String]]] {
+    func explicit(_ value: FlowAuthoringSupervision.Plan) -> [UUID: [[String]]] {
       let rankings = Dictionary(uniqueKeysWithValues: value.rankings.map { ($0.id, $0.tiers) })
       return Dictionary(uniqueKeysWithValues: value.explicitRankings.compactMap { record in
         rankings[record.id.uuidString].map { (record.presentationID, $0) }
       })
     }
-    func labels(_ value: FlowDojoSupervision.Plan) -> [UUID: FlowDojoSupervision.Labels] {
+    func labels(_ value: FlowAuthoringSupervision.Plan) -> [UUID: FlowAuthoringSupervision.Labels] {
       Dictionary(uniqueKeysWithValues: value.entries.filter { !$0.labels.isEmpty }.map { ($0.candidate.id, $0.labels) })
     }
     pendingChoiceCount = fittedPlan.map { differences(choices(plan), choices($0)) } ?? 0
     pendingRankingCount = fittedPlan.map { differences(explicit(plan), explicit($0)) } ?? 0
     pendingLabelCandidateCount = fittedPlan.map { differences(labels(plan), labels($0)) } ?? 0
-    let withinBudget = exampleCount <= 5_000 && featureValueCount <= 8_000_000
-      && removeLabelCount + keepLabelCount + maskPairs <= 20_000 && choicePairs + rankPairs <= 20_000
+    let withinBudget = exampleCount <= 5_000
+      && FlowArtistTrainingLimits.accepts(featureValueCount: featureValueCount,
+        explicitLabelCount: removeLabelCount + keepLabelCount + maskPairs)
+      && choicePairs + rankPairs <= FlowArtistTrainingLimits.maximumComparisons
       && plan.entries.allSatisfy { $0.candidate.strokeCount <= 10_000 }
     canAttemptFit = withinBudget && (choicePairs + rankPairs >= 2
       || (removeLabelCount > 0 && keepLabelCount > 0) || maskPairs >= 2)
@@ -164,15 +175,15 @@ package struct FlowDojoTrainingProgress: Equatable, Sendable {
   package func atRevision(_ revision: Int) -> Self {
     var value = self; value.revision = revision; return value
   }
-  package func photo(_ sourceID: UUID) -> FlowDojoPhotoProgress { photos[sourceID] ?? .init() }
+  package func photo(_ sourceID: UUID) -> FlowAuthoringPhotoProgress { photos[sourceID] ?? .init() }
 }
 
 /// Immutable event IDs cover the store's append-only feedback. Only grouping,
 /// exclusion and fit selection are mutable semantic inputs. Titles, navigation
 /// and the display revision deliberately do not trigger supervision regrouping.
-package struct FlowDojoTrainingProgressKey: Equatable {
+package struct FlowAuthoringTrainingProgressKey: Equatable {
   private struct Source: Equatable {
-    let id: UUID; let image: String; let subject: String?; let session: String?; let excluded: Bool
+    let id: UUID; let image: String; let photo: PhotoRef?; let subject: String?; let session: String?; let excluded: Bool
   }
   private struct Candidate: Equatable {
     let id: UUID; let source: UUID; let program: String; let raster: String; let strokes: Int; let excluded: Bool
@@ -186,7 +197,7 @@ package struct FlowDojoTrainingProgressKey: Equatable {
   private let active: UUID?
   package init(_ document: FlowPortfolioSnapshot) {
     portfolio = document.id
-    sources = document.sources.map { .init(id: $0.id, image: $0.image.sha256,
+    sources = document.sources.map { .init(id: $0.id, image: $0.image.sha256, photo: $0.photo,
       subject: $0.subjectID, session: $0.sessionID, excluded: $0.excluded) }
     candidates = document.candidates.map { .init(id: $0.id, source: $0.sourceID,
       program: $0.programHash, raster: $0.raster.sha256, strokes: $0.strokeCount, excluded: $0.excluded) }

@@ -428,6 +428,8 @@ struct PlotterBoundaryEpisodeTests {
       boundaryRuntimeAccess: runtimeAccess,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.performTestExerciseAction(
@@ -507,6 +509,8 @@ struct PlotterBoundaryEpisodeTests {
       boundaryRuntimeAccess: runtimeAccess,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await workspace.performTestExerciseAction(
@@ -774,6 +778,8 @@ struct PlotterBoundaryEpisodeTests {
       boundaryRuntimeAccess: runtimeAccess,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     let penOwner = workspace.testCurrentLearningPathItemID

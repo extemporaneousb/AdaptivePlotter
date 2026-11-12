@@ -1,4 +1,3 @@
-import PortraitArtists
 import PortraitStudioUI
 import CoreGraphics
 import Foundation

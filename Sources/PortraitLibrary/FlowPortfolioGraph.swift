@@ -24,7 +24,7 @@ package struct FlowPortfolioFeatureCapsule: Codable, Sendable {
   package let producer: FlowPortfolioFeatureProvenance
   package let extractor: FlowPortfolioFeatureProvenance
   package let drawing: [Double]
-  package let strokes: [[Double]]
+  package var strokes: [[Double]]
   package let removedIndices: [Int]
   package var requiredFeatures: [String] = []
   package var asset: ExchangeAsset { get throws { try ExchangeAsset(bytes: DrawingArtifactCoding.encoder().encode(self), mediaType: "application/json", encoding: "utf8-json") } }
@@ -241,19 +241,20 @@ extension FlowPortfolioStore {
     let drawing: Drawing
     if let temporary = temporaryDrawings[candidateID] { drawing = temporary }
     else if let reference = candidate.drawing { drawing = try await storage.library.drawing(reference) }
+    else if let historical = try await historicalDrawing(candidateID) { drawing = historical }
     else { throw FlowPortfolioError.unavailable("Exact producer receipt is unavailable for feature extraction.") }
     guard drawing.program == program else { throw FlowPortfolioError.invalid("Feature producer/program mismatch.") }
     let producer = try featureSupport(drawing.producer.originalJSON)
     let configuration = try DrawingArtifactCoding.encoder().encode(FlowFeatureExtractorConfiguration.current)
     let extractor = try featureSupport(configuration)
-    let rootFeatures: ExchangeAsset?
-    if id == candidateID { rootFeatures = nil } else { rootFeatures = try await featureCapsule(candidateID: candidateID).asset }
+    let root: FlowPortfolioFeatureCapsule?
+    if id == candidateID { root = nil } else { root = try await featureCapsule(candidateID: candidateID) }
     let capsule = FlowPortfolioFeatureCapsule(profile: "adaptiveplotter.flow-features/3", id: id,
-      candidateID: candidateID, sourceID: candidate.sourceID, programDigest: .init(program.contentHash), rootFeatures: rootFeatures, strokeIDs: program.strokes.map(\.id), recipe: candidate.recipe,
+      candidateID: candidateID, sourceID: candidate.sourceID, programDigest: .init(program.contentHash), rootFeatures: try root?.asset, strokeIDs: program.strokes.map(\.id), recipe: candidate.recipe,
       producer: .init(id: drawing.producer.id, version: drawing.producer.version, record: producer, nativeVerified: drawing.capabilities.producerVerified),
       extractor: .init(id: "adaptiveplotter.flow-features", version: FlowArtistFeatures.revision, record: extractor, nativeVerified: false),
       drawing: FlowArtistFeatures.drawing(recipe: candidate.recipe, program: program, raster: raster, removedIndices: removed),
-      strokes: FlowArtistFeatures.strokes(recipe: candidate.recipe, program: program, raster: raster), removedIndices: removedIndices)
+      strokes: root?.strokes ?? FlowArtistFeatures.strokes(recipe: candidate.recipe, program: program, raster: raster), removedIndices: removedIndices)
     let png = try PortraitDrawingPreview.png(program, removed: removed)
     previewArtifacts[id] = .init(id: id, image: try storage.retain(png, mediaType: "image/png"))
     featureCapsules[id] = capsule

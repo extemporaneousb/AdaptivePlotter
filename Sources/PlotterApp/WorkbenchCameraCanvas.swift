@@ -8,19 +8,8 @@ import PlotterUI
 import SwiftUI
 
 enum WorkbenchCanvasContent: Equatable {
-  case plotter, portraitVideo, portraitPhoto, simulationPreview
-
-  static func select(portrait: Bool, portraitVideoAvailable: Bool, portraitPhotoAvailable: Bool,
-    plotterFrameAvailable: Bool) -> Self {
-    if portrait {
-      if portraitVideoAvailable { return .portraitVideo }
-      return portraitPhotoAvailable ? .portraitPhoto : .simulationPreview
-    }
-    // Freshness controls camera admission, not presentation source. Exact Vision
-    // deliberately holds preview publication, and a slow or interrupted camera
-    // still owns its last image until the camera owner clears that image.
-    return plotterFrameAvailable ? .plotter : .simulationPreview
-  }
+  case plotter, simulationPreview
+  static func select(plotterFrameAvailable: Bool) -> Self { plotterFrameAvailable ? .plotter : .simulationPreview }
 }
 
 struct WorkbenchCanvasPresentation {
@@ -36,12 +25,7 @@ extension PlotterApplicationRuntime {
     let surface = actionSurfacePresentation
     let displayed = surface.usesAmbientPreviewFrame
       ? actionSurfacePreview.displayedFrame : surface.displayedFrame
-    let content = WorkbenchCanvasContent.select(
-      portrait: workbenchCameraRole == .portrait,
-      portraitVideoAvailable: portraitStudio.cameraIsRunning && portraitStudio.preview.frame != nil,
-      portraitPhotoAvailable: portraitStudio.selectedPhoto != nil,
-      plotterFrameAvailable: displayed != nil
-    )
+    let content = WorkbenchCanvasContent.select(plotterFrameAvailable: displayed != nil)
     // A held image remains camera-sourced; only its temporal qualification changes.
     // This presentation does not make that image fresh enough for an observation.
     let status: String?
@@ -74,7 +58,6 @@ struct WorkbenchCameraCanvas: View {
     TimelineView(.periodic(from: .now, by: 0.5)) { _ in
       let canvas = application.workbenchCanvasPresentation
       let displayed = canvas.displayedFrame
-      let portrait = application.portraitStudio
       Group {
         switch canvas.content {
         case .plotter:
@@ -85,10 +68,6 @@ struct WorkbenchCameraCanvas: View {
             calibrationGuideQualification: canvas.showsSparseTipGuide
               ? displayed.flatMap { application.sparseTipGuideDetail(on: $0) } : nil)
             .accessibilityIdentifier("workbench.canvas.plotter")
-        case .portraitVideo:
-          PortraitCameraPreview(model: portrait.preview, zoom: viewport.zoom)
-        case .portraitPhoto:
-          WorkbenchPhotoCanvas(data: portrait.selectedPhoto, zoom: viewport.zoom)
         case .simulationPreview:
           WorkbenchSimulationCanvas(application: application, zoom: viewport.zoom)
         }

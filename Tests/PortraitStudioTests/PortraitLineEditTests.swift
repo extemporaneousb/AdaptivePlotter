@@ -137,7 +137,7 @@ struct PortraitLineEditTests {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
-    let production = try await PortraitFlowDrawingProducer().produce(input: .init(data: FlowDojoFixture.image(4)),
+    let production = try await PortraitFlowDrawingProducer().produce(input: .init(data: FlowAuthoringFixture.image(4)),
       settings: .init(recipe: .standard, analysisOptions: .init(cropToFace: false, removeBackground: false), strokeStyle: style))
     let library = DrawingLibrary(directoryURL: root); try await library.open()
     let editor = PortraitLineEditModel(base: production.drawing, sketches: PortraitSketchCollection(library: library))

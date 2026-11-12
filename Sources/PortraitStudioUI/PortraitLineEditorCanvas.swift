@@ -25,7 +25,7 @@ package struct PortraitLineEditorCanvas: NSViewRepresentable {
 package final class PortraitLineEditorNSView: NSView {
   package var model: PortraitLineEditModel?
   package var program: DrawingProgram?
-  /// The Dojo supplies durable callbacks; generic membership editing uses its model.
+  /// The Authoring supplies durable callbacks; generic membership editing uses its model.
   package var onRemove: ((Set<StrokeID>) -> Void)?
   package var onRestore: ((Set<StrokeID>) -> Void)?
   package var onSelection: ((Set<StrokeID>) -> Void)?

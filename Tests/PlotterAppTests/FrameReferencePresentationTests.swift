@@ -212,8 +212,8 @@ struct FrameReferencePresentationTests {
     await app.performTestExerciseAction(.cameraCalibration(.buildFivePositionProposal), for: camera)
     await app.performTestExerciseAction(.cameraCalibration(.acceptProposal), for: camera)
     #expect(app.tipCameraRegistration == nil && app.machineCameraRegistration != nil)
-    #expect(app.portraitStudio.projectedDrawing == nil && app.portraitStudio.sketches.selected == nil)
-    #expect(try await app.portraitStudio.library.drawings().entries.isEmpty)
+    #expect(app.receivedDrawings.projectedDrawing == nil && app.receivedDrawings.sketches.selected == nil)
+    #expect(try await app.receivedDrawings.library.drawings().entries.isEmpty)
     // Draft's built-in source exists before a canonical Drawing is selected.
     // This calibration guide must stand on its own registration and exact frame.
     #expect(app.drawingDraftSnapshot.selectedCatalogItemID == .square)
@@ -232,7 +232,7 @@ struct FrameReferencePresentationTests {
     #expect(app.drawingDraftSnapshot.sheetPlacementAssertion?.paper == facts.paper)
     #expect(app.drawingDraftSnapshot.sheetPlacementAssertion?.frame == app.drawingDraftSnapshot.projection.externalFacts.displayedFrame)
     #expect(app.drawingRunSnapshot?.noRedraw == noRedraw)
-    #expect(app.portraitStudio.projectedDrawing == nil && app.portraitStudio.sketches.selected == nil)
+    #expect(app.receivedDrawings.projectedDrawing == nil && app.receivedDrawings.sketches.selected == nil)
     #expect((await harness.simulator.snapshot()).persistentInkSegmentCount == 0)
     await app.shutdown()
   }

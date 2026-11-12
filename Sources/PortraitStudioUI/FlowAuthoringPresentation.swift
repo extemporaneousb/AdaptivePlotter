@@ -7,7 +7,7 @@ import PortraitCore
 
 /// Stable names and ancestry are projections of durable identities. Browsing
 /// them never declares artistic preference or creates another drawing.
-extension FlowDojoModel {
+extension FlowAuthoringModel {
   package func photoName(_ source: FlowPortfolioSource) -> String {
     if !source.title.hasPrefix("Frame ") { return source.title }
     let index = (document?.sources.firstIndex(where: { $0.id == source.id }) ?? 0) + 1
@@ -18,11 +18,13 @@ extension FlowDojoModel {
   }
   package func drawingName(_ value: FlowPortfolioCandidate) -> String {
     if let name = value.title, !name.isEmpty { return name }
-    let siblings = document?.candidates.filter { $0.sourceID == value.sourceID } ?? []
+    let sources = document?.photoSourceIDs(for: value.sourceID) ?? [value.sourceID]
+    let siblings = document?.candidates.filter { sources.contains($0.sourceID) } ?? []
     return "Drawing \((siblings.firstIndex(where: { $0.id == value.id }) ?? 0) + 1)"
   }
   package func roundName(_ value: FlowPortfolioRound) -> String {
-    let siblings = document?.rounds.filter { $0.sourceID == value.sourceID } ?? []
+    let sources = document?.photoSourceIDs(for: value.sourceID) ?? [value.sourceID]
+    let siblings = document?.rounds.filter { sources.contains($0.sourceID) } ?? []
     return "Set \((siblings.firstIndex(where: { $0.id == value.id }) ?? 0) + 1)"
   }
   package var currentBranch: String {
@@ -50,7 +52,8 @@ extension FlowDojoModel {
 
   package func branches(for sourceID: UUID) -> [FlowPortfolioRound] {
     guard let document else { return [] }
-    let rounds = document.rounds.filter { $0.sourceID == sourceID }
+    let sources = document.photoSourceIDs(for: sourceID)
+    let rounds = document.rounds.filter { sources.contains($0.sourceID) }
     let candidates = Dictionary(uniqueKeysWithValues: document.candidates.map { ($0.id, $0) })
     var children: [UUID: [FlowPortfolioRound]] = [:], roots: [FlowPortfolioRound] = []
     let ids = Set(rounds.map(\.id))
@@ -72,21 +75,23 @@ extension FlowDojoModel {
 
   package func representative(for sourceID: UUID) -> FlowPortfolioPresentationItem? {
     guard let document else { return nil }
+    let sources = document.photoSourceIDs(for: sourceID)
     for ranking in document.latestRankings.reversed() where !ranking.skipped && !ranking.neither {
       guard let tier = ranking.orderedGroups.first,
         let presentation = document.presentations.first(where: { $0.id == ranking.presentationID }),
-        let item = presentation.items.first(where: { $0.sourceID == sourceID && tier.contains($0.id) }) else { continue }
+        let item = presentation.items.first(where: { sources.contains($0.sourceID) && tier.contains($0.id) }) else { continue }
       return item
     }
     for choice in document.choices.reversed() {
-      if let item = choice.offeredItems.first(where: { $0.id == choice.selectedItemID && $0.sourceID == sourceID }) { return item }
+      if let item = choice.offeredItems.first(where: { $0.id == choice.selectedItemID && sources.contains($0.sourceID) }) { return item }
     }
-    let candidates = document.candidates.filter { $0.sourceID == sourceID }, ids = Set(candidates.map(\.id))
+    let candidates = document.candidates.filter { sources.contains($0.sourceID) }, ids = Set(candidates.map(\.id))
     if let edit = document.pruneRevisions.last(where: { ids.contains($0.candidateID) }) {
-      return .init(id: edit.id, candidateID: edit.candidateID, revisionID: edit.id, sourceID: sourceID, removedIndices: edit.removedIndices)
+      guard let candidate = candidates.first(where: { $0.id == edit.candidateID }) else { return nil }
+      return .init(id: edit.id, candidateID: edit.candidateID, revisionID: edit.id, sourceID: candidate.sourceID, removedIndices: edit.removedIndices)
     }
     guard let first = candidates.first else { return nil }
-    return FlowPortfolioPresentationItem(id: first.id, candidateID: first.id, revisionID: nil, sourceID: sourceID, removedIndices: [])
+    return FlowPortfolioPresentationItem(id: first.id, candidateID: first.id, revisionID: nil, sourceID: first.sourceID, removedIndices: [])
   }
   package func representativeKey(_ source: FlowPortfolioSource) -> String {
     let prefix = (document?.id.uuidString ?? "") + ":" + source.id.uuidString
@@ -97,14 +102,14 @@ extension FlowDojoModel {
   package func representativeThumbnail(_ source: FlowPortfolioSource) async -> Data? {
     guard let item = representative(for: source.id), let store else { return await thumbnail(source: source) }
     let key = representativeKey(source)
-    return try? await FlowDojoThumbnailCache.shared.load(key: key) {
+    return try? await FlowAuthoringThumbnailCache.shared.load(key: key) {
       try await store.presentationPreview(item)
     }
   }
 
   package func thumbnail(source: FlowPortfolioSource) async -> Data? {
     guard let store else { return nil }
-    return try? await FlowDojoThumbnailCache.shared.load(key: "source:" + source.image.sha256) {
+    return try? await FlowAuthoringThumbnailCache.shared.load(key: "source:" + source.image.sha256) {
       try await store.sourceData(source.id)
     }
   }
@@ -125,7 +130,7 @@ extension FlowDojoModel {
     guard let store else { return nil }
     let revision = document?.latestPrune(candidateID: candidate.id)
     let key = previewIdentity(candidate: candidate)
-    return try? await FlowDojoThumbnailCache.shared.load(key: key) {
+    return try? await FlowAuthoringThumbnailCache.shared.load(key: key) {
       let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,
         revisionID: revision?.id, sourceID: candidate.sourceID, removedIndices: revision?.removedIndices ?? [])
       return try await store.presentationPreview(item)
@@ -135,8 +140,8 @@ extension FlowDojoModel {
 
 /// Encoded row thumbnails have a separate, bounded cost from decoded viewport
 /// pixels. Both reads and thumbnail encodes coalesce under exact context keys.
-package actor FlowDojoThumbnailCache {
-  static let shared = FlowDojoThumbnailCache()
+package actor FlowAuthoringThumbnailCache {
+  static let shared = FlowAuthoringThumbnailCache()
   private struct Flight { let id: UUID; let task: Task<Data, Error> }
   private var values: [String: Data] = [:]
   private var order: [String] = []

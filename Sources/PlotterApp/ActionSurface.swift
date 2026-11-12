@@ -908,7 +908,7 @@ struct ActionSurface: View {
             .operatorButton(.affirmative, isEnabled: drawingPlacementRequest != nil)
             .help(
               drawingPlacementRequest == nil
-                ? "Refresh the exact Drawing Studio placement before applying it."
+                ? "Refresh the exact Drawing placement before applying it."
                 : "Apply the exact staged camera-frame placement."
             )
           }
@@ -1285,12 +1285,12 @@ struct ActionSurface: View {
 
   private func submitPendingDrawingPlacement() {
     guard let placement = pendingDrawingPlacement else {
-      drawingPlacementRefusal = "Stage a Drawing Studio placement before applying it."
+      drawingPlacementRefusal = "Stage a Drawing placement before applying it."
       return
     }
     let intent = PlotterDrawingDraftIntent.placeAtCameraPoint(placement)
     guard let request = plotterUIProjection.request(matching: .drawingDraft(intent)) else {
-      drawingPlacementRefusal = "Refresh the exact Drawing Studio placement before applying it."
+      drawingPlacementRefusal = "Refresh the exact Drawing placement before applying it."
       return
     }
     Task { @MainActor in

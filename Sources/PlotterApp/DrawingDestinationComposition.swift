@@ -9,7 +9,7 @@ import PlotterModel
 @MainActor enum DrawingDestinationComposition {
   static func make(_ application: PlotterApplicationRuntime,
     returnDirectory: URL = DrawingDestinationFiles.defaultRoot.appendingPathComponent("results")) -> DrawingDestinationService {
-    let library = application.portraitStudio.sketches.library
+    let library = application.receivedDrawings.sketches.library
     return DrawingDestinationService(library: library,
       returnDirectory: returnDirectory,
       prepare: { [weak application] ref, engine, isStillCurrent in
@@ -50,17 +50,17 @@ extension PlotterApplicationRuntime {
   }
   func prepareDestinationDrawingOutcome(_ drawing: Drawing,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> DrawingDestinationPreparationOutcome {
-    let selection = portraitStudio.selectionEpoch
-    let collectionSelection = portraitStudio.sketches.selectionEpoch
+    let selection = receivedDrawings.selectionEpoch
+    let collectionSelection = receivedDrawings.sketches.selectionEpoch
     let revision = drawingDraftSnapshot.projection.draftRevision
     let context = DrawingPreparationContext(mayBegin: { [weak self] in
       guard let self else { return false }
-      return self.portraitStudio.selectionEpoch == selection
-        && self.portraitStudio.sketches.selectionEpoch == collectionSelection
+      return self.receivedDrawings.selectionEpoch == selection
+        && self.receivedDrawings.sketches.selectionEpoch == collectionSelection
         && self.drawingDraftSnapshot.projection.draftRevision == revision
     }, isStillCurrent: isStillCurrent)
     do {
-      let retained = try await portraitStudio.sketches.retain(drawing, reason: "prepare-destination")
+      let retained = try await receivedDrawings.sketches.retain(drawing, reason: "prepare-destination")
       guard isStillCurrent(), let ref = retained.reference else {
         return .refused(.preparationUnavailable, detail: "Drawing handoff was cancelled.")
       }
@@ -83,7 +83,7 @@ extension PlotterApplicationRuntime {
   }
   func canShowUnplacedDrawing(_ ref: DrawingRef) -> Bool {
     let draft = drawingDraftSnapshot
-    guard drawingDestinationRecoveryAdmissionIsOpen, let artwork = portraitStudio.projectedDrawing,
+    guard drawingDestinationRecoveryAdmissionIsOpen, let artwork = receivedDrawings.projectedDrawing,
       artwork.reference == ref, draft.authoredProgram == artwork.program, draft.plan == nil,
       !draft.projection.externalFacts.runInProgress else { return false }
     return draft.planningRefusal?.reason == .registrationUnavailable || draft.planningRefusal?.reason == .drawableRegionUnavailable
@@ -100,8 +100,8 @@ extension PlotterApplicationRuntime {
   }
   fileprivate func preparedDestinationDrawing(_ ref: DrawingRef, engine: UUID) throws -> DrawingPreparation? {
     let snapshot = drawingDraftSnapshot
-    guard portraitStudio.projectedDrawing?.reference == ref, let plan = snapshot.plan,
-      let authored = snapshot.authoredProgram, portraitStudio.projectedDrawing?.program == authored,
+    guard receivedDrawings.projectedDrawing?.reference == ref, let plan = snapshot.plan,
+      let authored = snapshot.authoredProgram, receivedDrawings.projectedDrawing?.program == authored,
       snapshot.artworkPlan?.sourceProgramContentHash == authored.contentHash else { return nil }
     let facts = snapshot.projection.externalFacts
     let encoder = DrawingArtifactCoding.encoder()
@@ -121,45 +121,13 @@ extension PlotterApplicationRuntime {
   }
 }
 
-/// Lifetime of the actual embedded caller, separate from draft-owner revisions.
-struct DrawingDestinationHandoffLifetime: Equatable {
-  let route: DrawingLibraryRoute
-  let studioIsPresented: Bool
-  let reviewerIsPresented: Bool
-}
-@MainActor enum DrawingDestinationHandoff {
-  static func perform(_ drawing: Drawing, application: PlotterApplicationRuntime,
-    lifetime: @escaping @MainActor () -> DrawingDestinationHandoffLifetime,
-    showDestination: @escaping @MainActor (DrawingDestinationPreview) -> Void) async -> String? {
-    let initial = lifetime()
-    let current = { @MainActor in lifetime() == initial }
-    let outcome = await application.prepareDestinationDrawingOutcome(drawing, isStillCurrent: current)
-    guard current() else { return "Drawing handoff was cancelled." }
-    switch outcome {
-    case .preview(let preview):
-      guard application.destinationPreviewIsCurrent(preview) else { return "Drawing preparation has changed. Review the current preview." }
-      showDestination(preview)
-      return nil
-    case .refused(_, let detail): return detail
-    }
-  }
-}
-
-/// Borrowed bindings belonging to the existing window. This value owns neither
-/// selection nor preferences; all destination reveals share this exact action.
 typealias DrawingDestinationReveal = @MainActor (DrawingDestinationPreview) -> Bool
 @MainActor struct DrawingDestinationWindowPresentation {
-  let route: Binding<DrawingLibraryRoute>
   let layout: Binding<WorkbenchLayoutState>
-  let reviewer: Binding<Bool>
+  var didReveal: (DrawingRef?) -> Void = { _ in }
   func showDestination(reference: DrawingRef? = nil) {
-    reviewer.wrappedValue = false
-    var next = route.wrappedValue
-    if let reference { next.showDrawing(reference) }
-    next.workspace = .plotter
-    route.wrappedValue = next
-    layout.wrappedValue.setPresented(.portraitStudio, false)
     layout.wrappedValue.setPresented(.drawing, true)
+    didReveal(reference)
   }
   func reveal(_ preview: DrawingDestinationPreview, application: PlotterApplicationRuntime) -> Bool {
     guard application.destinationPreviewIsCurrent(preview) else { return false }
@@ -167,20 +135,9 @@ typealias DrawingDestinationReveal = @MainActor (DrawingDestinationPreview) -> B
     return true
   }
   func revealAction(application: PlotterApplicationRuntime) -> DrawingDestinationReveal {
-    { [weak application] ticket in
+    { [weak application] preview in
       guard let application else { return false }
-      return self.reveal(ticket, application: application)
-    }
-  }
-  func restoreSavedWorkspace(openPhoto: @MainActor (PhotoRef) async -> String?,
-    photoResult: @MainActor (String?) -> Void) async {
-    let restored = route.wrappedValue
-    reviewer.wrappedValue = restored.workspace == .library
-    if restored.workspace == .drawingStudio { layout.wrappedValue.setPresented(.portraitStudio, true) }
-    if restored.workspace == .drawingStudio, let reference = restored.photo {
-      let failure = await openPhoto(reference)
-      guard route.wrappedValue.workspace == restored.workspace, route.wrappedValue.photo == reference else { return }
-      photoResult(failure)
+      return self.reveal(preview, application: application)
     }
   }
 }
@@ -207,9 +164,9 @@ import PlotterUI
     original: PlotterDrawingRunSubmission, requestStamp: ExchangeDigest) {
     self.application = application; self.runtime = runtime; self.original = original; self.requestStamp = requestStamp
     draft = application.drawingDraftSnapshot; facts = application.drawingDraftExternalFacts
-    selectionEpoch = application.portraitStudio.selectionEpoch
-    collectionSelectionEpoch = application.portraitStudio.sketches.selectionEpoch
-    if let selected = application.portraitStudio.projectedDrawing, selected.program == draft.authoredProgram {
+    selectionEpoch = application.receivedDrawings.selectionEpoch
+    collectionSelectionEpoch = application.receivedDrawings.sketches.selectionEpoch
+    if let selected = application.receivedDrawings.projectedDrawing, selected.program == draft.authoredProgram {
       // A retained unsupported Drawing must never be replaced by a builtin
       // source-free receipt merely because it has renderable geometry.
       drawing = selected
@@ -225,8 +182,8 @@ import PlotterUI
   func matchesCurrent() -> Bool {
     guard let application, application.drawingDestinationRecoveryAdmissionIsOpen,
       application.drawingFrameEditRunUnavailableReason == nil,
-      application.portraitStudio.selectionEpoch == selectionEpoch,
-      application.portraitStudio.sketches.selectionEpoch == collectionSelectionEpoch,
+      application.receivedDrawings.selectionEpoch == selectionEpoch,
+      application.receivedDrawings.sketches.selectionEpoch == collectionSelectionEpoch,
       application.drawingDraftSnapshot.authoredProgram == draft.authoredProgram,
       application.drawingDraftSnapshot.program == draft.program,
       application.drawingDraftSnapshot.plan == draft.plan,
@@ -268,7 +225,7 @@ import PlotterUI
     guard drawing.capabilities.supported.contains(.plot) else { throw DrawingDestinationRefusal.unsupportedDrawing }
     guard submission == original, matchesCurrent(), let application,
       let plan = draft.plan, let identity = original.projection.planIdentity else { throw DrawingDestinationRefusal.stalePreview }
-    let retained = try await application.portraitStudio.sketches.retain(drawing, reason: "plot")
+    let retained = try await application.receivedDrawings.sketches.retain(drawing, reason: "plot")
     guard matchesCurrent(), let ref = retained.reference else { throw DrawingDestinationRefusal.stalePreview }
     let identityPair = try await application.drawingDestination.nativeIdentity()
     guard matchesCurrent() else { throw DrawingDestinationRefusal.stalePreview }

@@ -384,6 +384,8 @@ struct SavedLearningPhysicalPoseTests {
       await jog.value
       #expect(app.manualMotionEpisodeSnapshot?.activeOperation == nil)
       await f.machine.reportTransportAvailability(true)
+      await app.awaitDrawingHistoryRecovery()
+      if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
       await app.establishMachineSession(f.machine.descriptor)
       await submitControllerSession(app, .requestPassiveProbe)
       #expect((await f.machine.snapshot()).machine.position == originalPosition)
@@ -407,6 +409,8 @@ struct SavedLearningPhysicalPoseTests {
     let before = try #require((await f.machine.snapshot()).machine.position)
     let tip = try #require(app.tipCameraRegistration)
     await submitControllerSession(app, .toggleConnection)
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(f.machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     #expect((await f.machine.snapshot()).machine.position == before)
@@ -534,8 +538,8 @@ struct SavedLearningPhysicalPoseTests {
   func translatedPlanCannotReplayPossibleInk(_ border: Bool) async throws {
     let portraitDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: portraitDirectory) }
-    let portrait = PortraitStudioModel(library: DrawingFirstTestStorage.library())
-    let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: portrait)
+    let portrait = ReceivedDrawingStore(library: DrawingFirstTestStorage.library())
+    let f = try await DrawingWorkbenchApplicationFixture.make(receivedDrawings: portrait)
     defer { f.stores.remove() }
     let app = f.application
     try await selectPhysicalPosePortrait(f, retainingSource: true)
@@ -569,6 +573,8 @@ struct SavedLearningPhysicalPoseTests {
     var previousHash = initialPlan.contentHash
     for inwardFraction in [0.5, 0.75] {
       await submitControllerSession(app, .toggleConnection)
+      await app.awaitDrawingHistoryRecovery()
+      if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
       await app.establishMachineSession(f.machine.descriptor)
       await submitControllerSession(app, .requestPassiveProbe)
       await f.machine.setPenState(.up)
@@ -736,6 +742,7 @@ struct SavedLearningPhysicalPoseTests {
         discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),
       loadPenCapAppearanceSelection: { nil }, log: EventLog())
     await restarted.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await restarted.awaitDrawingHistoryRecovery()
     await submitObservationConfigurationForTest(restarted, .selectSource(.live, f.camera.device.id))
     #expect(restarted.tipCameraRegistration == nil)
     #expect(restarted.learningArtifactGraph.revisions.isEmpty)
@@ -830,6 +837,8 @@ private func reloadedPoseApplication(_ fixture: DrawingWorkbenchApplicationFixtu
       discoverDevices: { [machine.descriptor] }, readNanoseconds: { clock.read() }),
     loadPenCapAppearanceSelection: { nil }, log: EventLog())
   await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+  await app.awaitDrawingHistoryRecovery()
+  if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
   await app.establishMachineSession(machine.descriptor)
   await submitControllerSession(app, .requestPassiveProbe)
   await submitObservationConfigurationForTest(app, .selectSource(.live, fixture.camera.device.id))

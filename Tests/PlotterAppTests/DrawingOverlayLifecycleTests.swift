@@ -27,6 +27,7 @@ struct DrawingOverlayLifecycleTests {
       loadPenCapAppearanceSelection: { nil }, log: EventLog())
     do {
       await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+      await app.awaitDrawingHistoryRecovery()
       await submitObservationConfigurationForTest(app, .selectSource(.live, f.camera.device.id))
       let saved = try #require(app.artifactResetEpisodeSnapshot.savedLearning.candidate?.checkpoint)
       #expect(saved.tipCalibration?.registration.applicability == f.accepted.borderRecord.tipCalibration.applicability)
@@ -49,8 +50,8 @@ struct DrawingOverlayLifecycleTests {
   func hideRetainsDrawingAuthority() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let studio = PortraitStudioModel(library: DrawingFirstTestStorage.library())
-    let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: studio)
+    let studio = ReceivedDrawingStore(library: DrawingFirstTestStorage.library())
+    let f = try await DrawingWorkbenchApplicationFixture.make(receivedDrawings: studio)
     defer { f.stores.remove() }
     let app = f.application
     do {

@@ -186,7 +186,7 @@ struct DrawingLibraryMetadataPerformanceTests {
     }
     let report: [String: Any] = ["format": "drawing-library-current-metadata-performance/1",
       "fixtureScope": "Synthetic current SQL metadata; one actual public retained drawing per scale. Additional rows have no admitted wire programs or CAS files.",
-      "comparisonScope": "100 versus 10000 metadata rows under the same current binary; no historical performance comparison or Dojo CPU claim.",
+      "comparisonScope": "100 versus 10000 metadata rows under the same current binary; no historical performance comparison or Flow authoring CPU claim.",
       "memoryScope": "Darwin ru_maxrss process lifetime high-water bytes, including test startup, previous scales, and fixture seeding; not operation-local RSS.",
       "ioScope": "Artwork directory physically unavailable; metadata success and selected-load refusal are structural evidence. Library SQL/storage-seam counters cover measured pages; not universal filesystem or producer counters.",
       "results": results]

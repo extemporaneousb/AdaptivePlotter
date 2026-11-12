@@ -89,6 +89,8 @@ struct SavedLearningCompletionTests {
     // Startup loads the existing archive even before a fresh camera is chosen.
     // No new optical context or pen pose is fabricated during restoration.
     await restored.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await restored.awaitDrawingHistoryRecovery()
+    if restored.savedLearningRecoveryIsPending { await restored.loadDrawingEvidenceArchive() }
     await restored.establishMachineSession(machine.descriptor)
     await submitControllerSession(restored, .requestPassiveProbe)
     let beforeApply = await log.values
@@ -139,8 +141,8 @@ extension SavedLearningCompletionTests {
   func consecutiveDrawingsAcrossReplacementSheet(_ border: Bool) async throws {
     let portraitDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: portraitDirectory) }
-    let portrait = PortraitStudioModel(library: DrawingFirstTestStorage.library())
-    let f = try await DrawingWorkbenchApplicationFixture.make(portraitStudio: portrait)
+    let portrait = ReceivedDrawingStore(library: DrawingFirstTestStorage.library())
+    let f = try await DrawingWorkbenchApplicationFixture.make(receivedDrawings: portrait)
     defer { f.stores.remove() }
     let app = f.application
     let originalPaper = app.currentPaperRevisionContext
@@ -386,6 +388,7 @@ extension SavedLearningCompletionTests {
       drawingDraftRuntime: draft, drawingEvidencePort: stores.evidencePort,
       tipCalibrationSemanticIdentities: accepted.identities, loadPenCapAppearanceSelection: { nil }, log: log)
     await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.awaitDrawingHistoryRecovery()
     try await applyCompleteSavedLearning(app)
     let paper = app.currentPaperRevisionContext
     let graph = Set(app.learningArtifactGraph.revisions)
@@ -495,6 +498,8 @@ extension SavedLearningCompletionTests {
       drawingEvidencePort: stores.evidencePort, tipCalibrationSemanticIdentities: accepted.identities,
       loadPenCapAppearanceSelection: { nil }, log: log)
     await app.performApplicationStartup(AdaptivePlotterLaunchPolicy(arguments: []))
+    await app.awaitDrawingHistoryRecovery()
+    if app.savedLearningRecoveryIsPending { await app.loadDrawingEvidenceArchive() }
     await app.establishMachineSession(machine.descriptor)
     try await applyCompleteSavedLearning(app)
     let previousPaper = app.currentPaperRevisionContext

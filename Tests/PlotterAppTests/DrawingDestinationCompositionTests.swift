@@ -18,7 +18,7 @@ import Testing
     await app.performApplicationStartup(.init(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"]))
     do {
       let drawing = try drawingTestValue(program: portraitPersistenceCandidate(seed: 413).program)
-      let retained = try await app.portraitStudio.sketches.retain(drawing, reason: "test-handoff")
+      let retained = try await app.receivedDrawings.sketches.retain(drawing, reason: "test-handoff")
       let ref = try #require(retained.reference)
       let reply = try await app.drawingDestination.handle(.prepare(ref))
       #expect(reply == .referencePreview(ref))
@@ -43,7 +43,7 @@ import Testing
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
       let drawing = try drawingTestValue(program: program)
       #expect(await app.prepareDestinationDrawing(drawing) == nil)
-      let ref = try #require(app.portraitStudio.projectedDrawing?.reference)
+      let ref = try #require(app.receivedDrawings.projectedDrawing?.reference)
       guard case .prepared(let ticket) = try await app.drawingDestination.handle(.prepare(ref)) else {
         Issue.record("Real owner did not prepare a genuine plan"); await app.shutdown(); return
       }
@@ -76,27 +76,27 @@ import Testing
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application
-    let root = app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("document-test")
+    let root = app.receivedDrawings.sketches.library.directoryURL.appendingPathComponent("document-test")
     let delegate = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
     let window = DestinationWindowBindings()
     delegate.completeDrawingDestinationRestoration(window.presentation.revealAction(application: app))
     do {
       let drawing = try drawingTestValue(program: #require(app.drawingDraftSnapshot.authoredProgram))
-      let retained = try await app.portraitStudio.sketches.retain(drawing, reason: "document-test")
-      let client = DrawingDestinationClient(library: app.portraitStudio.sketches.library, root: root)
+      let retained = try await app.receivedDrawings.sketches.retain(drawing, reason: "document-test")
+      let client = DrawingDestinationClient(library: app.receivedDrawings.sketches.library, root: root)
       let delivery = try await client.enqueue(.prepare(#require(retained.reference)), drawing: retained.reference)
       let url = DrawingDestinationFiles.requestURL(root: root, client: delivery.client, delivery: delivery.id)
       var foregrounds = 0
       delegate.restoreOperatorWindow = { foregrounds += 1 }
       delegate.application(NSApplication.shared, open: [url, url])
       await delegate.settleDrawingDocuments()
-      #expect(app.portraitStudio.projectedDrawing?.reference == retained.reference)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == retained.reference)
       #expect(foregrounds == 2)
       #expect(window.route.workspace == .plotter && window.route.drawing == retained.reference)
       #expect(window.layout.isPresented(.drawing) && !window.reviewer)
       #expect(app.drawingDestinationStatus == "Drawing prepared in the preview. Review it before choosing Draw.")
       #expect(await fixture.planGate.request == nil)
-      #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
+      #expect(try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
       let missing = root.appendingPathComponent("missing.zip")
       delegate.application(NSApplication.shared, open: [missing])
       await delegate.settleDrawingDocuments()
@@ -110,7 +110,7 @@ import Testing
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application
-    let root = app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("recovery-test")
+    let root = app.receivedDrawings.sketches.library.directoryURL.appendingPathComponent("recovery-test")
     let spool = root.appendingPathComponent("transport")
     let clientLibrary = DrawingLibrary(directoryURL: root.appendingPathComponent("client"))
     let client = DrawingDestinationClient(library: clientLibrary, root: spool)
@@ -137,7 +137,7 @@ import Testing
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
       let drawing = try drawingTestValue(program: program)
       #expect(await app.prepareDestinationDrawing(drawing) == nil)
-      let engineRef = try #require(app.portraitStudio.projectedDrawing?.reference)
+      let engineRef = try #require(app.receivedDrawings.projectedDrawing?.reference)
       guard case .prepared(let ticket) = try await app.drawingDestination.handle(.prepare(engineRef)),
         case .description(let description) = try await app.drawingDestination.handle(.describe) else {
         Issue.record("Missing actual preparation"); await app.shutdown(); return
@@ -165,20 +165,20 @@ import Testing
       #expect(recoveredTicket.facts.drawing == selected)
       #expect(window.route.workspace == .plotter && window.route.drawing == selected)
       #expect(window.layout.isPresented(.drawing) && !window.reviewer)
-      let retained = try await app.portraitStudio.sketches.library.drawing(selected)
+      let retained = try await app.receivedDrawings.sketches.library.drawing(selected)
       #expect(retained.reference == selected && retained.program == drawing.program)
       #expect(retained.producer.originalJSON == drawing.producer.originalJSON && retained.units.nominalPenWidthMM == nil)
-      let preparedCount = try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.prepared").count
+      let preparedCount = try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.prepared").count
       let modification = try uncachedModificationDate(responseURL)
       window.route.workspace = .library; window.reviewer = true; window.layout.setPresented(.drawing, false)
       let scans = relaunched.drawingDestinationRecoveryScanCount
       try await waitFor { relaunched.drawingDestinationRecoveryScanCount > scans }
       #expect(try uncachedModificationDate(responseURL) == modification)
       #expect(window.route.workspace == .library && window.reviewer && !window.layout.isPresented(.drawing))
-      #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.prepared").count == preparedCount)
+      #expect(try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.prepared").count == preparedCount)
       #expect(!FileManager.default.fileExists(atPath: submitResponse.path))
-      #expect(try await app.portraitStudio.sketches.library.records(kind: key.recordKind).isEmpty)
-      #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
+      #expect(try await app.receivedDrawings.sketches.library.records(kind: key.recordKind).isEmpty)
+      #expect(try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
       await relaunched.settleDrawingDestinationRecovery()
       try FileManager.default.removeItem(at: responseURL)
       try FileManager.default.removeItem(at: #require(pending.authoredCarrier))
@@ -217,7 +217,7 @@ import Testing
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application
-    let root = app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("held-view-restoration")
+    let root = app.receivedDrawings.sketches.library.directoryURL.appendingPathComponent("held-view-restoration")
     let spool = root.appendingPathComponent("transport")
     let clientLibrary = DrawingLibrary(directoryURL: root.appendingPathComponent("client"))
     let client = DrawingDestinationClient(library: clientLibrary, root: spool)
@@ -242,20 +242,16 @@ import Testing
       delegate.startDrawingDestinationRecovery()
       if explicitOpen { delegate.application(NSApplication.shared, open: [requestURL]) }
       restoration = Task {
-        await window.presentation.restoreSavedWorkspace(openPhoto: { reference in
-          #expect(reference == window.route.photo)
-          await gate.wait()
-          let failure = await app.projectDrawing(restoredDrawing)
-          restoredReference = app.portraitStudio.projectedDrawing?.reference
-          return failure
-        }, photoResult: { restorationFailure = $0 })
+        await gate.wait()
+        restorationFailure = await app.projectDrawing(restoredDrawing)
+        restoredReference = app.receivedDrawings.projectedDrawing?.reference
         delegate.completeDrawingDestinationRestoration(window.presentation.revealAction(application: app))
       }
       try await gate.waitUntilEntered()
       #expect(app.drawingDestinationStartupHasSettled)
       #expect(delegate.drawingDestinationRecoveryScanCount == 0)
       #expect(!FileManager.default.fileExists(atPath: responseURL.path))
-      #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.prepared").isEmpty)
+      #expect(try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.prepared").isEmpty)
       gate.release()
       await restoration?.value
       await delegate.settleDrawingDocuments()
@@ -267,16 +263,16 @@ import Testing
       guard case .prepared(let ticket) = response.reply else { throw DrawingDestinationRefusal.preparationUnavailable }
       try await window.waitForDrawing(selected)
       #expect(restorationFailure == nil && restoredReference != nil && restoredReference != selected)
-      #expect(ticket.facts.drawing == selected && app.portraitStudio.projectedDrawing?.reference == selected)
+      #expect(ticket.facts.drawing == selected && app.receivedDrawings.projectedDrawing?.reference == selected)
       #expect(ticket.facts.planHash == ExchangeDigest(try #require(app.drawingDraftSnapshot.plan).contentHash))
       #expect(app.preparedDrawingIsCurrent(ticket))
       #expect(window.route.workspace == .plotter && window.route.drawing == selected && window.route.photo == nil)
-      #expect(window.layout.isPresented(.drawing) && !window.layout.isPresented(.portraitStudio) && !window.reviewer)
+      #expect(window.layout.isPresented(.drawing) && !window.reviewer)
       #expect(foregrounds == (explicitOpen ? 1 : 0))
       #expect(await fixture.machine.requestedPenCommands == beforePen)
       #expect(await fixture.machine.requestedDrawingStrokes == beforeStrokes)
       #expect(await fixture.planGate.request == nil)
-      #expect(try await app.portraitStudio.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
+      #expect(try await app.receivedDrawings.sketches.library.records(kind: "adaptiveplotter.destination.job").isEmpty)
       await delegate.settleDrawingDestinationRecovery()
       await clientLibrary.closeLibrary(); await app.shutdown()
     } catch {
@@ -291,12 +287,12 @@ import Testing
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate()
     app.drawingDestination = DrawingDestinationComposition.make(app,
-      returnDirectory: app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("destination-results"))
+      returnDirectory: app.receivedDrawings.sketches.library.directoryURL.appendingPathComponent("destination-results"))
     defer { gate.release(); DrawingDestinationArtifactObservation.shared.install(nil) }
     do {
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
       #expect(await app.prepareDestinationDrawing(try drawingTestValue(program: program)) == nil)
-      let ref = try #require(app.portraitStudio.projectedDrawing?.reference)
+      let ref = try #require(app.receivedDrawings.projectedDrawing?.reference)
       guard case .prepared(let ticket) = try await app.drawingDestination.handle(.prepare(ref)),
         case .decision(let decision) = try await app.drawingDestination.handle(.submit(.init(namespace: UUID()), ticket)) else {
         Issue.record("Missing genuine prepared refusal"); await app.shutdown(); return
@@ -318,17 +314,17 @@ import Testing
       _ = try await export.value
       #expect(try await obsolete.value != nil)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == prior.projection.draftRevision)
-      #expect(app.portraitStudio.projectedDrawing?.reference == ref)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == ref)
       #expect(await fixture.planGate.request == nil)
       await app.shutdown()
     } catch { gate.release(); await app.shutdown(); throw error }
   }
-  @Test("Default Dojo handoff rejects an intervening selection or draft generation before queued projection", arguments: [false, true])
-  func defaultDojoGeneration(draftChanged: Bool) async throws {
+  @Test("Default Authoring handoff rejects an intervening selection or draft generation before queued projection", arguments: [false, true])
+  func defaultAuthoringGeneration(draftChanged: Bool) async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate()
-    let library = app.portraitStudio.sketches.library
+    let library = app.receivedDrawings.sketches.library
     defer { gate.release() }
     do {
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
@@ -340,30 +336,30 @@ import Testing
       try await gate.waitUntilEntered()
       #expect(!gate.snapshot().mainThread)
       if draftChanged { try await fixture.submit(.setRotationDegrees(3)) }
-      else { app.portraitStudio.clearDrawingSelection() }
+      else { app.receivedDrawings.clearDrawingSelection() }
       let expectedRevision = app.drawingDraftSnapshot.projection.draftRevision
-      let expectedProjection = app.portraitStudio.projectedDrawing?.reference
+      let expectedProjection = app.receivedDrawings.projectedDrawing?.reference
       gate.release()
       #expect(try await obsolete.value != nil)
       await library.clearDestinationTicketCommitGate()
       #expect(app.drawingDraftSnapshot.projection.draftRevision == expectedRevision)
-      #expect(app.portraitStudio.projectedDrawing?.reference == expectedProjection)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == expectedProjection)
       #expect(await fixture.planGate.request == nil)
       await app.shutdown()
     } catch { gate.release(); await library.clearDestinationTicketCommitGate(); await app.shutdown(); throw error }
   }
-  @Test("Actual embedded caller lifetime preserves workspace-only navigation or panel closure", arguments: [false, true])
-  func embeddedCallerLifetime(closePanel: Bool) async throws {
+  @Test("Caller cancellation invalidates queued preparation before projection", arguments: [false, true])
+  func preparationCallerLifetime(closePanel: Bool) async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate()
     app.drawingDestination = DrawingDestinationComposition.make(app,
-      returnDirectory: app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("destination-results"))
+      returnDirectory: app.receivedDrawings.sketches.library.directoryURL.appendingPathComponent("destination-results"))
     defer { gate.release(); DrawingDestinationArtifactObservation.shared.install(nil) }
     do {
       let program = try #require(app.drawingDraftSnapshot.authoredProgram)
       #expect(await app.prepareDestinationDrawing(try drawingTestValue(program: program)) == nil)
-      let ref = try #require(app.portraitStudio.projectedDrawing?.reference)
+      let ref = try #require(app.receivedDrawings.projectedDrawing?.reference)
       guard case .prepared(let ticket) = try await app.drawingDestination.handle(.prepare(ref)),
         case .decision(let decision) = try await app.drawingDestination.handle(.submit(.init(namespace: UUID()), ticket)) else {
         Issue.record("Missing genuine refusal"); await app.shutdown(); return
@@ -374,50 +370,49 @@ import Testing
       let export = Task { try await app.drawingDestination.handle(.exportResult(decision.job.handle)) }
       try await gate.waitUntilEntered()
       var route = DrawingLibraryRoute(); route.workspace = .drawingStudio
-      var layout = WorkbenchLayoutState(presented: [.portraitStudio])
-      var destinationShows = 0
+      var layout = WorkbenchLayoutState(presented: [.drawing])
       let before = app.drawingDraftSnapshot.projection.draftRevision
       let handoff = Task {
-        await DrawingDestinationHandoff.perform(try drawingTestValue(program: program), application: app,
-          lifetime: { .init(route: route, studioIsPresented: layout.isPresented(.portraitStudio), reviewerIsPresented: false) },
-          showDestination: { _ in destinationShows += 1; route.workspace = .plotter })
+        await app.prepareDestinationDrawingOutcome(try drawingTestValue(program: program), isStillCurrent: {
+          route.workspace == .drawingStudio && layout.isPresented(.drawing)
+        })
       }
       let deadline = ContinuousClock.now.advanced(by: .seconds(5))
       while app.drawingDestination.inFlightOperationCount < 2, ContinuousClock.now < deadline {
         try await Task.sleep(for: .milliseconds(5))
       }
       #expect(app.drawingDestination.inFlightOperationCount == 2)
-      if closePanel { layout.setPresented(.portraitStudio, false) }
+      if closePanel { layout.setPresented(.drawing, false) }
       else { route.workspace = .library }
       let desiredRoute = route
       gate.release()
       _ = try await export.value
-      let handoffFailure = try await handoff.value
-      #expect(handoffFailure != nil)
-      #expect(destinationShows == 0 && route == desiredRoute)
+      let handoffResult = try await handoff.value
+      if case .preview = handoffResult { Issue.record("Canceled caller adopted a queued preparation") }
+      #expect(route == desiredRoute)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == before)
-      #expect(app.portraitStudio.projectedDrawing?.reference == ref)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == ref)
       #expect(await fixture.planGate.request == nil)
       await app.shutdown()
     } catch { gate.release(); await app.shutdown(); throw error }
   }
-  @Test("Embedded reveal keeps the exact ticket across a held real Library commit")
-  func embeddedTicketCommitRace() async throws {
+  @Test("Destination reveal keeps the exact ticket across a held real Library commit")
+  func destinationTicketCommitRace() async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate(), window = DestinationWindowBindings()
-    let library = app.portraitStudio.sketches.library
+    let library = app.receivedDrawings.sketches.library
     defer { gate.release() }
     do {
       #expect(await app.prepareDestinationDrawing(try drawingTestValue(program: #require(app.drawingDraftSnapshot.authoredProgram))) == nil)
-      let reference = try #require(app.portraitStudio.projectedDrawing?.reference)
+      let reference = try #require(app.receivedDrawings.projectedDrawing?.reference)
       let drawing = try await library.drawing(reference)
       try await library.holdNextDestinationTicketCommit(gate)
       var shows = 0
       let handoff = Task {
-        await DrawingDestinationHandoff.perform(drawing, application: app,
-          lifetime: { .init(route: window.route, studioIsPresented: window.layout.isPresented(.portraitStudio), reviewerIsPresented: window.reviewer) },
-          showDestination: { preview in shows += 1; window.presentation.showDestination(reference: preview.reference) })
+        let outcome = await app.prepareDestinationDrawingOutcome(drawing)
+        if case .preview(let preview) = outcome, window.presentation.reveal(preview, application: app) { shows += 1; return nil as String? }
+        return "Preparation changed."
       }
       try await gate.waitUntilEntered()
       // This does not change workspace, selection or source identity. It changes
@@ -429,7 +424,7 @@ import Testing
       #expect(shows == 0 && window.route.workspace == .drawingStudio)
       #expect(app.drawingDraftSnapshot.projection.draftRevision == current.projection.draftRevision)
       #expect(app.drawingDraftSnapshot.plan?.contentHash == current.plan?.contentHash)
-      #expect(app.portraitStudio.projectedDrawing?.reference == reference)
+      #expect(app.receivedDrawings.projectedDrawing?.reference == reference)
       #expect(try await library.records(kind: "adaptiveplotter.destination.job").isEmpty)
       #expect(await fixture.planGate.request == nil)
       await library.clearDestinationTicketCommitGate()
@@ -444,11 +439,11 @@ import Testing
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate()
     app.drawingDestination = DrawingDestinationComposition.make(app,
-      returnDirectory: app.portraitStudio.sketches.library.directoryURL.appendingPathComponent("destination-results"))
+      returnDirectory: app.receivedDrawings.sketches.library.directoryURL.appendingPathComponent("destination-results"))
     defer { gate.release(); DrawingDestinationArtifactObservation.shared.install(nil) }
     do {
       #expect(await app.prepareDestinationDrawing(try drawingTestValue(program: #require(app.drawingDraftSnapshot.authoredProgram))) == nil)
-      let ref = try #require(app.portraitStudio.projectedDrawing?.reference)
+      let ref = try #require(app.receivedDrawings.projectedDrawing?.reference)
       guard case .prepared(let ticket) = try await app.drawingDestination.handle(.prepare(ref)),
         case .decision(let decision) = try await app.drawingDestination.handle(.submit(.init(namespace: UUID()), ticket)) else {
         Issue.record("Missing genuine prepared refusal"); await app.shutdown(); return
@@ -480,7 +475,7 @@ import Testing
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
     defer { fixture.stores.remove() }
     let app = fixture.application, gate = DestinationArtifactGate()
-    let library = app.portraitStudio.sketches.library
+    let library = app.receivedDrawings.sketches.library
     let root = library.directoryURL.appendingPathComponent("quit-document")
     let delegate = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
     let window = DestinationWindowBindings()
@@ -547,7 +542,7 @@ final class DestinationArtifactGate: @unchecked Sendable {
 
 @MainActor private final class DestinationWindowBindings {
   var route = DrawingLibraryRoute()
-  var layout = WorkbenchLayoutState(presented: [.portraitStudio])
+  var layout = WorkbenchLayoutState(presented: [.drawing])
   var reviewer = false
   init() { route.workspace = .drawingStudio }
   func waitForDrawing(_ reference: DrawingRef) async throws {
@@ -557,9 +552,11 @@ final class DestinationArtifactGate: @unchecked Sendable {
     try #require(matches(), "The matching prepared Drawing was not revealed within five seconds")
   }
   var presentation: DrawingDestinationWindowPresentation {
-    .init(route: Binding(get: { self.route }, set: { self.route = $0 }),
-      layout: Binding(get: { self.layout }, set: { self.layout = $0 }),
-      reviewer: Binding(get: { self.reviewer }, set: { self.reviewer = $0 }))
+    .init(layout: Binding(get: { self.layout }, set: { self.layout = $0 }), didReveal: { reference in
+      self.route.workspace = .plotter
+      if let reference { self.route.showDrawing(reference) }
+      self.reviewer = false
+    })
   }
 }
 @MainActor private final class DestinationRestorationGate {

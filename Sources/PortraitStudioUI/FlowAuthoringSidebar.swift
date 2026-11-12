@@ -3,8 +3,8 @@ import PortraitLibrary
 import PortraitCore
 import DrawingLibrary
 
-package struct FlowDojoSidebar: View {
-  @Bindable var model: FlowDojoModel
+package struct FlowAuthoringSidebar: View {
+  @Bindable var model: FlowAuthoringModel
   @State private var expandedRounds = Set<UUID>()
   @State private var renaming: RenameTarget?
   @State private var photos: [DrawingLibraryPhotoEntry] = []
@@ -20,7 +20,7 @@ package struct FlowDojoSidebar: View {
   private func sidebar(compact: Bool) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       if let source = model.selectedSource {
-        FlowDojoImage(data: model.sourceData, identity: source.image.sha256, maximumDimension: 280).frame(maxWidth: .infinity).frame(height: compact ? 84 : 132)
+        FlowAuthoringImage(data: model.sourceData, identity: source.image.sha256, maximumDimension: 280).frame(maxWidth: .infinity).frame(height: compact ? 84 : 132)
           .accessibilityLabel("Selected photo: " + model.photoName(source))
         Text(model.photoName(source)).font(.headline).lineLimit(2).padding(.horizontal, 10)
         Text("Drawings and branches belong to this photo").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 10)
@@ -31,6 +31,9 @@ package struct FlowDojoSidebar: View {
           ForEach(photos, id: \.reference) { photo in
             Button { Task { await model.selectPhoto(photo.reference) } } label: {
               HStack(spacing: 8) {
+                if let library = model.drawingLibrary {
+                  DrawingLibraryThumbnail(library: library, source: .photo(photo.reference)).frame(width: 42, height: 48)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                   Text(photo.metadata.title ?? "Photo").lineLimit(1)
                   Text(photo.sortDate?.formatted(date: .abbreviated, time: .omitted) ?? "Date unknown")
@@ -63,7 +66,7 @@ package struct FlowDojoSidebar: View {
       .task { await loadPhotos() }
       .onChange(of: model.document?.sources.count) { _, _ in Task { await loadPhotos() } }
       .overlay(alignment: .bottom) { if let target = renaming {
-        FlowDojoNameEditor(name: target.name, title: target.photo ? "Photo name" : "Drawing name", changed: { name in
+        FlowAuthoringNameEditor(name: target.name, title: target.photo ? "Photo name" : "Drawing name", changed: { name in
           model.queueName(target.id, photo: target.photo, title: name)
         }, flush: { await model.flushMetadataEdits() }, close: { renaming = nil }).disabled(false).background(.regularMaterial)
       } }
@@ -118,13 +121,13 @@ package struct FlowDojoSidebar: View {
 }
 
 private struct CandidateThumbnail: View {
-  let model: FlowDojoModel
+  let model: FlowAuthoringModel
   let candidate: FlowPortfolioCandidate
   @State private var data: Data?
   @State private var loadedKey: String?
   var body: some View {
     let key = model.previewIdentity(candidate: candidate)
-    FlowDojoImage(data: loadedKey == key ? data : nil, identity: key, maximumDimension: 280).task(id: key) {
+    FlowAuthoringImage(data: loadedKey == key ? data : nil, identity: key, maximumDimension: 280).task(id: key) {
       data = nil; loadedKey = nil
       let pixels = await model.thumbnail(candidate: candidate)
       guard !Task.isCancelled, model.previewIdentity(candidate: candidate) == key else { return }
@@ -133,7 +136,7 @@ private struct CandidateThumbnail: View {
   }
 }
 
-private struct FlowDojoNameEditor: View {
+private struct FlowAuthoringNameEditor: View {
   @State var name: String
   let title: String
   let changed: (String) -> Void

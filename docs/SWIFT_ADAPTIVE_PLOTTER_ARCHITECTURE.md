@@ -67,14 +67,18 @@ protocol facts do not establish the identity or physical behavior of the live fi
 
 The [Portrait Studio baseline](../README.md#portrait-studio-development-baseline)
 records the pre-extraction `PlotterApp` implementation and frozen renderer outputs.
-The current package has two executable compositions: `AdaptivePlotter` retains
-machine/run ownership; standalone `PortraitStudio` owns no machine runtime. Both
-compose the same `FlowDojoModel` and `FlowDojoView` for the sole authoring journey.
-The acquisition portion of `PortraitStudioModel` remains the shared camera/source
-adapter; it does not introduce another camera owner or an alternative renderer UI.
+The two macOS applications have distinct owners. `PortraitStudio` opens the
+authoring catalog, acquires photos and composes the Flow Edge artist.
+`AdaptivePlotter` receives a selected immutable revision and owns placement,
+machine calibration, execution and physical evidence.
 
-`PortraitCore` owns immutable drawing/exchange values and codecs. `PortraitArtists`
-owns the Flow Edge renderer and the new `FlowArtistRecipe`, `FlowArtistFeatures`,
+`Drawing` owns immutable Drawing, Photo and ImageInput records, their reference
+types and the Drawing Exchange codecs. It depends on `PlotterModel` for geometry
+and value types. `PortraitCore` re-exports Drawing and retains the portrait-specific
+SwiftSketch protocol. Camera frame values and image conversion live in `PlotterModel`,
+so artists can consume pixels without importing a camera driver or a controller.
+
+`PortraitArtists` owns the Flow Edge renderer, `FlowArtistRecipe`, `FlowArtistFeatures`,
 `FlowArtistTraining` and immutable `FlowArtistCheckpoint` contracts. The model has
 an image-conditioned drawing-preference head and contextual whole-stroke deletion
 head. Fitting depends on model-owned observation DTOs, not on library or UI types,
@@ -90,7 +94,7 @@ bounded temporary caches. Choosing, committed pruning and explicit Plot handoff
 retain exact revisions and their closure. Rank retains features and previews
 without making unselected geometry permanent.
 
-`PortraitCore.DrawingDestination` supplies neutral typed control values. The
+The `Drawing` module supplies neutral destination request and response values. The
 `PortraitLibrary` destination service serializes short metadata transitions through
 the same DrawingLibrary writer/CAS. Exact namespace/request/digest mappings retain
 the Drawing/input/parent closure, frozen plan/options and typed pending issuance.
@@ -162,9 +166,9 @@ Neither adapter interprets unknown annotations as physical evidence or grants
 retry/activation authority. The removed portrait archive/history/ordinal DTOs had
 no live caller; active Flow feature feedback and checkpoint ownership are retained.
 
-`PortraitStudioUI` owns `FlowDojoModel`, the shared Explore/Prune/Rank/Fit & deploy
-views, the serial `FlowDojoRenderer` actor, preview generation and
-`FlowDojoTraining`'s frozen-snapshot-to-model-data adapter. The renderer retains
+`PortraitStudioUI` owns `FlowAuthoringModel`, the shared Explore/Prune/Rank/Fit & deploy
+views, the serial `FlowAuthoringRenderer` actor, preview generation and
+`FlowAuthoringTraining`'s frozen-snapshot-to-model-data adapter. The renderer retains
 source preparation across round candidates and performs native Flow Edge work
 outside the main actor. The main-actor model owns a joined work queue, generation
 and fitting tasks, cancellation and durable-operation presentation. Candidate metadata is
@@ -172,7 +176,7 @@ published after its domain record commits; unselected geometry and previews rema
 temporary until retention or Rank capture. Source changes, cancellation and
 shutdown cannot publish stale work into a different selection.
 
-`FlowDojoTraining` connects exact source and declared subject/session groups before
+`FlowAuthoringTraining` connects exact source and declared subject/session groups before
 fitting. It gives the model explicit ranking tiers, weaker refinement choices,
 current remove/restore evidence and explicit completed masks. Ranked pruning
 revisions retain their actual mask features and common-basis identity. Generated
@@ -180,26 +184,21 @@ masks remain unlabelled proposals. Model fitting cannot infer labels from saving
 raw image count or plotting. Fit configuration, data digests and evaluation groups
 travel with the checkpoint; explicit activation and rollback alter future proposals.
 
-Standalone composition defaults to
-`~/Library/Application Support/PortraitStudio/DrawingLibrary/` and accepts one
-absolute `--library` override. Embedded composition uses
-`~/Library/Application Support/AdaptivePlotter/DrawingLibrary/` and passes the
-retained Drawing/ref directly through **Send to Drawing** to existing draft
-admission. External files use the Drawing Exchange directory/ZIP carrier. No
-internal package serialization/reimport is required. Quit joins camera, render,
-fit and durable work before closing the shared owner. Each library has one writer.
-Historical authoring files remain untouched; import is deferred and there is no
-startup legacy importer.
+Portrait Studio defaults to `~/Library/Application Support/PortraitStudio/DrawingLibrary/`
+and accepts an absolute `--library` override. AdaptivePlotter uses a destination
+store for received revisions, jobs and results. Studio sends a durable request
+naming the selected DrawingRef. Plotter resolves the immutable revision into a
+draft, checks readiness and retains the original reference with any execution.
+Studio can keep editing the source while Plotter uses that revision. On reopen,
+Plotter resolves its last received reference from its destination store. Showing
+that preview is independent of the raw-history and saved-calibration recovery
+required for motion. Execution History selects the original raw run by RunID
+including when no authored reference was recorded.
 
-Drawing values preserve the exact program, producer receipt, optional image input
-and exact parent reference. Selection identity is the full DrawingRef; program
-hashes and equal geometry do not identify an authored occurrence. Nominal physical
-width is optional for fresh and retained Drawings; field-space preview width is
-not millimeters. Authoring retains no placement, controller or mechanical Learning
-authority. Existing camera/frame and immutable physical evidence dependencies
-remain in `PlotterRuntime`. See [the Studio guide](PORTRAIT_STUDIO.md) for operator
-and file details, and [Roadmap](ROADMAP.md#portrait-studio-remaining-acceptance) for
-outstanding acceptance work.
+Drawing values carry the exact program, producer receipt, optional image input
+and parent reference. Equal geometry can belong to different authored revisions.
+Nominal physical width is optional. For operating instructions and file formats
+see the [Studio guide](PORTRAIT_STUDIO.md).
 
 Historical SwiftSketch protocol/client/converter, review/export contracts and legacy
 renderer/archive types remain interpretable for their retained evidence. The current
@@ -292,10 +291,10 @@ PlotterApp -> EpisodeRuntime + PlotterEpisodeRuntime + PlotterUI + retained appl
   explicitly attributed retained simulator workflow commands for later semantic packages
   copied PlotterUICompilerInput facts and one immutable PlotterUIProjection
   pane/window/viewport and unsubmitted manual text retained as UI-local state
-  SwiftUI Guided Learning, Video, Motion, Active Learning and Drawing docks, plus the Portrait Studio workspace
+  SwiftUI Guided Learning, Video, Motion, Active Learning and Drawing docks with execution history
   production checkpoint/evidence stores and semantic identity composition
 
-PortraitCore -> PlotterModel
+Drawing -> PlotterModel
   Drawing values/refs, producer receipts, edits and Drawing Exchange values/codecs
   exact program/record identity, closure verification, byte hashes and admission bounds
 
@@ -303,20 +302,20 @@ DrawingLibrary -> PortraitCore + PlotterModel + CSQLite
   common concrete library actor, strict SQLite catalog, CAS and writer lease
   exact revision retention, compact pages and current-format file exchange
 
-PortraitArtists -> PortraitCore + PlotterModel + PlotterRuntime
+PortraitArtists -> Drawing + PortraitCore + PlotterModel
   Flow Edge renderer, native artist recipes/features, two-head fitting and checkpoint inference
-  historical renderer/candidate contracts and shared source preparation
+  frame values, historical renderer/candidate contracts and shared source preparation
 
 PortraitLibrary -> DrawingLibrary + PortraitCore + PortraitArtists + PlotterModel + PlotterRuntime
   typed Flow authoring graph, training snapshots and activation history
   Drawing selection facade and exact staged-run association through the common library
 
 PortraitStudioUI -> DrawingLibrary + PortraitCore + PortraitArtists + PortraitLibrary + PlotterModel + PlotterRuntime
-  shared Flow Dojo journey, serial rendering, frozen training adapter and exact-mask preview
+  Flow Edge authoring, serial rendering, frozen training adapter and exact-mask preview
   existing acquisition adapter and scoped native line editor
 
 PortraitStudio -> DrawingLibrary + PortraitCore + PortraitArtists + PortraitLibrary + PortraitStudioUI + PlotterModel + PlotterRuntime
-  independent Flow Dojo composition, library selection, file panels and joined shutdown
+  authoring window, library selection, file panels and joined shutdown
   camera discovery only at startup; no PlotterApplicationRuntime or controller composition
 
 PlotterTestSupport
@@ -962,9 +961,7 @@ region, overlay, and diagnostics remain explicit typed actions. Typed
 `.selectCameraRole(WorkbenchCameraRole)` requests use this same owner: plotter
 automatic analysis and capture settle before face capture starts, and face
 capture settles before plotter capture resumes. Superseding requests coalesce
-through the existing runtime. The application retains one `PortraitStudioModel`
-for acquisition controls and captured images; the Dojo consumes that existing
-acquisition adapter and no view becomes a camera owner. Returning to
+through the existing runtime. Returning to
 the same physical plotter optics preserves accepted Learning despite a new
 ephemeral capture configuration. Camera status describes the selected role,
 so intentional plotter suspension is not reported as plotter-camera failure.
@@ -1152,7 +1149,7 @@ hardware-specific template is required.
 
 `ExactWorkflowVisionOwner` is the typed app-level identity for the one active
 exact inspection: pen-cap appearance, camera calibration, sparse-tip
-calibration, observed Drawing Trial, or Drawing Studio. It is projected
+calibration, observed Drawing Trial, or the Drawing panel. It is projected
 separately from automatic overlay analysis. Supervised Pen-Up travel does not
 acquire an exact Vision lease and therefore never claims that Vision owns
 processing or that preview is held merely because motion is active.
@@ -1522,7 +1519,7 @@ settlement, and terminal truth. The episode projection owns staged point
 requests, selected points, undo, clear, and accepted batches; retained Drawing
 Trial facts carry the complete trial payload, history, rollback, and rewind
 transitions without becoming another runtime owner. A
-`PlotterDrawingDraftRuntime` now owns Drawing Studio catalog selection,
+`PlotterDrawingDraftRuntime` now owns Plotter Drawing program selection,
 placement, immutable plan, preview, and paper assertion outside that aggregate.
 One `PlotterDrawingRunRuntime` owns the separate EA-08B run projection,
 exclusive admission, exact Stop, terminal/no-redraw truth, evidence publication,
@@ -2379,7 +2376,7 @@ deleted legacy stores are not compatibility owners.
 Rendered actionability is projection-bound. The orphan camera-sample discard
 control is deleted. Tip commit retry is absent while fitting, commit, save, or
 revalidation is busy and exists only in the runtime's stable recoverable state.
-Default Learning, Drawing Placement, completed-comparison, and Drawing Studio
+Default Learning, Drawing Placement, completed-comparison, and Drawing
 controls render enabled only with their exact current projected request; stale,
 missing, or unavailable submission returns typed refusal/remedy through the
 sole sink rather than silently terminating.
@@ -2445,13 +2442,12 @@ and typed result coverage to the earlier
 root lifecycle/projection suite. That software coverage does not
 prove attended controller, camera, motion, Pen, paper, click, or ink behavior.
 
-## Drawing Studio ownership
+## Drawing handoff and execution
 
-The embedded Flow Edge Dojo retains an immutable Drawing in the common library and
-passes its exact value/ref directly through existing Drawing draft admission. It
-does not derive placement or create another runner. External file handoff uses
-Drawing Exchange. Mechanical material, paper and Draw authority remain in the
-shared Drawing runtime.
+Studio retains a revision in the authoring catalog and sends its reference and
+dependencies to AdaptivePlotter. The destination admits this revision to the
+existing Drawing draft. Plotter owns placement, paper, material, physical
+evidence and the explicit Draw action.
 
 The two metric holdout entries live in `DrawingProgramCatalog` and resolve to
 ordinary line strokes. `OperatorWorkspace` projects their existing
@@ -2608,9 +2604,9 @@ and comparison results. These values have no model-application, controller,
 readiness, or new persistence authority. Automatic batch execution and corrected
 physical holdout evaluation remain unfinished product work.
 
-`FlowDojoModel` owns the current portrait authoring journey: shared library
-selection, broad/local rounds, immutable candidate selection, whole-line editing,
-randomized ranking and local fitting/activation. `FlowDojoView` presents those four
+`FlowAuthoringModel` owns photo and drawing selection in the authoring library,
+broad/local rounds, immutable candidate selection, whole-line editing,
+randomized ranking and local fitting/activation. `FlowAuthoringView` presents those four
 stages, including comparison panels and an exact-line pruning canvas. The old
 one-canvas Previous/Next, saved-style and separate experimental review surfaces are
 not composed by current authoring. `PortraitStudioModel` provides acquisition and immutable Drawing selection behind
@@ -2635,8 +2631,8 @@ threshold correction metrics. Small or partial fits remain experimental. Compati
 immutable checkpoints are installed in the portfolio; activation receipts preserve
 rollback and do not mutate old artwork.
 
-`FlowDojoSupervision` projects the current effective labels and comparison identities
-once for `FlowDojoTraining` and `FlowDojoTrainingProgress`. It resolves transitive
+`FlowAuthoringSupervision` projects the current effective labels and comparison identities
+once for `FlowAuthoringTraining` and `FlowAuthoringTrainingProgress`. It resolves transitive
 photo/group connectivity before exclusions, removes only irrelevant feature rows,
 and delays completed-mask label expansion until capacity admission. Progress is
 metadata-only; the UI caches frozen documents for usable/active fit IDs and compares
@@ -2658,9 +2654,9 @@ Sources, previews, Rank features, edit ancestry, training snapshots, reports and
 activation receipts are durable. Unselected full geometry is temporary and bounded;
 selection, committed edits and Plot retain exact Drawing revisions. Finish pruning
 changes label semantics, not persistence. Failed mutations remain visible and
-reconcile before retry. Historical authoring files are untouched; their import is
-deferred. Studio hands Drawing/ref directly to existing draft ownership and remains
-separate from physical readiness and Drawing execution.
+reconcile before retry. The offline historical importer replays archived choices,
+prunes and rankings into the authoring catalog. Studio sends an exact DrawingRef
+and its authored assets to AdaptivePlotter through the destination protocol.
 
 The workspace caches the canonical `SparseTipBatchMarkPlan` for execution and
 planned video guides. `CameraOverlayKind.calibrationGuide` distinguishes those
@@ -2680,11 +2676,10 @@ requests regardless of drawing producer. Its plan preview selects the sealed
 otherwise the admitted Draft plan. That value is derived from existing owner/record
 geometry, never a second mutable plan. The global status retains terminal outcomes
 and exact reason until the existing RunID-bound new-run handoff. Material setup and paper coverage remain
-before Draw. `DrawingReviewerView` pages `DrawingLibraryEntry` summaries and loads
-the selected full DrawingRef on demand. It displays reference geometry and
-associated retained raw run photographs and notes. **Send to Drawing** is explicit;
-browsing never replaces the active runtime selection. The former photo/work
-reconciliation graph and its browser filters are not current owners.
+before Draw. `DrawingExecutionHistoryView` lists retained runs by RunID and
+opens the selected run’s evidence, including runs that lack a DrawingRef.
+The Studio Library loads authored artwork on demand. **Prepare in AdaptivePlotter**
+is the explicit selection handoff.
 
 `PortraitSketchCollection` is a selection facade over `DrawingLibrary`. Its
 `bindDrawingAttempt` verifies the retained full DrawingRef and exact program,
@@ -2706,7 +2701,7 @@ result pixels affect availability, not raw run admission.
 first, explicit source-program reference second, unavailable reason otherwise.
 `PortraitPlanePreview.planned` renders retained machine paths without current Draft
 or calibration. Missing photographs never become geometry or substitute media.
-Selecting a drawing exposes its runs, labeled stage photographs and annotations.
+Selecting a run in Execution History exposes its retained geometry, stage photographs and annotations.
 The run owner captures and installs a completion photograph before optional matched-pose
 observation travel; unbound photo references assert no controller pose or ink result.
 Their optional `completionCaptureAfterNanoseconds` distinguishes fresh completion
@@ -2722,8 +2717,8 @@ terminal record exists; `DrawingRunAttemptEvidence.progressFrames` seals the sam
 sequence. Legacy absence decodes to an empty sequence. Archive validation checks
 plan/request identity, committed stroke/checkpoint prefix, pose, stream, freshness,
 chronology, and the three-frame bound; original bytes are verified on reopen.
-The portrait reviewer selects progress or terminal frames by labeled stage;
-valid-lineage unfinished attempts remain browseable after restart.
+Execution History displays progress or terminal frames by labeled stage.
+Unfinished attempts retain their verified progress after restart.
 No stage photo is promoted into matched-pose coverage, a Vision result, or an
 accepted Learning model.
 
@@ -2736,9 +2731,9 @@ The common `DrawingLibrary` remains the sole active authored persistence owner.
 `PortraitStudioModel` supplies acquisition and immutable selection/projection;
 `PortraitSketchCollection` pages, retains, loads and deletes exact common references.
 The retired portrait database, legacy index reader, portfolio head/delta code and
-package adapters are not active fallback paths. Historical files stay in place;
-import is deferred. Source preparation and renderer caches remain separate bounded
-computational caches, not alternate persistence authorities.
+package adapters are isolated from the live applications. The offline importer reads
+the historical files in place and writes current records into the selected catalog.
+Source preparation and renderer caches hold bounded computational results.
 
 The observation runtime selects one active camera role. Studio capture uses a
 0.8-second burst including 0.25 seconds of settling, then keeps one frame chosen
@@ -2795,13 +2790,10 @@ singular scale, and feasibility checks actual transformed segments. Retained
 `PortraitDisplayEvidence` binds the displayed plan and width source; old encodings
 and physical evidence remain interpretable.
 
-`PortraitDrawingActions` is the application adapter. Send to Drawing selects the
-plotter camera role, then submits `.showTarget` for an already admitted matching
-program, or `.selectProgram(DrawingProgram)` and `.fitInDrawableRegion` for a new
-one. Acceptance retains the exact candidate only after success. Material adaptation
-passes a frozen profile/size into authoring and verifies placement/material identity
-again before projection. Drawing owns admission, placement, planning, paper, motion
-and run evidence; later Studio edits cannot mutate its selected program.
+The Plotter destination receives a Prepare request and resolves its exact DrawingRef
+in `ReceivedDrawingStore`. It can present a reference preview before a motion plan
+is available. The Draft owner admits placement, material and paper setup. The Run
+owner controls execution and evidence for the selected revision.
 
 The Active Learning panel exposes archived ordinary/training records through
 `.selectResidualRecord` and `.analyzeSelectedResiduals`. The existing draft owner
@@ -2849,7 +2841,7 @@ results and environment blockers belong to Current Evidence. The gate introduces
 no test application, alternate runtime or controller port. The retained held-Draw Stop suite exercises typed software ingress only;
 actual-controller native Stop remains a distinct physical-scenario requirement.
 
-Drawing Studio views consume immutable placement, target-preview, parameter,
+Plotter Drawing views consume immutable placement, target-preview, parameter,
 and run-state presentations. The obsolete catalog chooser projection is removed;
 the runtime catalog remains an internal program producer. A video click carries its exact frame
 reference and is inverted through the current registration into a machine
@@ -2924,7 +2916,7 @@ redraw or resend. Review pinning is RunID-bound, and archive load/append cannot
 restore runtime ownership or replay a plan.
 
 SIMULATED start is a typed nonphysical refusal and invokes no LIVE interpreter,
-camera, Vision, or evidence port. `OverlayResultChannels` retains Drawing Studio
+camera, Vision, or evidence port. `OverlayResultChannels` retains Drawing
 workflow results independently of scene overlays and Stage 2.
 `DrawingReadinessAssessment` remains a Model presentation capability statement;
 construction bypasses none of the complete typed requirements.

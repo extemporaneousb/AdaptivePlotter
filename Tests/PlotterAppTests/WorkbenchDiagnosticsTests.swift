@@ -102,7 +102,7 @@ struct WorkbenchDiagnosticsTests {
     #expect(exporter.isExporting)
     var layout = WorkbenchLayoutState(presented: [])
     for panel in WorkbenchPanel.allCases { layout.setPresented(panel, true) }
-    #expect(layout.isPresented(.portraitStudio))
+    #expect(!layout.hasVisiblePanels || layout.isPresented(.drawing))
     #expect(application.semanticPresentationRevision == capture.semanticRevision)
     await gate.release()
     try await awaitExport(exporter)

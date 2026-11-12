@@ -504,6 +504,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
     }
 
     expectParity(.humanGuidedDiscovery(.penInteraction))
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     expectParity(.humanGuidedDiscovery(.penInteraction))
@@ -534,6 +536,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       boundaryRuntimeAccess: boundaryRuntimeAccess,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -699,6 +703,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       observationSessionOverride: resolvedObservationSession(camera),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -746,6 +752,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       observationSessionOverride: resolvedObservationSession(camera, inspectionGate: gate),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -798,6 +806,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       ),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -873,6 +883,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       ),
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))
@@ -965,6 +977,8 @@ struct PlotterApplicationRuntimeComputationDiagnosticsTests {
       boundaryRuntimeAccess: boundaryRuntimeAccess,
       log: log
     )
+    await workspace.awaitDrawingHistoryRecovery()
+    if workspace.savedLearningRecoveryIsPending { await workspace.loadDrawingEvidenceArchive() }
     await workspace.establishMachineSession(machine.descriptor)
     await submitControllerSession(workspace, .requestPassiveProbe)
     await submitObservationConfigurationForTest(workspace, .selectSource(.live, nil))

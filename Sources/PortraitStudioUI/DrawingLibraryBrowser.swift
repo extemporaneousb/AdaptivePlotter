@@ -212,6 +212,8 @@ package struct DrawingLibraryBrowser: View {
     })
   }
   @State private var activePanel: NSSavePanel?
+  @State private var drawingName = ""
+  @State private var namingReference: DrawingRef?
   private let close: () -> Void
   @State private var model: DrawingLibraryBrowserModel
   package init(sketches: PortraitSketchCollection, close: @escaping () -> Void, handoff: DrawingBrowserHandoff? = nil,
@@ -255,12 +257,27 @@ package struct DrawingLibraryBrowser: View {
           Text("\(sketches.entries.count) retained Drawings loaded").font(.caption).foregroundStyle(.secondary)
           List(sketches.error == nil ? sketches.entries : [], id: \.reference, selection: Binding(
             get: { sketches.selected?.reference }, set: { reference in _ = model.select(reference) })) { entry in
-              Text(entry.title ?? "Drawing").tag(entry.reference)
+              HStack(spacing: 8) {
+                DrawingLibraryThumbnail(library: sketches.library, source: .drawing(entry.reference)).frame(width: 48, height: 56)
+                Text(entry.title ?? "Drawing").lineLimit(2)
+              }.tag(entry.reference)
             }.disabled(model.isBusy)
           if sketches.hasMore { Button("Load More") { Task { await model.loadMore() } }.disabled(model.isBusy) }
         }.frame(minWidth: 230)
         ScrollView { VStack(alignment: .leading, spacing: 12) {
           if let drawing = sketches.selected, let ref = drawing.reference {
+            TextField("Drawing name (optional)", text: Binding(get: { drawingName }, set: { value in
+              drawingName = value
+              guard namingReference == ref else { return }
+              let pending = sketches.updateDrawingName(ref, title: value.isEmpty ? nil : value)
+              Task { if let failure = await pending.value { model.report(failure) } }
+            }))
+              .accessibilityIdentifier("drawing.library.name")
+              .task(id: ref) {
+                namingReference = nil
+                drawingName = sketches.entries.first(where: { $0.reference == ref })?.title ?? ""
+                namingReference = ref
+              }
             Text("\(drawing.program.strokes.count) strokes").foregroundStyle(.secondary)
             if drawing.capabilities.supported.contains(.preview) {
               PortraitPlaneProgramPreview(preview: PortraitPlanePreviewSource().resolve(
@@ -270,14 +287,18 @@ package struct DrawingLibraryBrowser: View {
               Text("Preview unavailable: this drawing requires unsupported features.")
                 .foregroundStyle(.secondary).frame(minWidth: 250, minHeight: 220)
             }
-            HStack {
-              Button("Edit") { _ = model.beginEdit() }.accessibilityIdentifier("drawing.library.edit").disabled(!PortraitLineEditModel.supports(drawing))
+            VStack(alignment: .leading, spacing: 8) {
               if let handoff {
-                Button("Send to Drawing") { Task { await model.sendSelected(using: handoff) } }
+                Button("Prepare in AdaptivePlotter") { Task { await model.sendSelected(using: handoff) } }
+                  .fixedSize()
                   .accessibilityIdentifier("drawing.library.send").disabled(!drawing.capabilities.supported.contains(.plot))
               }
-              Button("Export Drawing", systemImage: "square.and.arrow.up") { Task { await exportDrawing(ref) } }
-                .accessibilityIdentifier("drawing.library.export")
+              HStack {
+                Button("Edit") { _ = model.beginEdit() }.accessibilityIdentifier("drawing.library.edit").disabled(!PortraitLineEditModel.supports(drawing))
+                Button("Export Drawing", systemImage: "square.and.arrow.up") { Task { await exportDrawing(ref) } }
+                  .fixedSize()
+                  .accessibilityIdentifier("drawing.library.export")
+              }
             }.disabled(model.isBusy)
             if case .present(let parent) = drawing.parent {
               Button("Parent Drawing") {
