@@ -12578,7 +12578,12 @@ final class PlotterApplicationRuntime:
           || $0.name.localizedCaseInsensitiveContains("HD Pro Webcam")
       })
       ?? cameraDevices.onlyElement
-    guard let preferred else { return }
+    guard let preferred else {
+      cameraError = cameraDevices.isEmpty
+        ? "No camera detected. Connect a camera, then refresh sources in Video Settings."
+        : "Multiple cameras detected. Choose the plotter camera in Video Settings."
+      return
+    }
     if selectedCameraID != preferred.id {
       await selectCamera(preferred.id)
     }

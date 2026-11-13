@@ -182,6 +182,16 @@ final class AdaptivePlotterApplicationDelegate: NSObject, NSApplicationDelegate 
         if self.drawingPresentationAdmissionIsOpen {
           for response in recovery.responses {
             guard self.observedPreparationReplies.insert(.init(client: response.client, delivery: response.delivery)).inserted else { continue }
+            // Recovery also returns durable receipts from older selections.
+            // They remain valid transport evidence, but cannot replace the
+            // current preview or report a failure about an unrelated drawing.
+            switch response.reply {
+            case .prepared(let ticket):
+              guard self.applicationRuntime.destinationPreviewIsCurrent(.prepared(ticket)) else { continue }
+            case .referencePreview(let ref):
+              guard self.applicationRuntime.destinationPreviewIsCurrent(.unplaced(ref)) else { continue }
+            default: break
+            }
             self.showDrawingPreparation(response.reply, foreground: false)
           }
           if let failure = recovery.failures.first {

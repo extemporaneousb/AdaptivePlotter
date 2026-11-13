@@ -4,6 +4,7 @@ set -eu
 project_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 binary_directory=${1:?"usage: test_drawing_app_build_inputs.sh SWIFTPM_BINARY_DIRECTORY [debug|release]"}
 configuration=${2:-debug}
+bundle_directory=${3:-"$project_root/.build"}
 case "$configuration" in
     debug) wrong_configuration=release ;;
     release) wrong_configuration=debug ;;
@@ -14,7 +15,7 @@ for product in AdaptivePlotter PortraitStudio; do
         AdaptivePlotter) validator="$project_root/Scripts/validate_local_app_bundle.sh"; other=PortraitStudio ;;
         PortraitStudio) validator="$project_root/Scripts/validate_portrait_studio_app_bundle.sh"; other=AdaptivePlotter ;;
     esac
-    bundle="$project_root/.build/$product.app"
+    bundle="$bundle_directory/$product.app"
     sh "$validator" "$bundle" "$binary_directory/$product" "$configuration"
     case "$product" in
         AdaptivePlotter) builder="$project_root/Scripts/build_local_app.sh" ;;
@@ -31,3 +32,5 @@ for product in AdaptivePlotter PortraitStudio; do
     fi
 done
 echo "Both Drawing app bundles match their exact build inputs; swapped sources/configurations refused"
+
+python3 "$project_root/Scripts/test_drawing_app_icons.py" "$bundle_directory"

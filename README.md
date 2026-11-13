@@ -632,3 +632,27 @@ Follow `AGENTS.md`, `.codex/skills/adaptiveplotter/SKILL.md`, and
 `blackdog.toml`. Normal implementation begins and lands through repo-local
 Blackdog in its recorded task worktree and target branch. Never upgrade
 automated or simulator results into attended physical evidence.
+
+### Desktop release
+
+Run `make release` to build both optimized, signed apps and refresh the two
+clickable Desktop items, `AdaptivePlotter.app` and `Portrait Studio.app`.
+Quit both apps normally before refreshing. The command refuses to replace a
+running bundle or an unrelated Desktop item. These items are symbolic links to
+`~/Desktop/AdaptivePlotter/AdaptivePlotter.app` and
+`~/Desktop/AdaptivePlotter/PortraitStudio.app`; existing verification files in
+that directory are retained. Each bundle has its own signed icon resource.
+Double-clicking either item starts its normal live app; simulation remains an
+explicit launcher option.
+
+`make release-build` builds and validates without publishing; `make publish-desktop`
+refreshes from already prepared `.build` bundles. Publication stages and validates
+both apps before replacing either, rolls back failures, and recovers an interrupted
+transaction on retry. For a disposable publication test, use
+`python3 Scripts/publish_desktop_apps.py --home /absolute/temporary/home`.
+The existing individual `make app`, `make portrait-studio-app`, and launcher
+interfaces remain available for debug work.
+
+`make desktop-release-test` tests rollback and collisions, then signs disposable
+Mach-O fixture apps and tests output overrides, icon tampering, and publication
+in a temporary home without launching either app.

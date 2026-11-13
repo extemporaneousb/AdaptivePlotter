@@ -28,6 +28,12 @@ case "$configuration" in
     *) echo "unexpected PortraitStudioBuildConfiguration: $configuration" >&2; exit 1 ;;
 esac
 
+expect_plist_value CFBundleIconFile PortraitStudio.icns
+icon="$bundle/Contents/Resources/PortraitStudio.icns"
+if [ ! -s "$icon" ] || [ "$(/usr/bin/head -c 4 "$icon")" != icns ]; then
+    echo "missing or invalid PortraitStudio icon resource" >&2
+    exit 1
+fi
 expect_plist_value CFBundleExecutable PortraitStudio
 expect_plist_value CFBundleIdentifier com.bullard.PortraitStudio
 expect_plist_value CFBundlePackageType APPL

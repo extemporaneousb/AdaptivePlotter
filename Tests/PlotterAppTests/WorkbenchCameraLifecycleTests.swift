@@ -54,13 +54,6 @@ struct WorkbenchCameraLifecycleTests {
 }
 
 @MainActor
-private func awaitCameraPublication(_ condition: () -> Bool) async throws {
-  let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-  while !condition(), ContinuousClock.now < deadline { await Task.yield() }
-  try #require(condition(), "The current selected source must publish its exact test frame before the deadline.")
-}
-
-@MainActor
 private func awaitCameraTestState(_ condition: () async -> Bool) async throws {
   let deadline = ContinuousClock.now.advanced(by: .seconds(5))
   while !(await condition()) {

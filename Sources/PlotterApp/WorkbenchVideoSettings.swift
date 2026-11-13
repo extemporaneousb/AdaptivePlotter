@@ -76,6 +76,7 @@ struct WorkbenchVideoSettings: View {
             get: { projection.frameMode == .simulated ? "simulated" : projection.selectedCameraID?.rawValue ?? "" },
             set: { id in submit(id == "simulated" ? PlotterAppUIActionID.observationSimulated
               : PlotterAppUIActionID.observationCamera(id)) })) {
+            Text("Choose a camera…").tag("").disabled(true)
             Text("Simulator").tag("simulated")
             ForEach(projection.cameraDevices) { Text($0.name).tag($0.id.rawValue) }
           }

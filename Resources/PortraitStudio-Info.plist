@@ -11,6 +11,8 @@
   <string>PortraitStudio</string>
   <key>CFBundleIdentifier</key>
   <string>com.bullard.PortraitStudio</string>
+  <key>CFBundleIconFile</key>
+  <string>PortraitStudio.icns</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

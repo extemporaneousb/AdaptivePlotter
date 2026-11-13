@@ -15,9 +15,8 @@ import Vision
 @Suite("Flow Edge authoring bounded workspace", .serialized)
 @MainActor
 struct PortraitStudioWorkspaceLayoutTests {
-  @Test("Explore, Prune, Rank and Fit retain visible core actions without regenerating on layout",
-    arguments: FlowAuthoringModel.Stage.allCases)
-  func controlsFit(stage: FlowAuthoringModel.Stage) async throws {
+  @Test("Explore, Prune, Rank and Fit retain visible core actions without regenerating on layout")
+  func controlsFit() async throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -30,7 +29,8 @@ struct PortraitStudioWorkspaceLayoutTests {
     do {
       let stroke = try portraitTestStyle()
       await authoring.open()
-      await authoring.addPhoto(data: try portraitTestImage(), title: "Disposable portrait layout fixture")
+      let photo = try portraitTestImage()
+      await authoring.addPhoto(data: photo, title: "Disposable portrait layout fixture")
       authoring.count = 6
       await authoring.generate(refining: false)
       try #require(authoring.error == nil)
@@ -48,47 +48,50 @@ struct PortraitStudioWorkspaceLayoutTests {
       try #require(authoring.error == nil)
       let activeRound = try #require(authoring.round?.id)
       for index in 2...18 {
-        await authoring.addPhoto(data: try portraitTestImage(), title: "Historical photo \(index)")
+        await authoring.addPhoto(data: photo, title: "Historical photo \(index)")
       }
       await authoring.selectRound(activeRound)
-      if stage == .prune {
-        let lines = try #require(authoring.program?.strokes)
-        await authoring.edit(.remove, ids: [lines[1].id])
-        await authoring.edit(.undo)
-        authoring.selection = [lines[2].id]
-      }
-      authoring.stage = stage
-      let renderCalls = await renderer.calls
-      let revision = authoring.document?.revision
-      let programHash = authoring.program?.contentHash
-      let roundID = authoring.round?.id
-      for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
-        try await inspect(owner, authoring: authoring, stroke: stroke, stage: stage, size: size)
-        #expect(await renderer.calls == renderCalls, "Layout must never regenerate drawings.")
-        #expect(authoring.document?.revision == revision, "Layout must not create portfolio records or judgments.")
-        #expect(authoring.program?.contentHash == programHash && authoring.round?.id == roundID)
-        #expect(authoring.stage == stage && authoring.candidate?.id == chosen.id)
-      }
-      if stage == .rank {
-        await authoring.presentRanking(scope: .round(try #require(authoring.round?.id)), count: 2)
-        try #require(authoring.error == nil)
-        let previousPair = try #require(authoring.presentation)
-        try #require(previousPair.items.count == 2)
-        await authoring.compare(preferred: try #require(previousPair.items.first?.id))
-        try #require(authoring.error == nil)
-        let nextPair = try #require(authoring.presentation)
-        try #require(nextPair.id != previousPair.id && nextPair.items.count == 2)
-        try #require(authoring.ranks.isEmpty)
-        let pairRevision = authoring.document?.revision
+      // Each stage inspects the same portfolio; resizing must preserve its identity.
+      for stage in FlowAuthoringModel.Stage.allCases {
+        if stage == .prune {
+          let lines = try #require(authoring.program?.strokes)
+          await authoring.edit(.remove, ids: [lines[1].id])
+          await authoring.edit(.undo)
+          authoring.selection = [lines[2].id]
+        }
+        authoring.stage = stage
+        let renderCalls = await renderer.calls
+        let revision = authoring.document?.revision
+        let programHash = authoring.program?.contentHash
+        let roundID = authoring.round?.id
         for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
-          try await inspect(owner, authoring: authoring, stroke: stroke, stage: stage, size: size, suffix: "-pair", expectedFreshPair: true)
-          #expect(authoring.document?.revision == pairRevision)
-          #expect(await renderer.calls == renderCalls)
+          try await inspect(owner, authoring: authoring, stroke: stroke, stage: stage, size: size)
+          #expect(await renderer.calls == renderCalls, "Layout must never regenerate drawings.")
+          #expect(authoring.document?.revision == revision, "Layout must not create portfolio records or judgments.")
+          #expect(authoring.program?.contentHash == programHash && authoring.round?.id == roundID)
+          #expect(authoring.stage == stage && authoring.candidate?.id == chosen.id)
+        }
+        if stage == .rank {
+          await authoring.presentRanking(scope: .round(try #require(authoring.round?.id)), count: 2)
+          try #require(authoring.error == nil)
+          let previousPair = try #require(authoring.presentation)
+          try #require(previousPair.items.count == 2)
+          await authoring.compare(preferred: try #require(previousPair.items.first?.id))
+          try #require(authoring.error == nil)
+          let nextPair = try #require(authoring.presentation)
+          try #require(nextPair.id != previousPair.id && nextPair.items.count == 2)
+          try #require(authoring.ranks.isEmpty)
+          let pairRevision = authoring.document?.revision
+          for size in [CGSize(width: 1100, height: 720), CGSize(width: 1440, height: 940)] {
+            try await inspect(owner, authoring: authoring, stroke: stroke, stage: stage, size: size, suffix: "-pair", expectedFreshPair: true)
+            #expect(authoring.document?.revision == pairRevision)
+            #expect(await renderer.calls == renderCalls)
+          }
         }
       }
-      await owner.shutdown()
+      _ = await authoring.shutdown(); await owner.shutdown()
     } catch {
-      await owner.shutdown()
+      _ = await authoring.shutdown(); await owner.shutdown()
       throw error
     }
   }
@@ -266,11 +269,17 @@ struct PortraitStudioWorkspaceLayoutTests {
     value.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
   }
   private func settle(_ view: NSView) async throws {
-    for _ in 0..<8 {
+    var previous: [CGRect] = [], stablePasses = 0
+    for _ in 0..<20 {
       view.window?.layoutIfNeeded(); view.layoutSubtreeIfNeeded()
       view.window?.displayIfNeeded(); view.displayIfNeeded()
-      try await Task.sleep(for: .milliseconds(50))
+      let geometry = descendants(view).map { $0.convert($0.bounds, to: view) }
+      stablePasses = geometry == previous ? stablePasses + 1 : 0
+      if stablePasses >= 3 { return }
+      previous = geometry
+      try await Task.sleep(for: .milliseconds(20))
     }
+    view.layoutSubtreeIfNeeded(); view.window?.displayIfNeeded(); view.displayIfNeeded()
   }
   private func descendants(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(descendants) }
   private func scrollingAncestors(of view: NSView) -> [NSScrollView] {

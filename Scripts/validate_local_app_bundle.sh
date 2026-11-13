@@ -28,6 +28,12 @@ case "$configuration" in
     *) echo "unexpected AdaptivePlotterBuildConfiguration: $configuration" >&2; exit 1 ;;
 esac
 
+expect_plist_value CFBundleIconFile AdaptivePlotter.icns
+icon="$bundle/Contents/Resources/AdaptivePlotter.icns"
+if [ ! -s "$icon" ] || [ "$(/usr/bin/head -c 4 "$icon")" != icns ]; then
+    echo "missing or invalid AdaptivePlotter icon resource" >&2
+    exit 1
+fi
 expect_plist_value CFBundleExecutable AdaptivePlotter
 expect_plist_value CFBundleIdentifier com.bullard.AdaptivePlotter
 expect_plist_value CFBundlePackageType APPL

@@ -1,10 +1,11 @@
-.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check portrait-experiment-check drawing-app-test quick-test journey-test test check strict-check
+.PHONY: help build app portrait-studio-app validate-portrait-studio-app launcher run-app run-app-simulated validate-app validate-launcher preview-performance-gate docs-check wave-capsule-test responsiveness-test portrait-baseline-check portrait-experiment-check drawing-app-test quick-test journey-test native-layout-test drawing-architecture-test test check strict-check
 
 .DEFAULT_GOAL := help
 
 SWIFT_FLAGS ?=
 APP_CONFIGURATION ?= debug
-JOURNEY_TEST_FILTER := PlotterApplicationRuntimeSparseTipCalibrationTests/(fullFourCornerMarkAcceptance|checkpointRevalidationRestoresWithoutAnotherMark|stageFourConsumesExactTipRevision)|PlotterBoundaryEpisodeTests/(boundaryRepeatActionsAggregateAndReplaceAcceptedSet|boundaryAtomicFailurePreservesAcceptedAuthority)|PlotterApplicationRuntimeTests/(resetBoundaryForwardRetainsEarlierLearning|resetObservedTrialAtomically)|PlotterCausalEpisodeEnvironmentTests/(drawingCompletion|cooperativeBoundaryStopRaces|cooperativeBoundaryAtTruth)
+NATIVE_LAYOUT_TEST_FILTER := PortraitStudioWorkspaceLayoutTests|PortraitStudioNativeLayoutTests
+JOURNEY_TEST_FILTER := $(NATIVE_LAYOUT_TEST_FILTER)|PlotterApplicationRuntimeSparseTipCalibrationTests/(fullFourCornerMarkAcceptance|checkpointRevalidationRestoresWithoutAnotherMark|stageFourConsumesExactTipRevision)|PlotterBoundaryEpisodeTests/(boundaryRepeatActionsAggregateAndReplaceAcceptedSet|boundaryAtomicFailurePreservesAcceptedAuthority)|PlotterApplicationRuntimeTests/(resetBoundaryForwardRetainsEarlierLearning|resetObservedTrialAtomically)|PlotterCausalEpisodeEnvironmentTests/(drawingCompletion|cooperativeBoundaryStopRaces|cooperativeBoundaryAtTruth)
 RESPONSIVENESS_TEST_FILTER := Plotter(PenInteraction|CameraCalibration|SpeechEffect|ControllerSession)EpisodeTests|PlotterEpisodeCompositionTests|PlotterApplicationRuntimeTests/resetAllKeepsCameraCalibrationReusable|OperatorWorkspaceAuthorityTests|OperatorWorkspaceSparseTipCalibrationTests|CameraCaptureTests|OverlayStateTests|WorkbenchTopBarLayoutTests|PlotterEpisodeUIActionabilityTests|PlotterLearningPresentationCompilerTests
 DRAWING_APP_TEST_FILTER := DrawingBrowserTests|DrawingEditLifetimeTests|DrawingTransferRouteTests|DrawingLibraryAtomicRetentionTests|DrawingLibraryPhotoQueryTests|DrawingLibraryResultDiscoveryTests/discoverDrawingAfterReopen|FlowAuthoringNavigationTests|DrawingLibraryNavigationTests|DrawingLibraryAdoptionTests|DrawingLibraryWorkspaceTests|DrawingReviewerLayoutTests|WorkbenchStopCompositionTests
 
@@ -15,6 +16,10 @@ help:
 		'Targets:' \
 		'  help               Show this help.' \
 		'  build              Compile the Swift package.' \
+		'  release            Build optimized signed apps and refresh both Desktop app items.' \
+		'  release-build      Build both optimized signed apps without publishing.' \
+		'  publish-desktop    Safely refresh Desktop items from prepared release bundles.' \
+		'  desktop-release-test Test publication, rollback, and collision handling in disposable homes.' \
 		'  app                Build the signed debug app (APP_CONFIGURATION=release enables optimization).' \
 		'  portrait-studio-app Build the independent signed Portrait Studio app.' \
 		'  validate-portrait-studio-app Validate the independent Studio bundle without launching.' \
@@ -31,7 +36,9 @@ help:
 		'  portrait-experiment-check Run renderer baseline and SwiftSketch adapter checks.' \
 		'  drawing-app-test   Exercise current Drawing browsing, editing, retention, reopen and Plotter handoff.' \
 		'  quick-test         Run unit and component tests, excluding retained journeys.' \
-		'  journey-test       Run retained causal journeys sequentially.' \
+		'  journey-test       Run retained causal and native layout journeys sequentially.' \
+		'  native-layout-test Run native geometry, rendered controls and scrolling checks.' \
+		'  drawing-architecture-test Verify the evaluated Drawing dependency closure.' \
 		'  test               Run the complete Swift test suite in parallel.' \
 		'  check              Validate the app, tests, and repository contract.' \
 		'  strict-check       Run check with strict concurrency and warnings as errors.'
@@ -103,10 +110,16 @@ run-app-simulated: app launcher
 quick-test:
 	swift test --no-parallel --skip '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)
 
+native-layout-test:
+	swift test --no-parallel --filter '$(NATIVE_LAYOUT_TEST_FILTER)' $(SWIFT_FLAGS)
+
+drawing-architecture-test:
+	@sh Scripts/check_drawing_architecture.sh $(SWIFT_FLAGS)
+
 journey-test:
 	swift test --no-parallel --filter '$(JOURNEY_TEST_FILTER)' $(SWIFT_FLAGS)
 
-test:
+test: drawing-architecture-test
 	swift test --parallel $(SWIFT_FLAGS)
 
 check: validate-app test docs-check
@@ -114,3 +127,22 @@ check: validate-app test docs-check
 
 strict-check:
 	@$(MAKE) check SWIFT_FLAGS='-Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors'
+
+# Optimized two-product release. Build serially so SwiftPM shares one build path.
+.PHONY: release release-build publish-desktop
+release: release-build
+	@$(MAKE) publish-desktop
+
+release-build:
+	@$(MAKE) app APP_CONFIGURATION=release
+	@$(MAKE) portrait-studio-app APP_CONFIGURATION=release
+	@sh Scripts/validate_local_app_bundle.sh .build/AdaptivePlotter.app
+	@sh Scripts/validate_portrait_studio_app_bundle.sh .build/PortraitStudio.app
+
+publish-desktop:
+	@python3 Scripts/publish_desktop_apps.py
+
+.PHONY: desktop-release-test
+desktop-release-test:
+	@PYTHONDONTWRITEBYTECODE=1 python3 Scripts/test_desktop_release.py
+	@PYTHONDONTWRITEBYTECODE=1 python3 Scripts/test_drawing_app_packaging.py

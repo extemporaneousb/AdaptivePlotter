@@ -101,9 +101,13 @@ preview when the final matching hold settles. Preview age never selects another
 canvas source. During an exact Vision hold, the workbench retains the current
 camera image and labels it held for the owning calibration. If ordinary delivery
 becomes stale, the same image remains labeled as the last camera frame; it does
-not satisfy fresh-frame admission. Simulation fallback applies only when no image
-is available for the selected camera role. Interactive LIVE capture requests
-an upstream 10 FPS device-delivery limit and independently bounds ordinary
+not satisfy fresh-frame admission. Simulation fallback applies only when the
+explicitly selected SIMULATED source has no image. LIVE without an image shows
+camera status and a Video Settings action; it never substitutes simulator pixels.
+Normal startup selects the preferred C920 or the sole available camera. If no
+camera is detected or multiple cameras have no preferred match, it reports the
+missing source or required selection in Video Settings. Interactive LIVE capture
+requests an upstream 10 FPS device-delivery limit and independently bounds ordinary
 full-frame preview materialization to the same rate. The diagnostics state
 whether the device accepted that limit. An unsupported device limit is visible
 as unapplied; a device-format or configuration-lock refusal does not fail an

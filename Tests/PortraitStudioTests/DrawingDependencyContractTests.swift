@@ -1,44 +1,16 @@
-import Darwin
-import Dispatch
 import Foundation
 import Testing
 
 @Suite("Drawing value module dependency contract")
 struct DrawingDependencyContractTests {
-  @Test("The exported Drawing contract and artist dependency closure exclude machine runtime")
+  @Test("The exported Drawing contract and artist dependency closure exclude machine runtime",
+    .enabled(if: ProcessInfo.processInfo.environment["DRAWING_PACKAGE_MANIFEST"] != nil))
   func coreDependencyGraph() throws {
-    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent()
-    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-    try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: temporary) }
-    let outputURL = temporary.appendingPathComponent("manifest.json")
-    let errorsURL = temporary.appendingPathComponent("diagnostics.txt")
-    #expect(FileManager.default.createFile(atPath: outputURL.path, contents: nil))
-    #expect(FileManager.default.createFile(atPath: errorsURL.path, contents: nil))
-    let output = try FileHandle(forWritingTo: outputURL), errors = try FileHandle(forWritingTo: errorsURL)
-    defer { try? output.close(); try? errors.close() }
-    let process = Process(), completed = DispatchSemaphore(value: 0)
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/swift")
-    process.arguments = ["package", "--package-path", root.path,
-      "--scratch-path", temporary.appendingPathComponent("scratch").path, "dump-package"]
-    process.standardOutput = output; process.standardError = errors
-    process.terminationHandler = { _ in completed.signal() }
-    try process.run()
-    defer { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
-    let finished = completed.wait(timeout: .now() + 30)
-    if finished == .timedOut {
-      process.terminate()
-      if completed.wait(timeout: .now() + 5) == .timedOut {
-        kill(process.processIdentifier, SIGKILL)
-        _ = completed.wait(timeout: .now() + 5)
-      }
-    }
-    try #require(finished == .success, "SwiftPM manifest evaluation exceeded 30 seconds")
-    let bytes = try Data(contentsOf: outputURL)
-    let diagnostics = try Data(contentsOf: errorsURL)
-    try #require(process.terminationStatus == 0,
-      "SwiftPM manifest evaluation: \(String(decoding: diagnostics.suffix(4096), as: UTF8.self))")
+    // Manifest evaluation belongs to the architecture command, outside the unit
+    // test process. This retains SwiftPM's evaluated graph, including transitive
+    // dependencies, without launching a nested package manager in quick-test.
+    let path = try #require(ProcessInfo.processInfo.environment["DRAWING_PACKAGE_MANIFEST"])
+    let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
     let manifest = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
     let targets = try #require(manifest["targets"] as? [[String: Any]])
     var graph: [String: [String]] = [:]

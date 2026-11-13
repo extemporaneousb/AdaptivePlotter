@@ -5,3 +5,7 @@
 DerivedData/
 *.xcuserstate
 xcuserdata/
+
+# Python validation helpers
+__pycache__/
+*.py[cod]

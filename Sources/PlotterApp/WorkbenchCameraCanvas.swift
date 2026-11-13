@@ -1,6 +1,5 @@
 import PortraitStudioUI
 import AppKit
-import ImageIO
 import PlotterEpisodeModel
 import PlotterModel
 import PlotterRuntime
@@ -8,8 +7,11 @@ import PlotterUI
 import SwiftUI
 
 enum WorkbenchCanvasContent: Equatable {
-  case plotter, simulationPreview
-  static func select(plotterFrameAvailable: Bool) -> Self { plotterFrameAvailable ? .plotter : .simulationPreview }
+  case plotter, simulationPreview, waitingForCamera
+  static func select(plotterFrameAvailable: Bool, isSimulated: Bool) -> Self {
+    if plotterFrameAvailable { return .plotter }
+    return isSimulated ? .simulationPreview : .waitingForCamera
+  }
 }
 
 struct WorkbenchCanvasPresentation {
@@ -25,7 +27,7 @@ extension PlotterApplicationRuntime {
     let surface = actionSurfacePresentation
     let displayed = surface.usesAmbientPreviewFrame
       ? actionSurfacePreview.displayedFrame : surface.displayedFrame
-    let content = WorkbenchCanvasContent.select(plotterFrameAvailable: displayed != nil)
+    let content = WorkbenchCanvasContent.select(plotterFrameAvailable: displayed != nil, isSimulated: frameMode == .simulated)
     // A held image remains camera-sourced; only its temporal qualification changes.
     // This presentation does not make that image fresh enough for an observation.
     let status: String?
@@ -50,6 +52,7 @@ extension PlotterApplicationRuntime {
 struct WorkbenchCameraCanvas: View {
   let application: PlotterApplicationRuntime
   let semantic: PlotterUIProjection
+  var showVideoSettings: () -> Void = {}
   @Binding var viewport: ActionSurfaceViewportState
   @Binding var pendingDrawingPlacement: PlotterDrawingDraftCameraPlacement?
   @Binding var pendingPointSelection: PlotterPointSelectionSubmission?
@@ -70,6 +73,20 @@ struct WorkbenchCameraCanvas: View {
             .accessibilityIdentifier("workbench.canvas.plotter")
         case .simulationPreview:
           WorkbenchSimulationCanvas(application: application, zoom: viewport.zoom)
+        case .waitingForCamera:
+          ContentUnavailableView {
+            Label("No live camera image", systemImage: "video.slash")
+          } description: {
+            Text(application.cameraError ?? application.cameraRoleError
+              ?? (application.selectedCameraID == nil
+                ? "Choose a camera in Video Settings. Refresh sources if your camera is missing."
+                : "Waiting for camera video · \(application.cameraStateText)"))
+          } actions: {
+            Button("Video Settings", action: showVideoSettings)
+              .accessibilityIdentifier("workbench.canvas.videoSettings")
+          }
+          .environment(\.colorScheme, .dark)
+          .accessibilityIdentifier("workbench.canvas.waitingForCamera")
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -111,26 +128,5 @@ private struct WorkbenchSimulationCanvas: View {
       frame = await application.canvasSimulationPreview()
       failed = frame == nil
     }
-  }
-}
-
-private struct WorkbenchPhotoCanvas: View {
-  let data: Data?
-  let zoom: Double
-  @State private var image: CGImage?
-  var body: some View {
-    GeometryReader { proxy in
-      if let image, let transform = CameraPixelToViewTransform(frameWidth: image.width,
-        frameHeight: image.height, viewWidth: proxy.size.width, viewHeight: proxy.size.height) {
-        CameraFrameLayerView(image: image, imageRect: transform.imageRect).scaleEffect(1 + zoom * 3)
-      }
-    }.clipped()
-      .task(id: data) {
-        let decoded = await Task.detached(priority: .userInitiated) {
-          guard let data, let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as CGImage? }
-          return CGImageSourceCreateImageAtIndex(source, 0, nil)
-        }.value
-        if !Task.isCancelled { image = decoded }
-      }
   }
 }

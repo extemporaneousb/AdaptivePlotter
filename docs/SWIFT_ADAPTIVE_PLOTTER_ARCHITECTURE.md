@@ -1505,10 +1505,14 @@ Diagnostics button, verifies a fresh process-matched export and its pixel hash,
 and preserves independent timestamps rather than inventing synchronization.
 `WorkbenchDiagnosticExporter` owns only
 one export's UI progress/result. It creates no journal or operational authority.
-`WorkbenchCameraCanvas` owns the local freshness read and camera/portrait/fallback
-presentation. `SimulatedLearningRuntime.previewSceneFrame()` uses the existing
-renderer without consuming faults or changing causal frame state; its returned
-image never enters live observation or execution state.
+`WorkbenchCameraCanvas` owns the local freshness read and camera, waiting, and
+simulator-fallback presentation. A retained camera image stays visible regardless
+of freshness. LIVE with no image shows the camera error or waiting status and
+opens Video Settings; only explicitly selected SIMULATED mode uses the fallback.
+Startup reports missing cameras or requires selection when multiple devices have
+no preferred C920 match. `SimulatedLearningRuntime.previewSceneFrame()` uses the
+existing renderer without consuming faults or changing causal frame state; its
+returned image never enters live observation or execution state.
 
 The LIVE and SIMULATED entries in
 `PlotterApplicationState.environmentStates` retain copied residual Learning

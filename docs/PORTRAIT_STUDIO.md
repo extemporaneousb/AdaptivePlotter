@@ -499,3 +499,18 @@ feasibility, face-framing comparisons and sparse-surface exercises are recorded 
 [Current Evidence](CURRENT_EVIDENCE.md). Their existing libraries and signed bundles
 remain historical evidence. The current Flow Edge workspace does not launch their workers or
 route new authoring through their separate Artists, Review or Save Drawing flows.
+
+Native layout regression checks run with `make native-layout-test` (also included
+in `make journey-test`). The bounded-workspace fixture covers all authoring stages
+at both sizes, including fresh ranking pairs and pruning canvas bounds. Production
+hosts retain the minimum-size and larger-size geometry, photo/branch scrolling,
+workspace identity and render-count checks; shared sidebar OCR runs once per size.
+These owned offscreen windows do not establish attended interaction or camera use.
+Set `PORTRAIT_NATIVE_AX_CHECK=1` only on an AX-capable test host to include the
+native accessibility interaction checks. `make quick-test` excludes these native
+journeys; use both targets when changing Portrait layout.
+
+Run `make drawing-architecture-test` after changing package dependencies. It
+passes SwiftPM's evaluated manifest to the dependency contract test, retaining the
+Drawing and artist transitive-closure assertions without a nested SwiftPM process
+inside the normal unit suite. `SWIFT_FLAGS` applies to its Swift test invocation.

@@ -11,6 +11,8 @@
   <string>AdaptivePlotter</string>
   <key>CFBundleIdentifier</key>
   <string>com.bullard.AdaptivePlotter</string>
+  <key>CFBundleIconFile</key>
+  <string>AdaptivePlotter.icns</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

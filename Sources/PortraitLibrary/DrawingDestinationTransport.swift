@@ -114,7 +114,9 @@ public struct DrawingDestinationPreparationRecovery: Sendable {
     return destination
   }
   /// Recovery is intentionally Prepare-only. A durable control file is never
-  /// authority to submit merely because the engine was relaunched.
+  /// authority to submit merely because the engine was relaunched. Previously
+  /// processed refusals are republished as transport receipts without replaying
+  /// their diagnostic over the operator's current selection.
   public func drainPreparations() async -> DrawingDestinationPreparationRecovery {
     guard !closing else { return .init(responses: [], failures: []) }
     let clients = root.appendingPathComponent("clients")
@@ -137,16 +139,20 @@ public struct DrawingDestinationPreparationRecovery: Sendable {
           if engine == nil, case .description(let description) = try await service.handle(.describe) { engine = description.engine }
           guard let engine, delivery.engine == nil || delivery.engine == engine else { throw DrawingDestinationRefusal.invalidDelivery }
           let responseURL = DrawingDestinationFiles.responseURL(root: root, engine: engine, client: delivery.client, delivery: delivery.id)
+          let stored = try await library.record(.init(kind: "adaptiveplotter.destination.delivery." + delivery.client.uuidString.lowercased(), id: delivery.id))
           if let response = try? DrawingDestinationFiles.read(DrawingDestinationResponse.self, from: responseURL),
             response.delivery == delivery.id, response.client == delivery.client, response.engine == engine,
             response.digest == .hash(try DrawingArtifactCoding.encoder().encode(delivery)),
-            let stored = try await library.record(.init(kind: "adaptiveplotter.destination.delivery." + delivery.client.uuidString.lowercased(), id: delivery.id)),
+            let stored,
             try JSONDecoder().decode(DrawingDestinationResponse.self, from: stored.payload) == response {
+            if case .refused = response.reply { continue }
             responses.append(response)
             continue
           }
           let published = try await receive(url)
-          responses.append(try DrawingDestinationFiles.read(DrawingDestinationResponse.self, from: published))
+          let response = try DrawingDestinationFiles.read(DrawingDestinationResponse.self, from: published)
+          if stored != nil, case .refused = response.reply { continue }
+          responses.append(response)
         } catch { failures.append(url.lastPathComponent + ": " + error.localizedDescription) }
       }
     }

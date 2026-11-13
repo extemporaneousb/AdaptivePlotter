@@ -84,6 +84,7 @@ struct PlotterApplicationRuntimeView: View {
           autosavePrefix: RunningAppPreviewPerformanceGate.isRequested ? nil : "AdaptivePlotter.workbench.v2",
           content: panelContent) {
           WorkbenchCameraCanvas(application: application, semantic: ui.semantic,
+            showVideoSettings: { layout.wrappedValue.setPresented(.videoSettings, true) },
             viewport: $actionSurfaceViewport, pendingDrawingPlacement: $pendingDrawingPlacement,
             pendingPointSelection: $pendingPointSelection)
         }

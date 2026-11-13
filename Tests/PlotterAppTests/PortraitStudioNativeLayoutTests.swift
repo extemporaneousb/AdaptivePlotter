@@ -61,7 +61,8 @@ struct PortraitStudioNativeLayoutTests {
     let pen = application.drawingStrokeStyle, authoring = FlowAuthoringModel(library: owner.library, strokeStyle: application.drawingStrokeStyle)
     do {
       await authoring.open()
-      await authoring.addPhoto(data: try portraitTestImage(), title: "Source 01")
+      let photo = try portraitTestImage()
+      await authoring.addPhoto(data: photo, title: "Source 01")
       authoring.count = 3; await authoring.generate(refining: false)
       let anchor = try #require(authoring.roundCandidates.first)
       await authoring.browseCandidate(anchor.id)
@@ -72,7 +73,7 @@ struct PortraitStudioNativeLayoutTests {
       await authoring.edit(.completeTarget)
       await authoring.presentRanking(scope: .round(try #require(authoring.round?.id)), count: 2)
       await authoring.fit()
-      for index in 2...18 { await authoring.addPhoto(data: try portraitTestImage(), title: String(format: "Source %02d", index)) }
+      for index in 2...18 { await authoring.addPhoto(data: photo, title: String(format: "Source %02d", index)) }
       await authoring.browseCandidate(anchor.id)
       try #require(authoring.error == nil && authoring.document?.sources.count == 18)
       try #require(authoring.document?.rounds.count == 3)
@@ -159,7 +160,10 @@ struct PortraitStudioNativeLayoutTests {
       window.convertToScreen(a.convert(a.bounds, to: nil)).minY
         < window.convertToScreen(b.convert(b.bounds, to: nil)).minY
     })
-    try assertVisibleBranchRow(branchScroll.contentView, host: host, size: size, stage: stage)
+    // The branch sidebar is shared across stages; OCR it once at each size.
+    if stage == .explore {
+      try assertVisibleBranchRow(branchScroll.contentView, host: host, size: size, stage: stage)
+    }
     let controls = all.compactMap { $0 as? NSControl }.filter {
       !$0.isHiddenOrHasHiddenAncestor && $0.bounds.width > 0 && $0.bounds.height > 0 && !($0 is NSTableView)
     }
@@ -173,6 +177,9 @@ struct PortraitStudioNativeLayoutTests {
           "Embedded document control overflows horizontally: \(rect) in \(host.bounds)")
       }
     }
+    // Stage controls at larger sizes are covered by the bounded-workspace suite.
+    // Keep the production minimum-size labels and unique inactive-fit status.
+    guard size.width == 1000 || stage == .fit else { return }
     let observation = try renderedAuthoringLabels(host)
     let labels = observation.labels.map(normalizeAuthoringLabel)
     let required = ["Flow Edge", "Import Photo", "Capture Photo", "Branches",
@@ -693,15 +700,16 @@ struct PortraitStudioNativeLayoutTests {
   }
 
   private func settle(_ view: NSView) async {
-    for _ in 0..<8 {
-      view.window?.layoutIfNeeded()
-      view.layoutSubtreeIfNeeded()
-      view.window?.displayIfNeeded()
-      view.displayIfNeeded()
-      try? await Task.sleep(for: .milliseconds(50))
+    var previous: [CGRect] = [], stablePasses = 0
+    for _ in 0..<20 {
+      view.window?.layoutIfNeeded(); view.layoutSubtreeIfNeeded()
+      view.window?.displayIfNeeded(); view.displayIfNeeded()
+      let geometry = views(view).map { $0.convert($0.bounds, to: view) }
+      stablePasses = geometry == previous ? stablePasses + 1 : 0
+      if stablePasses >= 3 { return }
+      previous = geometry
+      try? await Task.sleep(for: .milliseconds(20))
     }
-    view.layoutSubtreeIfNeeded()
-    view.window?.displayIfNeeded()
-    view.displayIfNeeded()
+    view.layoutSubtreeIfNeeded(); view.window?.displayIfNeeded(); view.displayIfNeeded()
   }
 }

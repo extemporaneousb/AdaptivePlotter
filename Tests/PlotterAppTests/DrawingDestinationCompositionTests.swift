@@ -32,6 +32,117 @@ import Testing
       await app.shutdown()
     } catch { await app.shutdown(); throw error }
   }
+  @Test("Cold recovery ignores obsolete reference receipts after a new document selection")
+  func recoveryPreservesCurrentReferenceStatus() async throws {
+    let fixture = try PlotterApplicationFixture()
+    let app = fixture.application
+    await app.performApplicationStartup(.init(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"]))
+    let root = app.receivedDrawings.library.directoryURL.appendingPathComponent("reference-recovery")
+    let delegate = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
+    let recovered = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
+    let window = DestinationWindowBindings()
+    for owner in [delegate, recovered] {
+      owner.completeDrawingDestinationRestoration(window.presentation.revealAction(application: app))
+    }
+    do {
+      let client = DrawingDestinationClient(library: app.receivedDrawings.library, root: root)
+      var selected: DrawingRef?
+      var latestRequest: URL?
+      for seed: UInt64 in [413, 414] {
+        let drawing = try drawingTestValue(program: portraitPersistenceCandidate(seed: seed).program)
+        let ref = try await app.receivedDrawings.library.retain(drawing, reason: "reference-recovery").reference
+        let delivery = try await client.enqueue(.prepare(ref), drawing: ref)
+        let request = DrawingDestinationFiles.requestURL(root: root, client: delivery.client, delivery: delivery.id)
+        delegate.application(NSApplication.shared, open: [request])
+        latestRequest = request
+        await delegate.settleDrawingDocuments()
+        #expect(app.canShowUnplacedDrawing(ref))
+        selected = ref
+      }
+      let currentStatus = app.drawingDestinationStatus
+      #expect(window.route.drawing == selected)
+      // Leave only the historical delivery in the recovery scan, so directory
+      // enumeration order cannot hide an obsolete status overwrite.
+      try FileManager.default.removeItem(at: #require(latestRequest))
+      recovered.startDrawingDestinationRecovery()
+      let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+      while recovered.drawingDestinationRecoveryScanCount == 0, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(5))
+      }
+      try #require(recovered.drawingDestinationRecoveryScanCount > 0)
+      #expect(window.route.drawing == selected)
+      #expect(app.drawingDestinationStatus == currentStatus)
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
+      #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
+      await recovered.settleDrawingDestinationRecovery()
+      await app.shutdown()
+    } catch {
+      await recovered.settleDrawingDestinationRecovery()
+      await app.shutdown()
+      throw error
+    }
+  }
+  @Test("Cached refusals preserve current preview status while foreground and fresh recovery report refusals", arguments: [false, true])
+  func cachedRefusalDoesNotReplaceStatus(missingResponseFile: Bool) async throws {
+    let fixture = try PlotterApplicationFixture()
+    let app = fixture.application
+    await app.performApplicationStartup(.init(arguments: [AdaptivePlotterLaunchPolicy.simulatedArgument, "YES"]))
+    let library = app.receivedDrawings.library
+    let root = library.directoryURL.appendingPathComponent("refusal-recovery")
+    let window = DestinationWindowBindings()
+    do {
+      let drawing = try drawingTestValue(program: portraitPersistenceCandidate(seed: 417).program)
+      let ref = try await library.retain(drawing, reason: "refusal-recovery").reference
+      #expect(try await app.drawingDestination.handle(.prepare(ref)) == .referencePreview(ref))
+      #expect(window.presentation.reveal(.unplaced(ref), application: app))
+      // A genuine destination refusal is retained by the real transport, while
+      // the existing unplaced preview remains current.
+      app.drawingDestination = DrawingDestinationService(library: library,
+        returnDirectory: root.appendingPathComponent("results"), prepare: { _, _, _ in nil }, current: { _ in nil })
+      let foreground = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
+      let recovery = AdaptivePlotterApplicationDelegate(composition: .init(application: app), destinationRoot: root)
+      for owner in [foreground, recovery] {
+        owner.completeDrawingDestinationRestoration(window.presentation.revealAction(application: app))
+      }
+      let client = DrawingDestinationClient(library: library, root: root)
+      let old = try await client.enqueue(.prepare(ref), drawing: ref)
+      foreground.application(NSApplication.shared, open: [DrawingDestinationFiles.requestURL(root: root, client: old.client, delivery: old.id)])
+      await foreground.settleDrawingDocuments()
+      let refusalStatus = "The drawing could not be prepared. Review the destination preview and readiness."
+      #expect(app.drawingDestinationStatus == refusalStatus)
+      if missingResponseFile {
+        guard case .description(let description) = try await app.drawingDestination.handle(.describe) else {
+          throw DrawingDestinationRefusal.preparationUnavailable
+        }
+        try FileManager.default.removeItem(at: DrawingDestinationFiles.responseURL(root: root,
+          engine: description.engine, client: old.client, delivery: old.id))
+      }
+      app.drawingDestinationStatus = "Current reference preview"
+      recovery.startDrawingDestinationRecovery()
+      let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+      while recovery.drawingDestinationRecoveryScanCount == 0, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(5))
+      }
+      await recovery.settleDrawingDestinationRecovery()
+      #expect(recovery.drawingDestinationRecoveryScanCount > 0)
+      #expect(app.drawingDestinationStatus == "Current reference preview")
+      #expect(window.route.drawing == ref)
+      _ = try await client.enqueue(.prepare(ref), drawing: ref)
+      let scans = recovery.drawingDestinationRecoveryScanCount
+      recovery.startDrawingDestinationRecovery()
+      let freshDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+      while recovery.drawingDestinationRecoveryScanCount == scans, ContinuousClock.now < freshDeadline {
+        try await Task.sleep(for: .milliseconds(5))
+      }
+      await recovery.settleDrawingDestinationRecovery()
+      #expect(recovery.drawingDestinationRecoveryScanCount > scans)
+      #expect(app.drawingDestinationStatus == refusalStatus)
+      #expect(window.route.drawing == ref)
+      #expect(await fixture.machine.requestedPenCommands.isEmpty)
+      #expect(await fixture.machine.requestedDrawingStrokes.isEmpty)
+      await app.shutdown()
+    } catch { await app.shutdown(); throw error }
+  }
   @Test("Existing projection-bound fake-port composition prepares without any Start or controller dispatch")
   func actualPrepare() async throws {
     let fixture = try await DrawingWorkbenchApplicationFixture.make()
@@ -196,11 +307,12 @@ import Testing
       try await fixture.submit(.setRotationDegrees(2))
       window.route.workspace = .library; window.reviewer = true; window.layout.setPresented(.drawing, false)
       staleRecovery.restoreOperatorWindow = { foregrounds += 1 }
+      app.drawingDestinationStatus = "Current drawing remains selected"
       staleRecovery.startDrawingDestinationRecovery()
       try await waitFor { staleRecovery.drawingDestinationRecoveryScanCount > 0 }
       #expect(!app.preparedDrawingIsCurrent(recoveredTicket))
       #expect(window.route.workspace == .library && window.reviewer && !window.layout.isPresented(.drawing))
-      #expect(app.drawingDestinationStatus?.hasPrefix("Drawing preparation has changed") == true)
+      #expect(app.drawingDestinationStatus == "Current drawing remains selected")
       #expect(foregrounds == 0)
       await staleRecovery.settleDrawingDestinationRecovery()
       await clientLibrary.closeLibrary(); await app.shutdown()
