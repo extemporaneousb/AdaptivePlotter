@@ -8,6 +8,68 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Studio save and variation follow-up, 2026-11-14
+
+A live sample during pruning autosave ("Saving line selection…") placed 3,284
+of 3,381 save-worker samples (97.1%) inside `prepareDrawing`/publication admission.
+The closure walker visited each Drawing ancestor, then `DrawingExchangeCodec`
+recursively admitted those ancestors again; membership edits also revisited their
+original universe. Each visit parsed
+the same ImageInput preparation receipt, including its raster JSON. The observed
+save eventually completed at revision 337 with 99 kept and two removed strokes.
+
+[`DrawingRecordAdmissionContext`](../Sources/Drawing/DrawingRecordAdmissionContext.swift)
+now owns successful exact-reference admission reuse for one synchronous traversal.
+Resolver authority, producer validators, descriptors and supported features are
+fixed for that context. Memo entries retain descendant depth, active dependencies
+remain cycle checked, and successful file-backed admission revalidates the selected
+files before returning. No proof survives the admission boundary.
+[`DrawingImageAdmission`](../Sources/Drawing/DrawingExchangeImages.swift) shares a
+successful preparation-receipt JSON syntax proof with the closure walker. Every
+receipt attempt still reads its exact digest through the existing resolver and
+charges the existing materialization budget; the proof retains only digests,
+without retaining parsed raster dictionaries or caching failures.
+
+The startup/variation follow-up also adds a primitive `Double` decoding path in
+[`FlowFeedbackReader`](../Sources/PortraitLibrary/FlowPortfolioFeedback.swift) for
+feature matrices that still require decoding. It uses Foundation's existing JSON
+and number conversion; the synthesized capsule decoder remains a diagnostic
+parity oracle. This changes decoding work, not feature values or retained data.
+
+One matched release before/after pair used fresh disposable clones of the same
+saved Library, with `bddc918` baseline modules, no competing builds/tests and
+unspecified filesystem caches. Removing one additional stroke from the 101-stroke
+candidate, starting with indices `[2, 21]` removed, changed from **48.200 s to
+3.226 s (93.3% lower)**. Candidate undo, redo, restore and finish-target transactions
+took 2.997, 2.946, 2.928 and 0.742 s respectively. Exact removed membership, kept
+geometry and prior feedback survived cold reopen. Evidence:
+`/tmp/portrait-studio-evidence/studio-followup-B1rEzU/save-comparison.json`.
+These are software transaction timings, not measured native UI latency. A separate
+diagnostic sample attributed 249 of 399 worker samples to four independent
+parent/provisional/final/staged admission boundaries; repeated recursive ancestry
+was eliminated, but publication admission still accounts for material work.
+
+The same pair's Library open changed from **23.674 s to 19.762 s (16.5% lower)**.
+Startup remains roughly 20 seconds and does not meet the 25% improvement target.
+Earlier baseline variation diagnostics measured three warm renders at 41–45 ms
+each and their commits at 379–431 ms; choosing an existing three-candidate panel
+took about 3.0 s. Panel count remains the independent 3–9 setting; variation radius
+does not reduce candidate count. These baseline observations distinguish rendering
+cost from history publication and the 48-second ancestry-heavy save above; they
+are not candidate before/after variation measurements.
+
+Regression coverage is defined in
+[`DrawingAncestryAdmissionTests`](../Tests/DrawingLibraryTests/DrawingAncestryAdmissionTests.swift)
+for one decode per exact Drawing, cached-subtree depth limits, forged ancestry,
+mutation and context isolation;
+[`DrawingExchangeReceiptProofCacheTests`](../Tests/PlotterAppTests/DrawingExchangeReceiptProofCacheTests.swift)
+for exact read budgets, mutation/digest refusal and uncached JSON failures; and
+[`FlowFeatureNumericDecoderTests`](../Tests/PortraitStudioTests/FlowFeatureNumericDecoderTests.swift)
+plus [`FlowFeedbackReadBudgetTests`](../Tests/PortraitStudioTests/FlowFeedbackReadBudgetTests.swift)
+for numeric bit parity, syntax/type refusal and unchanged feature admission.
+This coverage inventory is not a full-suite pass claim. Native fix verification
+has not been recorded for this follow-up.
+
 ## Startup and authoring performance maintenance, 2026-11-14
 
 The following source inventory is relative to `67a35e19a7180a50ef1b2822a551c9ddbc323e96`.

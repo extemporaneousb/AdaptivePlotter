@@ -102,20 +102,21 @@ public enum DrawingExchangeCodec {
   }
   public static func decode(_ record: Data, objects: [ExchangeDigest: Data], expected: DrawingRef? = nil,
     validators: DrawingProducerValidators = .init(), supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> DrawingRecordAdmission {
-    try decodeRecord(record, objects: .dictionary(objects), expected: expected, validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: 0)
+    try DrawingRecordAdmissionContext(objects: .dictionary(objects), validators: validators,
+      supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors).decode(record, expected: expected)
   }
   public static func decode(_ record: Data, files: VerifiedExchangeFiles, expected: DrawingRef? = nil,
     validators: DrawingProducerValidators = .init(), supportedFeatures: Set<String> = [], assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]) throws -> DrawingRecordAdmission {
-    try decodeRecord(record, objects: .files(files, budget: .init(maximum: files.limits.maximumMaterializedBytes)), expected: expected, validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: 0)
+    let context = DrawingRecordAdmissionContext(objects: .files(files, budget: .init(maximum: files.limits.maximumMaterializedBytes)),
+      validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
+    let admission = try context.decode(record, expected: expected)
+    try context.revalidateFiles()
+    return admission
   }
-  private static func decodeRecord(_ record: Data, objects: ExchangeObjectResolver, expected: DrawingRef?,
-    validators: DrawingProducerValidators, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor], depth: Int) throws -> DrawingRecordAdmission {
-    guard depth <= 64 else { throw DrawingExchangeError.limit("Record depth") }
-    if case .dictionary(let dictionary) = objects, dictionary.count > 10_000 { throw DrawingExchangeError.limit("Record closure") }
-    guard record.count <= ExchangeJSON.maximumRecordBytes else { throw DrawingExchangeError.limit("Record bytes") }
-    let recordDigest = ExchangeDigest.hash(record)
-    if case .files(let files, _) = objects { files.counters.update { $0.semanticBytesHashed += UInt64(record.count) } }
-    if let expected, expected.digest != recordDigest { throw DrawingExchangeError.digestMismatch("Drawing bytes") }
+  static func decodeRecord(_ record: Data, context: DrawingRecordAdmissionContext, expected: DrawingRef?,
+    recordDigest: ExchangeDigest, depth: Int) throws -> DrawingRecordAdmission {
+    let objects = context.objects, validators = context.validators
+    let supportedFeatures = context.supportedFeatures, assetDescriptors = context.assetDescriptors
     let object = try ExchangeJSON.validate(record)
     guard let profile = object["profile"] as? String else { throw DrawingExchangeError.malformed("Missing profile") }
     guard profile == drawingProfile else { return .opaque(originalJSON: record, profile: profile) }
@@ -191,7 +192,8 @@ public enum DrawingExchangeCodec {
     var sourceDependencies: [String] = []
     if case .present(let input) = wire.input {
       do {
-        let admitted = try DrawingImageAdmission.input(input, objects: objects, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors)
+        let admitted = try DrawingImageAdmission.input(input, objects: objects, supportedFeatures: supportedFeatures,
+          assetDescriptors: assetDescriptors, proofCache: context.jsonProofs)
         if !admitted.supportedSemantics { sourceDependencies.append("adaptiveplotter.input-semantics") }
       } catch DrawingExchangeError.unsupportedProfile(let profile) {
         sourceDependencies.append("Unsupported source profile: " + profile)
@@ -200,8 +202,7 @@ public enum DrawingExchangeCodec {
     var parentDrawing: Drawing?
     if case .present(let parent) = wire.parent {
       let bytes = try DrawingImageAdmission.bytes(parent.digest, in: objects)
-      let result = try decodeRecord(bytes, objects: objects, expected: parent, validators: validators,
-        supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: depth + 1)
+      let result = try context.decode(bytes, expected: parent, depth: depth + 1)
       switch result {
       case .opaque: sourceDependencies.append("adaptiveplotter.parent-semantics")
       case .materialized(let value):
@@ -226,8 +227,7 @@ public enum DrawingExchangeCodec {
       } else { expectedUniverse = parentRef }
       guard claim.universe == expectedUniverse else { throw DrawingExchangeError.mismatchedParent }
       let universeBytes = try DrawingImageAdmission.bytes(claim.universe.digest, in: objects)
-      let admitted = try decodeRecord(universeBytes, objects: objects, expected: claim.universe,
-        validators: validators, supportedFeatures: supportedFeatures, assetDescriptors: assetDescriptors, depth: depth + 1)
+      let admitted = try context.decode(universeBytes, expected: claim.universe, depth: depth + 1)
       guard case .materialized(let universe) = admitted else { throw DrawingExchangeError.unsupportedProfile("Edit universe") }
       let edit: DrawingStrokeEdit
       switch claim.action {

@@ -234,6 +234,48 @@ struct FlowFeedbackReadBudgetTests {
     await fixture.library.closeLibrary()
   }
 
+  @Test("Primitive numeric decoding preserves full reader feature bounds and admission",
+    arguments: ["valid-boundaries", "out-of-range", "short-row", "long-row"])
+  func numericFeatureAdmission(change: String) async throws {
+    let root = DrawingExchangeFeedbackFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = try await DrawingExchangeFeedbackFixture.make(directory: root, candidateCount: 1)
+    let candidate = fixture.candidates[0][0]
+    let edit = try await fixture.store.applyPrune(candidateID: candidate.id, action: .remove, indices: [0])
+    let reference = try await fixture.store.feedbackReference(for: edit.id)
+    let package = try await fixture.library.feedback(reference.publication)
+    var feature = try await fixture.store.featureCapsule(candidateID: candidate.id)
+    let boundaries: [Double] = [-100, 100, 0, -0.0, .leastNonzeroMagnitude,
+      -Double.leastNonzeroMagnitude, .leastNormalMagnitude, -Double.leastNormalMagnitude]
+    for (index, value) in boundaries.enumerated() { feature.strokes[0][index] = value }
+    if change == "out-of-range" { feature.strokes[0][0] = Double(100).nextUp }
+    if change == "short-row" { feature.strokes[0].removeLast() }
+    if change == "long-row" { feature.strokes[0].append(0) }
+    let bytes = try DrawingArtifactCoding.encoder().encode(feature)
+    let asset = try ExchangeAsset(bytes: bytes, mediaType: "application/json", encoding: "utf8-json")
+    var files = try payloadFiles(package)
+    files["data/objects/sha256/" + asset.object.description] = bytes
+    let indexBytes = try #require(files["data/exchange.json"])
+    var index = try #require(JSONSerialization.jsonObject(with: indexBytes) as? [String: Any])
+    var descriptors = try #require(index["assets"] as? [[String: Any]])
+    descriptors.append(try #require(JSONSerialization.jsonObject(with: DrawingArtifactCoding.encoder().encode(ExchangeAssetDescriptor(asset: asset))) as? [String: Any]))
+    index["assets"] = descriptors
+    files["data/exchange.json"] = try DrawingExchangeFeedbackFixture.json(index)
+    let prepared = try FlowFeedbackCarrier.prepare(files)
+    defer { try? FileManager.default.removeItem(at: prepared.temporaryRoot) }
+    let fast = FlowFeatureReadBudget(), full = FlowFeatureReadBudget(reusesEncodedStrokeBasis: false)
+    if change == "valid-boundaries" {
+      let a = try FlowFeedbackReader.feature(asset, package: prepared.package, budget: fast)
+      let b = try FlowFeedbackReader.feature(asset, package: prepared.package, budget: full)
+      #expect(a.strokes.map { $0.map(\.bitPattern) } == b.strokes.map { $0.map(\.bitPattern) })
+      #expect(try DrawingArtifactCoding.encoder().encode(a) == DrawingArtifactCoding.encoder().encode(b))
+      #expect(fast.statistics == full.statistics)
+    } else {
+      #expect(throws: (any Error).self) { try FlowFeedbackReader.feature(asset, package: prepared.package, budget: fast) }
+      #expect(throws: (any Error).self) { try FlowFeedbackReader.feature(asset, package: prepared.package, budget: full) }
+    }
+    await fixture.library.closeLibrary()
+  }
+
   private func payloadFiles(_ package: ValidatedExchangePackage) throws -> [String: Data] {
     var result: [String: Data] = [:]
     for path in package.files.entries.keys where path.hasPrefix("data/") { result[path] = try package.files.record(at: path, maximumBytes: 128 * 1024 * 1024) }

@@ -650,11 +650,11 @@ extension FlowFeedbackReader {
           budget.statistics.reusedEncodedStrokeMatrices += 1
           budget.statistics.metadataStrokeBytesSkipped += UInt64(strokeRange.count)
         } else {
-          value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: bytes)
+          value = try decodeFeature(bytes, specialized: budget.reusesEncodedStrokeBasis)
           budget.statistics.decodedStrokeMatrices += 1
         }
       } else {
-        value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: bytes)
+        value = try decodeFeature(bytes, specialized: budget.reusesEncodedStrokeBasis)
         budget.statistics.decodedStrokeMatrices += 1
       }
       budget.statistics.decodedCapsules += 1
@@ -730,12 +730,44 @@ extension FlowFeedbackReader {
     guard let value else { throw FlowPortfolioError.invalid("Canonical field unavailable.") }
     return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]))
   }
+
+  /// Both paths use Foundation's JSON and Double decoding. The diagnostic path
+  /// retains the synthesized capsule decoder as an independent parity oracle.
+  static func decodeFeature(_ bytes: Data, specialized: Bool) throws -> FlowPortfolioFeatureCapsule {
+    let decoder = JSONDecoder()
+    if specialized { return try decoder.decode(FlowFeatureNumericDecoder.self, from: bytes).value }
+    return try decoder.decode(FlowPortfolioFeatureCapsule.self, from: bytes)
+  }
 }
 
-/// A mask's numerical stroke basis is already present in its verified root. The
-/// metadata decoder parses all remaining JSON after the exact matrix bytes match
-/// the fully decoded and validated root. The original carrier remains the digest,
-/// integrity and admission authority; the compact view is never retained.
+/// Generic Array<Double> decoding dispatches through Decodable for every scalar.
+/// Calling the primitive overload preserves the same JSON syntax, conversion and
+/// type checks while avoiding that generic dispatch for large stroke matrices.
+private struct FlowFeatureNumericDecoder: Decodable {
+  let value: FlowPortfolioFeatureCapsule
+  private enum CodingKeys: String, CodingKey { case strokes }
+
+  init(from decoder: any Decoder) throws {
+    let metadata = try FlowFeatureMetadata(from: decoder)
+    let fields = try decoder.container(keyedBy: CodingKeys.self)
+    var rows = try fields.nestedUnkeyedContainer(forKey: .strokes)
+    var strokes: [[Double]] = []
+    strokes.reserveCapacity(rows.count ?? 0)
+    while !rows.isAtEnd {
+      var row = try rows.nestedUnkeyedContainer()
+      var values: [Double] = []
+      values.reserveCapacity(row.count ?? 0)
+      while !row.isAtEnd { values.append(try row.decode(Double.self)) }
+      strokes.append(values)
+    }
+    value = metadata.capsule(strokes: strokes)
+  }
+}
+
+/// Shared metadata decoding for primitive numeric reads and verified root reuse.
+/// Root reuse supplies compact JSON only after the matrix bytes match the fully
+/// decoded and validated root. The original carrier remains the digest, integrity
+/// and admission authority; the compact view is never retained.
 private struct FlowFeatureMetadata: Decodable {
   let profile: String
   let id: UUID

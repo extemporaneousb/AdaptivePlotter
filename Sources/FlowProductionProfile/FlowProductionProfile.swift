@@ -54,16 +54,25 @@ struct FlowProductionProfile {
       print(output.appendingPathComponent("projection-profile.json").path)
       return
     }
+    if env["FLOW_PROFILE_PRUNING"] == "1" {
+      guard clonePath != nil else { throw ProfileError.missingConfiguration }
+      try await FlowPruningProfile.run(store: store, initial: initial, directory: directory,
+        output: output, openMS: openMS, fullDecoder: fullDecoder,
+        roundTrip: env["FLOW_PROFILE_PRUNE_ROUND_TRIP"] == "1")
+      return
+    }
     let retained = try await store.addSource(data: data, title: "Disposable profiling fixture")
     let photo = try await store.sourcePhoto(retained.id)
     let recipes: [FlowArtistRecipe] = [.standard,
       .init(nativeValues: [4, 5, 0.18, 1.15, 2.6, 0.014, 0, 0.25, 0.25, 0.45, 0.3, 0]),
       .init(nativeValues: [4, 4, 0.15, 1.1, 1.4, 0.014, 0, 0.15, 0.15, 0.4, 0.4, 0.1], marks: .init(wave: 1, scale: 0.45))]
-    var rows: [[String: Any]] = []
+    let profileChoices = env["FLOW_PROFILE_CHOICES"] == "1"
+    var rows: [[String: Any]] = [], choiceRows: [[String: Any]] = []
     for roundIndex in 0..<3 {
       let began = Date()
       let round = try await store.beginRound(sourceID: retained.id, recipes: recipes, modelID: checkpoint?.id, seed: 731,
         analysisOptions: FlowAuthoringRenderer.analysisOptions)
+      var firstCandidateID: UUID?
       for (slot, recipe) in recipes.enumerated() {
         let start = Date()
         let production = try await renderer.produce(data: data, recipe: recipe, strokeStyle: style,
@@ -81,6 +90,7 @@ struct FlowProductionProfile {
         let scored = Date()
         let candidate = try await store.completeCandidate(roundID: round.id, slot: slot,
           production: production, previewPNG: preview)
+        if slot == 0 { firstCandidateID = candidate.id }
         if let probabilities, let checkpoint {
           _ = try await store.applyPrune(candidateID: candidate.id, action: .modelProposal,
             indices: removed.sorted(), modelID: checkpoint.id, probabilities: probabilities,
@@ -114,9 +124,23 @@ struct FlowProductionProfile {
         try preview.write(to: output.appendingPathComponent("round-\(roundIndex)-slot-\(slot).png"))
       }
       try await store.finishRound(round.id)
+      if profileChoices {
+        let selected = try require(firstCandidateID)
+        let choicesBefore = await store.snapshot().choices.count
+        let choiceBegan = Date()
+        try await store.chooseCandidate(selected)
+        let choiceMS = Date().timeIntervalSince(choiceBegan) * 1000
+        let choicesAfter = await store.snapshot().choices.count
+        let initialFeedback = try await store.feedbackProjectionDigest(matching: initial)
+        choiceRows.append(["round": roundIndex, "choiceMS": choiceMS,
+          "selectedCandidateID": selected.uuidString, "offeredCandidateCount": recipes.count,
+          "newChoiceCount": choicesAfter - choicesBefore,
+          "initialFeedbackChanged": initialFeedback != feedbackBefore])
+      }
     }
     let feedbackAfter = try await store.feedbackProjectionDigest(matching: initial)
     guard feedbackAfter == feedbackBefore else { throw ProfileError.feedbackChanged }
+    let feedbackWithChoices = profileChoices ? try await store.feedbackProjectionDigest() : nil
     await store.closeLibrary()
     let reopenBegan = Date()
     let reopened = FlowPortfolioStore(directory: directory, purpose: clonePath == nil ? .validationFixture : nil)
@@ -126,8 +150,12 @@ struct FlowProductionProfile {
     let reopenedStatistics = await reopened.lastFeedbackReadStatistics
     let feedbackReopened = try await reopened.feedbackProjectionDigest(matching: initial)
     guard feedbackReopened == feedbackBefore else { throw ProfileError.feedbackChanged }
+    if let feedbackWithChoices {
+      guard await reopened.snapshot().choices.count == initial.choices.count + 3,
+        try await reopened.feedbackProjectionDigest() == feedbackWithChoices else { throw ProfileError.reopenMismatch }
+    }
     await reopened.closeLibrary()
-    let receipt: [String: Any] = ["sourceSHA256": DrawingArtifactCoding.sha256(data),
+    var receipt: [String: Any] = ["sourceSHA256": DrawingArtifactCoding.sha256(data),
       "os": ProcessInfo.processInfo.operatingSystemVersionString, "processors": ProcessInfo.processInfo.activeProcessorCount,
       "physicalMemoryBytes": ProcessInfo.processInfo.physicalMemory,
       "historyClone": clonePath != nil, "openMS": openMS, "reopenMS": reopenMS,
@@ -145,6 +173,11 @@ struct FlowProductionProfile {
       "checkpointSHA256": checkpointBytes.map { DrawingArtifactCoding.sha256($0) } ?? "none",
       "scope": "headless production rendering/admission/preview/features/inference/disposable persistence; no UI timing; optional archived checkpoint",
       "recipes": try JSONSerialization.jsonObject(with: DrawingArtifactCoding.encoder().encode(recipes)), "rows": rows]
+    if let feedbackWithChoices {
+      receipt["choiceScope"] = "First choice after each three-candidate round; includes exact offered-set feedback capture and chosen Drawing retention; projection checks excluded from choiceMS"
+      receipt["choices"] = choiceRows
+      receipt["feedbackProjectionIncludingChoices"] = feedbackWithChoices
+    }
     try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
       .write(to: output.appendingPathComponent("production-profile.json"), options: .atomic)
     print(output.appendingPathComponent("production-profile.json").path)

@@ -1,5 +1,18 @@
 import Foundation
 
+/// Syntax proofs for one admission with a fixed verified resolver. Callers must
+/// still read and verify the exact digest before every use, retaining their byte
+/// budgets and mutable-file checks. Keep only successful digests, not raster JSON.
+final class ExchangeJSONProofCache {
+  private var validated = Set<ExchangeDigest>()
+
+  func validate(digest: ExchangeDigest, bytes: Data) throws {
+    guard !validated.contains(digest) else { return }
+    _ = try ExchangeJSON.validate(bytes)
+    validated.insert(digest)
+  }
+}
+
 public struct ExchangePhotoRecord: Sendable {
   public let originalJSON: Data
   public let reference: PhotoRef
@@ -136,7 +149,7 @@ public enum DrawingImageAdmission {
     return .init(originalJSON: data, reference: expected, original: asset, width: width, height: height,
       supportedSemantics: declaredFeatures.allSatisfy(supportedFeatures.subtracting(ExchangeRankingCapsule.localFeatures).contains) && encodingSupported)
   }
-  static func input(_ expected: ImageInputRef, objects: ExchangeObjectResolver, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor]) throws -> ExchangeImageInputRecord {
+  static func input(_ expected: ImageInputRef, objects: ExchangeObjectResolver, supportedFeatures: Set<String>, assetDescriptors: [ExchangeDigest: ExchangeAssetDescriptor], proofCache: ExchangeJSONProofCache? = nil) throws -> ExchangeImageInputRecord {
     let data = try bytes(expected.digest, in: objects), json = try ExchangeJSON.validate(data)
     guard let profile = json["profile"] as? String, exchangeNamespacedID(profile) else { throw DrawingExchangeError.malformed("Input profile") }
     guard profile == "adaptiveplotter.image-input/1" else { throw DrawingExchangeError.unsupportedProfile(profile) }
@@ -185,7 +198,9 @@ public enum DrawingImageAdmission {
       let producerID = preparation["id"] as? String, exchangeNamespacedID(producerID),
       let version = preparation["version"] as? String, !version.isEmpty else { throw DrawingExchangeError.malformed("Preparation producer") }
     let receipt = try decode(preparation["record"], as: ExchangeDigest.self)
-    _ = try ExchangeJSON.validate(bytes(receipt, in: objects))
+    let receiptBytes = try bytes(receipt, in: objects)
+    if let proofCache { try proofCache.validate(digest: receipt, bytes: receiptBytes) }
+    else { _ = try ExchangeJSON.validate(receiptBytes) }
     return .init(originalJSON: data, reference: expected, photo: photoRef, raster: raster, mask: mask,
       sourceToInput: sourceToInput, inputToField: inputToField, supportedSemantics: supported)
   }

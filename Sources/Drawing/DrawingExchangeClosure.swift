@@ -266,6 +266,7 @@ public enum ExchangeAdmission {
     let validator = try ExchangeClosureValidator(staged, producers: producerValidators, payloads: .init(),
       features: supportedFeatures, limits: limits)
     try validator.validateSelectedDrawing(selected)
+    try validator.drawingContext.revalidateFiles()
     return try SelectedDrawingAdmission(validator, selected: selected)
   }
   public static func validate(_ staged: StagedExchangePackage, producerValidators: DrawingProducerValidators = .init(),
@@ -274,6 +275,7 @@ public enum ExchangeAdmission {
     let validator = try ExchangeClosureValidator(staged, producers: producerValidators, payloads: payloadValidators,
       features: supportedFeatures, limits: limits)
     try validator.validate()
+    try validator.drawingContext.revalidateFiles()
     return ValidatedExchangePackage(validator)
   }
 }
@@ -287,6 +289,7 @@ fileprivate final class ExchangeClosureValidator {
   let payloads: ExchangePayloadValidators
   let features: Set<String>
   let resolver: ExchangePayloadResolver
+  let drawingContext: DrawingRecordAdmissionContext
   var selectedOnly = false
   var descriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
   var assetSupport: [ExchangeDigest: ExchangeAssetSupport] = [:]
@@ -301,6 +304,9 @@ fileprivate final class ExchangeClosureValidator {
   var records: [String: Data] = [:]
   var active = Set<String>()
   var completed = Set<String>()
+  // Only Drawing ancestry and Photo/Input dependencies form this DAG. Result
+  // attempts and assessments may have permitted active back-references instead.
+  var drawingSourceDepths: [String: Int] = [:]
   var clientRequests: [String: (ExchangeDigest, JobRef)] = [:]
   var runForJob: [JobRef: String] = [:]
   var earliestPossibleInk: [String: UInt64] = [:]
@@ -336,6 +342,9 @@ fileprivate final class ExchangeClosureValidator {
       descriptorInventory[descriptor.asset.object] = descriptor
     }
     resolver = .init(files: files, originalMediaFiles: originalFiles, assetDescriptors: descriptorInventory, limits: limits)
+    drawingContext = .init(objects: .files(files, budget: .init(maximum: files.limits.maximumMaterializedBytes)),
+      validators: producers, supportedFeatures: features.subtracting(ExchangeRankingCapsule.localFeatures),
+      assetDescriptors: descriptorInventory)
   }
   func unsupported(_ features: [String]) { for feature in features where !self.features.contains(feature) { reasons.insert("Required feature: " + feature) } }
   func validateSelectedDrawing(_ selected: DrawingRef) throws {
@@ -451,30 +460,50 @@ fileprivate final class ExchangeClosureValidator {
   func object(_ digest: ExchangeDigest) throws {
     guard let descriptor = descriptors[digest] else { throw DrawingExchangeError.missingAsset("Object descriptor " + digest.description) }; try asset(descriptor.asset)
   }
+  func checkDrawingSourceDepth(_ path: String, depth: Int) throws {
+    guard depth <= limits.maximumDepth,
+      (drawingSourceDepths[path] ?? 0) <= limits.maximumDepth - depth else {
+      throw DrawingExchangeError.limit("Closure depth")
+    }
+  }
   func drawing(_ ref: DrawingRef, depth: Int) throws {
     let p = path(ref, kind: "drawings"); try register(ref.identity, kind: "drawing", digest: ref.digest)
+    try checkDrawingSourceDepth(p, depth: depth)
     guard try enter(p, depth: depth) else { return }; defer { finish(p) }
     let data = try load(p, digest: ref.digest)
-    guard let j = try profile(data, path: p, expected: "adaptiveplotter.drawing/1") else { return }
+    guard let j = try profile(data, path: p, expected: "adaptiveplotter.drawing/1") else {
+      drawingSourceDepths[p] = 0; return
+    }
     let identity: ExchangeIdentity = try envelopeValue(j, "ref")
     guard identity == ref.identity else { throw DrawingExchangeError.digestMismatch("Drawing identity") }
     let input: SourceLink<ImageInputRef> = try envelopeValue(j, "input")
     let parent: SourceLink<DrawingRef> = try envelopeValue(j, "parent")
-    if case .present(let value) = input { try identityRecord(value, kind: "inputs", depth: depth + 1) }
-    if case .present(let value) = parent { guard !active.contains(path(value, kind: "drawings")) else { throw DrawingExchangeError.malformed("Cyclic drawing parent") }; try drawing(value, depth: depth + 1) }
+    var descendantDepth = 0
+    if case .present(let value) = input {
+      try identityRecord(value, kind: "inputs", depth: depth + 1)
+      descendantDepth = 1 + (drawingSourceDepths[path(value, kind: "inputs")] ?? 0)
+    }
+    if case .present(let value) = parent {
+      guard !active.contains(path(value, kind: "drawings")) else { throw DrawingExchangeError.malformed("Cyclic drawing parent") }
+      try drawing(value, depth: depth + 1)
+      descendantDepth = max(descendantDepth, 1 + (drawingSourceDepths[path(value, kind: "drawings")] ?? 0))
+    }
     guard let representation = j["representation"] as? [String: Any], let producer = j["producer"] as? [String: Any] else { throw DrawingExchangeError.malformed("Drawing representation/producer") }
     try object(envelopeValue(representation, "object")); try producerRecord(producer)
-    let admitted = try DrawingExchangeCodec.decode(data, files: files, expected: ref, validators: producers,
-      supportedFeatures: features, assetDescriptors: descriptors)
+    let admitted = try drawingContext.decode(data, expected: ref)
     drawings[ref] = admitted
+    drawingSourceDepths[p] = descendantDepth
     if case .opaque = admitted { reasons.insert("Unsupported drawing representation") }
   }
   func identityRecord<T>(_ ref: ExchangeRef<T>, kind: String, depth: Int) throws {
     let p = path(ref, kind: kind); try register(ref.identity, kind: kind, digest: ref.digest)
+    try checkDrawingSourceDepth(p, depth: depth)
     guard try enter(p, depth: depth) else { return }; defer { finish(p) }
     let data = try load(p, digest: ref.digest)
     let expected = kind == "photos" ? "adaptiveplotter.photo/1" : "adaptiveplotter.image-input/1"
-    guard let j = try profile(data, path: p, expected: expected) else { return }
+    guard let j = try profile(data, path: p, expected: expected) else {
+      drawingSourceDepths[p] = 0; return
+    }
     let identity: ExchangeIdentity = try envelopeValue(j, "ref")
     guard identity == ref.identity else { throw DrawingExchangeError.digestMismatch("Source record identity") }
     if kind == "photos" {
@@ -483,6 +512,7 @@ fileprivate final class ExchangeClosureValidator {
       let photo = PhotoRef(issuer: ref.issuer, revision: ref.revision, digest: ref.digest)
       let result = try DrawingImageAdmission.photo(photo, files: files, supportedFeatures: features, assetDescriptors: descriptors)
       if !result.supportedSemantics { reasons.insert("Unsupported photo semantics") }
+      drawingSourceDepths[p] = 0
     } else {
       let raster: ExchangeAsset = try envelopeValue(j, "raster"); try asset(raster)
       if let mask = j["mask"] as? [String: Any], mask["state"] as? String == "present" { let a: ExchangeAsset = try envelopeValue(mask, "asset"); try asset(a) }
@@ -491,15 +521,17 @@ fileprivate final class ExchangeClosureValidator {
       try producerRecord(preparation)
       let photo: PhotoRef = try envelopeValue(j, "photo"); try identityRecord(photo, kind: "photos", depth: depth + 1)
       let input = ImageInputRef(issuer: ref.issuer, revision: ref.revision, digest: ref.digest)
-      let result = try DrawingImageAdmission.input(input, files: files, supportedFeatures: features, assetDescriptors: descriptors)
+      let result = try DrawingImageAdmission.input(input, objects: drawingContext.objects,
+        supportedFeatures: features, assetDescriptors: descriptors, proofCache: drawingContext.jsonProofs)
       if !result.supportedSemantics { reasons.insert("Unsupported input semantics") }
+      drawingSourceDepths[p] = 1 + (drawingSourceDepths[path(photo, kind: "photos")] ?? 0)
     }
   }
   func producerRecord(_ j: [String: Any]) throws {
     let id: String = try envelopeValue(j, "id"), version: String = try envelopeValue(j, "version")
     guard exchangeNamespacedID(id), !version.isEmpty else { throw DrawingExchangeError.malformed("Producer") }
     let digest: ExchangeDigest = try envelopeValue(j, "record"); try object(digest)
-    _ = try ExchangeJSON.validate(resolver.record(digest))
+    try drawingContext.jsonProofs.validate(digest: digest, bytes: resolver.record(digest))
   }
   func receipt(_ ref: JobReceiptRef, depth: Int) throws {
     let p = "data/jobs/\(ref.engine.uuidString.lowercased())/\(ref.job.uuidString.lowercased())/receipt.json"
