@@ -87,6 +87,8 @@ package struct PortraitSourcePreparation: @unchecked Sendable {
   package let faceAnalysis: PortraitFaceAnalysis
   package let personMask: PersonMask
   package let levels: [Level]
+  /// Inclusive source preparation phases from the one cold preparation.
+  package let phaseTimings: PortraitSourcePhaseTimings
 
   /// Retained pixel/array payload, rather than a source-count approximation.
   /// Images count their row strides, including padding. Shared image storage may
@@ -178,7 +180,7 @@ package struct PortraitSourcePreparation: @unchecked Sendable {
     sourcePixelExtent: PortraitSourceCropExtent,
     faceAnalysis: PortraitFaceAnalysis,
     personMask: PersonMask,
-    levels: [Level]
+    levels: [Level], phaseTimings: PortraitSourcePhaseTimings = .init()
   ) {
     self.key = key
     self.image = image
@@ -186,7 +188,17 @@ package struct PortraitSourcePreparation: @unchecked Sendable {
     self.faceAnalysis = faceAnalysis
     self.personMask = personMask
     self.levels = levels
+    self.phaseTimings = phaseTimings
   }
+}
+
+package struct PortraitSourcePhaseTimings: Sendable {
+  package var decodeMS = 0.0
+  package var faceVisionMS = 0.0
+  package var personVisionMS = 0.0
+  package var pyramidMS = 0.0
+  package var digestMS = 0.0
+  package init() {}
 }
 
 package struct PortraitRenderTimings: Sendable {
@@ -222,12 +234,23 @@ extension PortraitImageAnalyzer {
     personMaskAnalyzer: (CGImage) throws -> PortraitSourcePreparation.PersonMask = preparePersonMask
   ) throws -> PortraitSourcePreparation {
     try Task.checkCancellation()
+    let clock = ContinuousClock()
+    func ms(_ duration: Duration) -> Double {
+      Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+    }
+    var timings = PortraitSourcePhaseTimings(), began = clock.now
     let decoded = try decodedImage(from: data)
+    timings.decodeMS = ms(began.duration(to: clock.now))
     let image = decoded.image
+    began = clock.now
     let face = try faceAnalyzer(image)
+    timings.faceVisionMS = ms(began.duration(to: clock.now))
     try Task.checkCancellation()
+    began = clock.now
     let mask = try personMaskAnalyzer(image)
+    timings.personVisionMS = ms(began.duration(to: clock.now))
     try Task.checkCancellation()
+    began = clock.now
     var levels: [PortraitSourcePreparation.Level] = []
     let maximum = max(image.width, image.height)
     var dimension = maximum
@@ -240,9 +263,13 @@ extension PortraitImageAnalyzer {
       dimension /= 2
     } while dimension >= 150
     try Task.checkCancellation()
-    return PortraitSourcePreparation(key: .init(data: data, sourcePixelExtent: sourcePixelExtent),
+    timings.pyramidMS = ms(began.duration(to: clock.now))
+    began = clock.now
+    let key = PortraitSourcePreparation.Key(data: data, sourcePixelExtent: sourcePixelExtent)
+    timings.digestMS = ms(began.duration(to: clock.now))
+    return PortraitSourcePreparation(key: key,
       image: image, sourcePixelExtent: sourcePixelExtent ?? decoded.sourcePixelExtent,
-      faceAnalysis: face, personMask: mask, levels: levels)
+      faceAnalysis: face, personMask: mask, levels: levels, phaseTimings: timings)
   }
 
   package static func preparePersonMask(_ image: CGImage) throws -> PortraitSourcePreparation.PersonMask {
@@ -268,6 +295,146 @@ extension PortraitImageAnalyzer {
 }
 
 // MARK: - Native Flow drawing production
+
+/// Serial, bounded preparation owned by the concrete native producer. Callers
+/// may request analysis but cannot install rasters or validation capabilities.
+/// The only cached raster originates in analyze(), whose validation postcondition
+/// is sealed here; recipe/pen-sensitive rendering and admission still run fully.
+package actor PortraitFlowPreparationCache {
+  private struct Key: Equatable {
+    let source: PortraitSourcePreparation.Key
+    let options: PortraitAnalysisOptions
+    let photo: PhotoRef?
+    let maximumDimension: Int
+    let analysisRevision = "portrait-analysis-v2"
+  }
+  package struct Statistics: Sendable {
+    package let sourceBytes: Int
+    package let workspaceBytes: Int
+    package let rasterPixelBytes: Int
+    package let inputBytes: Int
+  }
+  private let sourceByteLimit: Int
+  private let workspaceByteLimit: Int
+  private var source: PortraitSourcePreparation?
+  private var key: Key?
+  private var raster: PortraitRaster?
+  private var rasterSHA256: String?
+  private struct InputBinding {
+    let width: Double
+    let height: Double
+    let input: FrozenImageInputRecord
+    var retainedByteCount: Int {
+      input.assets.reduce(0) { $0 + $1.bytes.count } + input.photo.assets.reduce(0) { $0 + $1.bytes.count }
+        + input.record.originalJSON.count + input.photo.record.originalJSON.count
+    }
+  }
+  private var inputBinding: InputBinding?
+  private var workspace: PortraitFlowRenderer.Workspace?
+
+  package init(sourceByteLimit: Int = 48 * 1_024 * 1_024,
+    workspaceByteLimit: Int = 64 * 1_024 * 1_024) {
+    self.sourceByteLimit = max(0, sourceByteLimit)
+    self.workspaceByteLimit = max(0, workspaceByteLimit)
+  }
+
+  package func statistics() -> Statistics {
+    .init(sourceBytes: source?.retainedByteCount ?? 0,
+      workspaceBytes: workspace?.retainedByteCount ?? 0,
+      rasterPixelBytes: raster.map { ($0.luminance.count + ($0.personMask?.alpha?.count ?? 0)) * 8 } ?? 0,
+      inputBytes: inputBinding?.retainedByteCount ?? 0)
+  }
+
+  private func prepare(data: Data, extent: PortraitSourceCropExtent?, options: PortraitAnalysisOptions,
+    photo: PhotoRef? = nil)
+    throws -> (PortraitSourcePreparation, PortraitRaster, Key, PortraitRenderTimings, String) {
+    try Task.checkCancellation()
+    let clock = ContinuousClock(), began = clock.now
+    let sourceKey = PortraitSourcePreparation.Key(data: data, sourcePixelExtent: extent)
+    var timings = PortraitRenderTimings()
+    let prepared: PortraitSourcePreparation
+    if let source, source.key == sourceKey {
+      prepared = source; timings.sourceCacheHit = true
+    } else {
+      prepared = try PortraitImageAnalyzer.prepareSource(data: data, sourcePixelExtent: extent)
+      try Task.checkCancellation()
+      source = prepared.retainedByteCount <= sourceByteLimit ? prepared : nil
+    }
+    timings.sourceMS = Self.ms(began.duration(to: clock.now))
+    let nextKey = Key(source: sourceKey, options: options, photo: photo, maximumDimension: 320)
+    let analyzed: PortraitRaster
+    if key == nextKey, let raster {
+      analyzed = raster; timings.rasterCacheHit = true
+    } else {
+      let started = clock.now
+      analyzed = try PortraitImageAnalyzer.analyze(preparedSource: prepared, options: options, maximumDimension: 320)
+      timings.cropMS = Self.ms(started.duration(to: clock.now))
+      try Task.checkCancellation()
+      // Encode only this owning analyzer's immutable output, never an externally
+      // supplied raster/digest. Claims may reuse this exact bound serialization.
+      let digest = PortraitCandidateCoding.digest(try PortraitCandidateCoding.encoder().encode(analyzed))
+      try Task.checkCancellation()
+      key = nextKey; raster = analyzed; rasterSHA256 = digest
+      workspace = nil; inputBinding = nil
+    }
+    return (prepared, analyzed, nextKey, timings, rasterSHA256!)
+  }
+
+  package func analyzedRaster(data: Data, options: PortraitAnalysisOptions,
+    sourcePixelExtent: PortraitSourceCropExtent? = nil, photoReference: PhotoRef? = nil) throws -> PortraitRaster {
+    try prepare(data: data, extent: sourcePixelExtent, options: options, photo: photoReference).1
+  }
+
+  fileprivate func render(input: PortraitFlowDrawingProducer.Input,
+    settings: PortraitFlowDrawingProducer.Settings) async throws -> (PortraitRenderResult, String) {
+    let (prepared, analyzed, requestKey, preparationTimings, rasterDigest) = try prepare(data: input.data,
+      extent: input.sourcePixelExtent, options: settings.analysisOptions, photo: input.photo?.reference)
+    // This cachedRaster is private producer-owned analysis, not caller-supplied
+    // evidence. Await may reenter the actor: only the matching key may publish.
+    var result = try await PortraitImageAnalyzer().render(.init(data: input.data,
+      pose: .front, style: .flowEdges, options: settings.analysisOptions, cachedRaster: analyzed,
+      strokeStyle: settings.strokeStyle, vectorOptions: settings.vectorOptions,
+      sourcePixelExtent: input.sourcePixelExtent, flowWorkspace: workspace, preparedSource: prepared))
+    try Task.checkCancellation()
+    if key == requestKey, let completed = result.flowWorkspace {
+      workspace = completed.retainedByteCount <= workspaceByteLimit ? completed : nil
+    }
+    result.timings?.sourceCacheHit = preparationTimings.sourceCacheHit
+    result.timings?.rasterCacheHit = preparationTimings.rasterCacheHit
+    result.timings?.sourceMS = preparationTimings.sourceMS
+    result.timings?.cropMS = preparationTimings.cropMS
+    return (result, rasterDigest)
+  }
+
+  /// ImageInput is a derivation of this Photo and analysis into one field, not
+  /// a Drawing occurrence. It may truthfully be shared by multiple fresh Drawings.
+  fileprivate func imageInput(result: PortraitRenderResult, input: PortraitFlowDrawingProducer.Input,
+    settings: PortraitFlowDrawingProducer.Settings) throws -> FrozenImageInputRecord? {
+    try Task.checkCancellation()
+    guard let photo = input.photo else { return nil }
+    let requestKey = Key(source: .init(data: input.data, sourcePixelExtent: input.sourcePixelExtent),
+      options: settings.analysisOptions, photo: photo.reference, maximumDimension: 320)
+    let matches = key == requestKey && raster == result.raster
+    if matches, let binding = inputBinding,
+      binding.width == result.program.fieldExtent.width, binding.height == result.program.fieldExtent.height {
+      return binding.input
+    }
+    let frozen = try PortraitDrawingImages.input(result: result, data: input.data, photo: photo,
+      identity: .init(issuer: photo.reference.issuer))
+    try Task.checkCancellation()
+    if matches, let frozen {
+      let binding = InputBinding(width: result.program.fieldExtent.width, height: result.program.fieldExtent.height, input: frozen)
+      // Conservatively count repeated/shared assets too. Oversize inputs remain
+      // valid outputs but are rematerialized rather than retained indefinitely.
+      inputBinding = binding.retainedByteCount <= 16 * 1_024 * 1_024 ? binding : nil
+    }
+    return frozen
+  }
+
+  private static func ms(_ duration: Duration) -> Double {
+    Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+  }
+}
 
 /// Transient rendering and authored admission share the same materialized
 /// program. This producer has no retention or filesystem-writing capability.
@@ -321,16 +488,29 @@ package struct PortraitFlowDrawingProducer: DrawingProducing {
   package init() {}
 
   package func produce(input: Input, settings: Settings) async throws -> DrawingProduction<PortraitRenderResult> {
-    let (rendered, initialClaim) = try await PortraitFlowProducerClaim.renderAndClaim(input: input, settings: settings)
+    try await produce(input: input, settings: settings, preparationCache: nil)
+  }
+
+  package func produce(input: Input, settings: Settings,
+    preparationCache: PortraitFlowPreparationCache?) async throws -> DrawingProduction<PortraitRenderResult> {
+    let (rendered, initialClaim) = try await PortraitFlowProducerClaim.renderAndClaim(input: input, settings: settings, preparationCache: preparationCache)
     var result = rendered
     let boundInput: Input
     let claim: PortraitFlowProducerClaim
-    if let photo = input.photo, let frozen = try PortraitDrawingImages.input(result: rendered, data: input.data, photo: photo,
-      identity: .init(issuer: photo.reference.issuer)) {
+    let frozen: FrozenImageInputRecord?
+    if let preparationCache {
+      frozen = try await preparationCache.imageInput(result: rendered, input: input, settings: settings)
+    } else if let photo = input.photo {
+      frozen = try PortraitDrawingImages.input(result: rendered, data: input.data, photo: photo,
+        identity: .init(issuer: photo.reference.issuer))
+    } else { frozen = nil }
+    if let photo = input.photo, let frozen {
       result.drawingInput = frozen
       boundInput = Input(data: input.data, sourcePixelExtent: input.sourcePixelExtent, preparedSource: input.preparedSource,
         input: .present(frozen.reference), parent: input.parent, photo: photo)
-      claim = try PortraitFlowProducerClaim(result: result, input: boundInput, settings: settings, origin: "rendered")
+      // Only the ImageInput link changed. The concrete render's raster/program,
+      // source/settings and validated proof remain the identical values.
+      claim = initialClaim.bindingImageInput(frozen.reference)
     } else { boundInput = input; claim = initialClaim }
     // Prepared render failures from rendering pass through unchanged. If later
     // admission fails, the same valid preparation remains reusable by the worker.
@@ -444,21 +624,25 @@ package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
 
   private enum ValidationPostcondition { case validated }
 
-  /// The only validation reuse path owns the concrete render itself. An Input
-  /// can supply prepared source evidence, never a cached raster. With explicit
-  /// cachedRaster:nil, PortraitImageAnalyzer.render takes its analyze path;
-  /// analyze validates immediately before returning, and render returns that
-  /// same let-bound raster unchanged. A rendering protocol/override must not be
-  /// substituted here without establishing an equivalent sealed postcondition.
+  /// Both paths own concrete analysis: fresh render takes analyze(), or the
+  /// sealed cache supplies a raster that only its own analyze() can install.
+  /// Neither path accepts arbitrary cached raster evidence from an Input.
   fileprivate static func renderAndClaim(input: PortraitFlowDrawingProducer.Input,
-    settings: PortraitFlowDrawingProducer.Settings) async throws -> (PortraitRenderResult, Self) {
-    let result = try await PortraitImageAnalyzer().render(.init(data: input.data,
+    settings: PortraitFlowDrawingProducer.Settings,
+    preparationCache: PortraitFlowPreparationCache? = nil) async throws -> (PortraitRenderResult, Self) {
+    let result: PortraitRenderResult
+    let cachedRasterDigest: String?
+    if let preparationCache {
+      let rendered = try await preparationCache.render(input: input, settings: settings)
+      result = rendered.0; cachedRasterDigest = rendered.1
+    }
+    else { cachedRasterDigest = nil; result = try await PortraitImageAnalyzer().render(.init(data: input.data,
       pose: .front, style: .flowEdges, options: settings.analysisOptions, cachedRaster: nil,
       strokeStyle: settings.strokeStyle, vectorOptions: settings.vectorOptions,
-      sourcePixelExtent: input.sourcePixelExtent, preparedSource: input.preparedSource))
+      sourcePixelExtent: input.sourcePixelExtent, preparedSource: input.preparedSource)) }
     do {
       let claim = try Self(result: result, input: input, settings: settings, origin: "rendered",
-        validation: .validated)
+        validation: .validated, rasterDigest: cachedRasterDigest)
       return (result, claim)
     } catch is CancellationError { throw CancellationError() }
     catch {
@@ -468,9 +652,23 @@ package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
     }
   }
 
+  fileprivate func bindingImageInput(_ reference: ImageInputRef) -> Self {
+    Self(copying: self, imageInput: reference)
+  }
+
+  private init(copying claim: Self, imageInput: ImageInputRef) {
+    schemaVersion = claim.schemaVersion; origin = claim.origin
+    sourceSHA256 = claim.sourceSHA256; sourcePixelExtent = claim.sourcePixelExtent
+    sourceWidth = claim.sourceWidth; sourceHeight = claim.sourceHeight
+    input = .present(imageInput); parent = claim.parent
+    rasterSHA256 = claim.rasterSHA256; rasterWidth = claim.rasterWidth; rasterHeight = claim.rasterHeight
+    settings = claim.settings; recipeRevision = claim.recipeRevision; rendererRevision = claim.rendererRevision
+    warpManifest = claim.warpManifest; programHash = claim.programHash
+  }
+
   private init(result: PortraitRenderResult, input: PortraitFlowDrawingProducer.Input,
     settings: PortraitFlowDrawingProducer.Settings, origin: String,
-    validation: ValidationPostcondition) throws {
+    validation: ValidationPostcondition, rasterDigest: String? = nil) throws {
     guard !input.data.isEmpty, ["rendered", "providedArtifacts", "reusedArtifacts"].contains(origin),
       settings.nominalPenWidthMM.map({ $0.isFinite && $0 > 0 }) ?? true else {
       throw DrawingExchangeError.invalidProducer(Self.producerID)
@@ -490,7 +688,8 @@ package struct PortraitFlowProducerClaim: Codable, Equatable, Sendable {
     sourceSHA256 = PortraitCandidateCoding.digest(input.data)
     sourcePixelExtent = input.sourcePixelExtent; sourceWidth = width.intValue; sourceHeight = height.intValue
     self.input = input.input; parent = input.parent
-    rasterSHA256 = PortraitCandidateCoding.digest(try encoder.encode(result.raster))
+    if let rasterDigest { rasterSHA256 = rasterDigest }
+    else { rasterSHA256 = PortraitCandidateCoding.digest(try encoder.encode(result.raster)) }
     rasterWidth = result.raster.width; rasterHeight = result.raster.height
     self.settings = settings; recipeRevision = FlowArtistRecipe.revision
     rendererRevision = PortraitFlowRenderer.revision(for: settings.vectorOptions)

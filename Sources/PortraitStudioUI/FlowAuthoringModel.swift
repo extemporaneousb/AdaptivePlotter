@@ -27,6 +27,26 @@ package final class FlowAuthoringModel {
   package private(set) var document: FlowPortfolioSnapshot?
   package private(set) var sourceData: Data?
   package private(set) var program: DrawingProgram?
+  package private(set) var candidateLoadError: String?
+  package private(set) var candidateUnavailableReasons: [UUID: String] = [:]
+  package private(set) var pendingExplorationParentID: UUID?
+  package private(set) var pendingBroadAnchorID: UUID?
+  package private(set) var pendingBroadAnchorPreview: Data?
+  package private(set) var regionPreviewPending = false
+  package var verifiedRecommendationIDs: Set<UUID> = []
+  package var unavailableRecommendationIDs: Set<UUID> = []
+  package private(set) var recommendationError: String?
+  package var generationIntentRevision: UInt64 { generationRevision }
+  package var isPreparingGeneration: Bool { proposing != nil }
+  package var isRenderingGeneration: Bool { rendering != nil }
+  package func reportRecommendationFailure(_ id: UUID, reason: String, excludeTemporary: Bool) {
+    if excludeTemporary { unavailableRecommendationIDs.insert(id) }
+    verifiedRecommendationIDs.remove(id); recommendationError = reason
+  }
+  package func clearRecommendationFailure() { recommendationError = nil }
+  @ObservationIgnored private var generationRevision: UInt64 = 0
+  @ObservationIgnored private var generationActive = false
+  @ObservationIgnored private var explorationAdmission: String?
   package private(set) var previews: [UUID: Data] = [:]
   package private(set) var rankingPreviews: [UUID: Data] = [:]
   package private(set) var isBusy = false
@@ -34,7 +54,7 @@ package final class FlowAuthoringModel {
   package private(set) var error: String?
   package private(set) var needsRecovery = false
   package private(set) var pendingMetadataCount = 0
-  package var stage: Stage = .explore
+  package var stage: Stage = .explore { didSet { if stage == .prune { returnToEditing() } } }
   package var count = 6
   package var tool: PortraitLineEditModel.Tool = .erase
   package var selection: Set<StrokeID> = []
@@ -56,7 +76,15 @@ package final class FlowAuthoringModel {
   @ObservationIgnored private let renderer = FlowAuthoringRenderer()
   @ObservationIgnored private var work: Task<Void, Never>?
   @ObservationIgnored private var recoveryWork: Task<Void, Never>?
-  @ObservationIgnored private var rendering: Task<DrawingProduction<PortraitRenderResult>, Error>?
+  private struct GeneratedCandidate: Sendable {
+    let production: DrawingProduction<PortraitRenderResult>
+    let preview: Data
+    let removed: Set<Int>
+    let probabilities: [Double]?
+    let score: Double
+  }
+  @ObservationIgnored private var rendering: Task<GeneratedCandidate, Error>?
+  @ObservationIgnored private var proposing: Task<[FlowArtistRecipe], Error>?
   @ObservationIgnored private var fitting: Task<FlowArtistFitReport, Error>?
   @ObservationIgnored private var lastWorkID: UUID?
   @ObservationIgnored private var cancelRequested = false
@@ -135,6 +163,7 @@ package final class FlowAuthoringModel {
   }
 
   package func addPhoto(data: Data, title: String, mediaType: String = "image/png") async {
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Retaining photo…") {
       _ = try await store.addSource(data: data, title: title, mediaType: mediaType)
@@ -142,6 +171,7 @@ package final class FlowAuthoringModel {
     }
   }
   package func addCapturedPhoto(_ photo: PortraitPhoto, title: String) async {
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Retaining captured photo…") {
       _ = try await store.addCapturedSource(photo: photo, title: title)
@@ -150,6 +180,7 @@ package final class FlowAuthoringModel {
   }
 
   package func importPhotoCollection(_ directory: URL) async {
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Importing photo set…") {
       let collection: FlowPhotoCollection
@@ -171,6 +202,7 @@ package final class FlowAuthoringModel {
   package var drawingLibrary: DrawingLibrary? { library ?? store?.library }
   @discardableResult package func selectPhoto(_ reference: PhotoRef, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
     guard let store, !closed, !closing, !needsRecovery else { return "Recover or reopen Flow Edge before opening this Photo." }
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing()
     photoSelectionRevision &+= 1; let revision = photoSelectionRevision
     await perform("Opening photo…", autosave: false) {
       guard revision == self.photoSelectionRevision, !self.closing, !self.closed, isStillCurrent() else { return }
@@ -186,17 +218,22 @@ package final class FlowAuthoringModel {
     return nil
   }
   package func selectSource(_ id: UUID) async {
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing()
     photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Opening photo…", autosave: false) { try await store.selectSource(id); try await self.refresh(); self.stage = .explore }
   }
   package func selectRound(_ id: UUID) async {
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Opening round…", autosave: false) {
       try await store.selectRound(id); try await self.refresh(); self.stage = .explore
     }
   }
   package func selectCandidate(_ id: UUID, prune: Bool = false) async {
+    if let candidate = document?.candidates.first(where: { $0.id == id }),
+      let reason = candidateUnavailableReason(candidate) { error = reason; return }
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Retaining choice…") {
       try await store.chooseCandidate(id); try await self.refresh()
@@ -206,11 +243,120 @@ package final class FlowAuthoringModel {
 
   /// Navigation supplies no judgment. Only Choose direction records a weak preference.
   package func browseCandidate(_ id: UUID, prune: Bool = false) async {
+    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
     guard let store else { return }
     await perform("Opening drawing…", autosave: false) {
       try await store.selectCandidate(id); try await self.refresh()
       self.stage = prune ? .prune : .explore
     }
+  }
+
+  package func candidateUnavailableReason(_ candidate: FlowPortfolioCandidate) -> String? {
+    if let reason = candidateUnavailableReasons[candidate.id] { return reason }
+    if self.candidate?.id == candidate.id, let candidateLoadError { return candidateLoadError }
+    return nil
+  }
+  package func candidateRefinementUnavailableReason(_ candidate: FlowPortfolioCandidate) -> String? {
+    if let reason = candidateUnavailableReason(candidate) { return reason }
+    guard candidate.sourceID == selectedSource?.id,
+      document?.rounds.first(where: { $0.id == candidate.roundID })?.analysisOptions == committedAnalysisOptions else {
+      return "Open this drawing's exact photo and region before refining."
+    }
+    if (document?.latestPrune(candidateID: candidate.id)?.removedIndices.count ?? 0) >= candidate.strokeCount {
+      return "Restore at least one stroke before refining this drawing."
+    }
+    return nil
+  }
+  package func canRefineCandidate(_ candidate: FlowPortfolioCandidate) -> Bool {
+    canNavigateExploration && candidateRefinementUnavailableReason(candidate) == nil
+  }
+
+  package var committedAnalysisOptions: PortraitAnalysisOptions { round?.analysisOptions ?? selectedSource?.authoringOptions ?? FlowAuthoringRenderer.analysisOptions }
+  package var editingUnavailableReason: String? {
+    if needsRecovery { return "Recover the unsaved local edit before editing." }
+    if isBusy { return progress }
+    if closed || closing { return "The authoring session is closing." }
+    if let candidateLoadError { return candidateLoadError }
+    if program == nil || candidate?.id != loadedProgramID { return "Choose an available drawing to edit." }
+    if showsOriginal { return "Original is a read-only comparison. Return to editing to change lines." }
+    if showsPhoto { return "Photo is a read-only comparison. Return to editing to change lines." }
+    return nil
+  }
+  package var canEdit: Bool { editingUnavailableReason == nil }
+  package func returnToEditing() { showsOriginal = false; showsPhoto = false; selection = [] }
+  package func beginPruning() { returnToEditing(); stage = .prune }
+  package func retryCandidateLoad() async {
+    guard !isBusy, !needsRecovery else { return }
+    loadedProgramID = nil
+    await perform("Retrying drawing load…", autosave: false) { try await self.refresh() }
+  }
+  package var sendUnavailableReason: String? {
+    if !acceptsChanges { return "The authoring session is closing." }
+    if needsRecovery { return "Recover unsaved changes before sending." }
+    if isBusy || generationActive || regionPreviewPending { return "Wait for the current drawing to finish." }
+    guard let candidate, candidate.sourceID == selectedSource?.id, candidate.id == loadedProgramID,
+      let sourceRound = document?.rounds.first(where: { $0.id == candidate.roundID }),
+      sourceRound.analysisOptions == committedAnalysisOptions,
+      let program else { return candidateLoadError ?? "Choose an available drawing for this photo and region." }
+    if removedIndices.count >= program.strokes.count { return "Restore at least one stroke before sending." }
+    return nil
+  }
+  package var canSendToPlotter: Bool { sendUnavailableReason == nil }
+  /// Expensive generation can be replaced; durable edits/recovery must settle.
+  package var canNavigateExploration: Bool {
+    acceptsChanges && !needsRecovery && (!isBusy || generationActive || rendering != nil || proposing != nil)
+  }
+  package func invalidateRegionPreview() { invalidateGeneration(); regionPreviewPending = true }
+  package func discardRegionPreview() { regionPreviewPending = false }
+  package func commitRegion(_ region: PortraitNormalizedRegion?) async {
+    guard let store, let source = selectedSource, acceptsChanges else { return }
+    invalidateGeneration(); let request = generationRevision, navigation = photoSelectionRevision; returnToEditing()
+    var options = committedAnalysisOptions; options.manualRegion = region?.bounded
+    await perform("Saving photo region…") {
+      try await store.setAuthoringOptions(sourceID: source.id, options: options)
+      // A newer draft invalidates rendering, not the already committed source
+      // preference. Publish that durable head for the same navigation epoch;
+      // otherwise discarding the draft could resurrect the preceding round.
+      if navigation == self.photoSelectionRevision { try await self.refresh() }
+      if request == self.generationRevision { self.regionPreviewPending = false }
+    }
+  }
+
+  /// A tile click is the existing weak, exact offered-set choice, once. History
+  /// and automatic recommendations use neutral browsing instead.
+  package func exploreCandidate(_ id: UUID) async {
+    guard acceptsChanges, !needsRecovery, let selected = document?.candidates.first(where: { $0.id == id }),
+      selected.sourceID == selectedSource?.id,
+      document?.rounds.first(where: { $0.id == selected.roundID })?.analysisOptions == committedAnalysisOptions,
+      let store else { return }
+    if let reason = candidateRefinementUnavailableReason(selected) { error = reason; return }
+    guard let offeredRound = document?.rounds.first(where: { $0.id == selected.roundID }), let document else { return }
+    let offered = offeredRound.displayedCandidateIDs.isEmpty ? offeredRound.candidateIDs : offeredRound.displayedCandidateIDs
+    let items = offered.compactMap { candidateID -> FlowPortfolioPresentationItem? in
+      guard let value = document.candidates.first(where: { $0.id == candidateID }),
+        candidateRefinementUnavailableReason(value) == nil else { return nil }
+      let edit = document.latestPrune(candidateID: candidateID)
+      return .init(id: edit?.id ?? candidateID, candidateID: candidateID, revisionID: edit?.id,
+        sourceID: value.sourceID, removedIndices: edit?.removedIndices ?? [])
+    }
+    guard items.contains(where: { $0.candidateID == id }) else {
+      error = "This drawing is unavailable for exploration."; return
+    }
+    let admission = id.uuidString + ":" + items.map { $0.id.uuidString }.joined(separator: ":")
+    guard explorationAdmission != admission else { return }
+    explorationAdmission = admission
+    defer { if explorationAdmission == admission { explorationAdmission = nil } }
+    invalidateGeneration(); let request = generationRevision
+    pendingExplorationParentID = id; returnToEditing(); stage = .explore
+    await perform("Retaining exploration choice…") {
+      try await store.chooseCandidate(id, offeredItems: items)
+      if request == self.generationRevision { try await self.refresh() }
+    }
+    guard request == generationRevision, !needsRecovery, !closing, error == nil else {
+      if request == generationRevision { pendingExplorationParentID = nil }
+      return
+    }
+    await generate(refining: true)
   }
 
   package func renameSource(_ id: UUID, title: String) async {
@@ -281,91 +427,131 @@ package final class FlowAuthoringModel {
     self.nominalPenWidthMM = FlowAuthoringContext(strokeStyle: style, nominalPenWidthMM: nominalPenWidthMM).nominalPenWidthMM
   }
 
-  package func generate(refining: Bool) async {
+  package func generate(refining: Bool, recommendation: Bool = false, broadAnchor: UUID? = nil) async {
     guard let store, let source = selectedSource else { return }
+    guard acceptsChanges, !needsRecovery else { return }
     let parent = refining ? candidate : nil
-    let pen = strokeStyle, nominalWidth = nominalPenWidthMM, panelCount = min(9, max(3, count))
+    if let parent, let reason = candidateRefinementUnavailableReason(parent) { error = reason; return }
+    if let parent, (document?.latestPrune(candidateID: parent.id)?.removedIndices.count ?? 0) >= parent.strokeCount {
+      error = "Restore at least one stroke before refining this drawing."; return
+    }
+    let options = committedAnalysisOptions, checkpoint = activeCheckpoint
+    guard !refining || parent.flatMap({ value in document?.rounds.first { $0.id == value.roundID } })?.analysisOptions == options else {
+      error = "Choose a drawing generated for the current source region before refining."; return
+    }
+    guard broadAnchor == nil || (!refining && broadAnchor == candidate?.id && program != nil
+      && candidate?.sourceID == source.id
+      && document?.rounds.first(where: { $0.id == candidate?.roundID })?.analysisOptions == options) else { return }
+    let broadPreview = broadAnchor.flatMap { previews[$0] }
+    invalidateGeneration()
+    let request = generationRevision
+    generationActive = true
+    pendingBroadAnchorID = broadAnchor; pendingBroadAnchorPreview = broadPreview
+    defer {
+      if generationRevision == request {
+        generationActive = false; pendingExplorationParentID = nil
+        pendingBroadAnchorID = nil; pendingBroadAnchorPreview = nil
+      }
+    }
+    let parentDepth = parent.flatMap { value in document?.rounds.first { $0.id == value.roundID }?.explorationDepth } ?? 0
+    let depth = refining ? min(10_000, parentDepth + 1) : 0
+    let radius: Double? = refining ? max(0.015, 0.06 * pow(0.85, Double(depth - 1))) : nil
+    let inheritedRevision = parent.flatMap { self.document?.latestPrune(candidateID: $0.id) }
+    pendingExplorationParentID = parent?.id
+    returnToEditing()
+    let pen = strokeStyle, nominalWidth = nominalPenWidthMM, panelCount = recommendation ? (checkpoint?.ranker == nil ? 1 : 3) : min(9, max(3, count))
     if refining && parent == nil { return }
     await perform(refining ? "Preparing refinement…" : "Preparing broad exploration…") {
-      self.cancelRequested = self.closing
+      guard request == self.generationRevision, self.selectedSource?.id == source.id,
+        self.committedAnalysisOptions == options, !self.closing else { throw CancellationError() }
+      self.cancelRequested = false
       let data = try await store.sourceData(source.id)
+      guard request == self.generationRevision, !self.closing else { throw CancellationError() }
       let seed = UInt64.random(in: 1...UInt64.max)
-      let checkpoint = self.activeCheckpoint
       do { try checkpoint?.validateForInference() }
       catch { throw FlowPortfolioError.invalid(error.localizedDescription) }
       let recipes: [FlowArtistRecipe]
       if self.renderOverride != nil {
-        recipes = parent?.recipe.refined(count: panelCount, seed: seed, radius: 0.12)
+        recipes = parent?.recipe.refined(count: panelCount, seed: seed, radius: radius ?? 0.06)
           ?? FlowArtistRecipe.broad(count: panelCount, seed: seed)
       } else {
-        recipes = try await self.renderer.proposals(data: data, count: panelCount, seed: seed,
-          parent: parent?.recipe, checkpoint: checkpoint)
+        let renderer = self.renderer
+        let worker = Task.detached(priority: .userInitiated) {
+          try await renderer.proposals(data: data, count: panelCount, seed: seed,
+            parent: parent?.recipe, checkpoint: checkpoint, analysisOptions: options,
+            refinementRadius: radius ?? 0.06, photoReference: source.photo)
+        }
+        self.proposing = worker
+        defer { self.proposing = nil }
+        recipes = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
       }
+      guard request == self.generationRevision, !self.closing else { throw CancellationError() }
       let round = try await store.beginRound(sourceID: source.id, recipes: recipes,
-        parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: FlowAuthoringRenderer.analysisOptions)
+        parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: options,
+        explorationDepth: depth, refinementRadius: radius, explorationPolicy: "contracting-neighborhood-v1")
       self.stage = .explore; try await self.refresh()
-      var scores: [(UUID, Double)] = []
+      var scores: [(UUID, Double, [Int])] = []
       var cancelled = false
-      let inheritedRevision = parent.flatMap { self.document?.latestPrune(candidateID: $0.id) }
       for (slot, recipe) in recipes.enumerated() {
-        if Task.isCancelled || self.cancelRequested { cancelled = true; break }
+        if Task.isCancelled || self.cancelRequested || request != self.generationRevision { cancelled = true; break }
         self.progress = "Drawing \(slot + 1) of \(recipes.count)…"
-        let production: DrawingProduction<PortraitRenderResult>
-        let result: PortraitRenderResult
-        let admittedProgram: DrawingProgram
-        let preview: Data
-        let removed: Set<Int>
-        let probabilities: [Double]?
-        let score: Double
+        let generated: GeneratedCandidate
+        let isExactAnchor = slot == 0 && parent?.recipe == recipe
         do {
           let renderer = self.renderer, override = self.renderOverride
           let parentLink: SourceLink<DrawingRef>
-          if let parent { parentLink = .present(try await store.retainedDrawing(candidateID: parent.id).reference!) }
+          if let parent { parentLink = .present(try await store.retainedDrawing(candidateID: parent.id, revisionID: inheritedRevision?.id).reference!) }
           else { parentLink = .none }
           let photo = try await store.sourcePhoto(source.id)
           let input = PortraitFlowDrawingProducer.Input(data: data, parent: parentLink, photo: photo)
           let settings = PortraitFlowDrawingProducer.Settings(recipe: recipe,
-            analysisOptions: FlowAuthoringRenderer.analysisOptions, strokeStyle: pen, nominalPenWidthMM: nominalWidth)
-          if slot == 0, let parent {
-            let reused = PortraitRenderResult(raster: try await store.candidateRaster(parent.id),
+            analysisOptions: options, strokeStyle: pen, nominalPenWidthMM: nominalWidth)
+          var reused: PortraitRenderResult?, reusedPreview: Data?
+          if isExactAnchor, let parent {
+            reused = PortraitRenderResult(raster: try await store.candidateRaster(parent.id),
               program: try await store.candidateProgram(parent.id))
-            production = try PortraitFlowDrawingProducer.admit(result: reused, input: input,
-              settings: settings, origin: .reusedArtifacts)
-            result = production.artifacts
-            admittedProgram = production.drawing.program
-            preview = try await store.candidatePreview(parent.id)
-            removed = Set(inheritedRevision?.removedIndices ?? [])
-            probabilities = nil
-          } else {
-            let worker = Task.detached(priority: .userInitiated) {
-              if let override {
-                return try PortraitFlowDrawingProducer.admit(result: await override(data, recipe, pen),
-                  input: input, settings: settings, origin: .providedArtifacts)
-              }
-              return try await renderer.produce(data: data, recipe: recipe, strokeStyle: pen,
-                nominalPenWidthMM: nominalWidth, parent: parentLink, photo: photo)
-            }
-            self.rendering = worker
-            production = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
-            self.rendering = nil
-            result = production.artifacts
-            admittedProgram = production.drawing.program
-            try Task.checkCancellation()
-            preview = try await Task.detached { try FlowAuthoringRenderer.preview(admittedProgram) }.value
-            if let checkpoint {
-              let inference = try await Task.detached {
-                let features = FlowArtistFeatures.strokes(recipe: recipe, program: admittedProgram, raster: result.raster)
-                return (try checkpoint.deletionProbabilities(strokeFeatures: features),
-                  try checkpoint.removedIndices(strokeFeatures: features))
-              }.value
-              probabilities = inference.0; removed = inference.1
-            } else { probabilities = nil; removed = [] }
+            reusedPreview = try await store.candidatePreview(parent.id)
           }
-          let mask = removed
-          score = try await Task.detached {
-            try checkpoint?.score(features: FlowArtistFeatures.drawing(recipe: recipe,
-              program: admittedProgram, raster: result.raster, removedIndices: mask)) ?? 0
-          }.value
+          guard request == self.generationRevision, !self.cancelRequested else { throw CancellationError() }
+          let anchor = reused, anchorPreview = reusedPreview, inheritedMask = Set(inheritedRevision?.removedIndices ?? [])
+          // Admission, image encoding, prediction and scoring share one tracked
+          // worker. Replacing a generation cancels the next expensive stage,
+          // including the exact-anchor path, without dropping durable feedback.
+          let worker = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let production: DrawingProduction<PortraitRenderResult>
+            if let anchor {
+              production = try PortraitFlowDrawingProducer.admit(result: anchor, input: input,
+                settings: settings, origin: .reusedArtifacts)
+            } else if let override {
+              production = try PortraitFlowDrawingProducer.admit(result: await override(data, recipe, pen),
+                input: input, settings: settings, origin: .providedArtifacts)
+            } else {
+              production = try await renderer.produce(data: data, recipe: recipe, strokeStyle: pen,
+                nominalPenWidthMM: nominalWidth, parent: parentLink, photo: photo, analysisOptions: options)
+            }
+            try Task.checkCancellation()
+            let result = production.artifacts, program = production.drawing.program
+            let preview = try anchorPreview ?? FlowAuthoringRenderer.preview(program)
+            try Task.checkCancellation()
+            let removed: Set<Int>, probabilities: [Double]?
+            if anchor != nil { removed = inheritedMask; probabilities = nil }
+            else if let checkpoint {
+              let features = FlowArtistFeatures.strokes(recipe: recipe, program: program, raster: result.raster)
+              try Task.checkCancellation()
+              let values = try checkpoint.deletionProbabilities(strokeFeatures: features)
+              probabilities = values; removed = try checkpoint.removedIndices(probabilities: values)
+            } else { removed = []; probabilities = nil }
+            try Task.checkCancellation()
+            let score = try checkpoint?.score(features: FlowArtistFeatures.drawing(recipe: recipe,
+              program: program, raster: result.raster, removedIndices: removed)) ?? 0
+            try Task.checkCancellation()
+            return GeneratedCandidate(production: production, preview: preview, removed: removed,
+              probabilities: probabilities, score: score)
+          }
+          self.rendering = worker
+          generated = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+          self.rendering = nil
         } catch is CancellationError {
           self.rendering = nil; cancelled = true
           try await store.failCandidate(roundID: round.id, slot: slot, message: "Cancelled")
@@ -375,11 +561,16 @@ package final class FlowAuthoringModel {
           try await store.failCandidate(roundID: round.id, slot: slot, message: error.localizedDescription)
           continue
         }
+        let production = generated.production, preview = generated.preview, removed = generated.removed
+        let probabilities = generated.probabilities, score = generated.score
+        // An obsolete renderer may finish after cancellation (e.g. Vision).
+        // It has no authority to commit a candidate into the visible new input.
+        if request != self.generationRevision || self.cancelRequested { cancelled = true; break }
         // Storage failures are not renderer failures. Stop without overwriting a
         // completed slot; recovery marks any unfinished round interrupted.
         let saved = try await store.completeCandidate(roundID: round.id, slot: slot,
           production: production, previewPNG: preview)
-        if slot == 0, parent != nil, let inheritedRevision {
+        if isExactAnchor, let inheritedRevision {
           _ = try await store.applyPrune(candidateID: saved.id, action: .inheritedSelection,
             indices: removed.sorted(), inheritedFromRevisionID: inheritedRevision.id)
         } else if let checkpoint, let probabilities {
@@ -387,13 +578,15 @@ package final class FlowAuthoringModel {
             indices: removed.sorted(), modelID: checkpoint.id, probabilities: probabilities,
             threshold: 0.65, policy: "threshold-keep-one-v1")
         }
-        scores.append((saved.id, score))
-        try await self.refresh()
+        scores.append((saved.id, score, removed.sorted()))
+        if request == self.generationRevision { try await self.refresh() }
       }
       let ordered = checkpoint?.ranker == nil ? scores.map(\.0) : scores.sorted { $0.1 > $1.1 }.map(\.0)
+      let winner = checkpoint?.ranker == nil ? nil : ordered.first
+      let scoredMask = winner.flatMap { id in scores.first(where: { $0.0 == id })?.2 }
       try await store.finishRound(round.id, cancelled: cancelled, displayOrder: ordered,
-        recommendedCandidateID: checkpoint?.ranker == nil ? nil : ordered.first)
-      try await self.refresh()
+        recommendedCandidateID: winner, recommendedRemovedIndices: scoredMask)
+      if request == self.generationRevision { try await self.refresh() }
       self.progress = cancelled ? "Generation cancelled; completed previews remain in this session." : "Choose a drawing to retain and refine or prune."
     }
   }
@@ -521,6 +714,7 @@ package final class FlowAuthoringModel {
     }
   }
   package func activate(_ fitID: UUID?) async {
+    invalidateGeneration()
     guard let store else { return }
     await perform("Activating artist checkpoint…", autosave: false) {
       if let fitID {
@@ -539,9 +733,14 @@ package final class FlowAuthoringModel {
     }
   }
   package func retainedDrawing() async throws -> Drawing {
+    if let reason = sendUnavailableReason { throw FlowPortfolioError.unavailable(reason) }
     guard let store, let candidate else { throw FlowPortfolioError.unavailable("Choose a drawing first.") }
+    let navigation = photoSelectionRevision
     let drawing = try await store.retainedDrawing(candidateID: candidate.id, revisionID: prune?.id)
-    try await refresh()
+    // Retention is durable even if navigation changed while it settled. Only
+    // the admitting navigation epoch may publish or return its drawing to Send.
+    guard navigation == photoSelectionRevision, !closed, !closing else { throw CancellationError() }
+    try await refresh(photoRevision: navigation)
     return drawing
   }
   package func exportDrawing(to url: URL) async throws {
@@ -550,7 +749,12 @@ package final class FlowAuthoringModel {
     try await store.exportDrawing(drawing, to: url)
   }
 
-  package func cancel() { cancelRequested = true; rendering?.cancel(); fitting?.cancel() }
+  private func invalidateGeneration() {
+    generationRevision &+= 1; cancelRequested = true; rendering?.cancel(); proposing?.cancel()
+    generationActive = false; pendingExplorationParentID = nil
+    pendingBroadAnchorID = nil; pendingBroadAnchorPreview = nil
+  }
+  package func cancel() { invalidateGeneration(); fitting?.cancel() }
   package var acceptsChanges: Bool { !closed && !closing }
   package func closeMutationAdmission() { closing = true }
 
@@ -620,7 +824,7 @@ package final class FlowAuthoringModel {
           try await self.restoreRanking()
           self.progress = "Recovered committed work; an incomplete generation is retained as interrupted."
         }
-        self.failedIntent = nil; self.needsRecovery = false; self.error = nil
+        self.failedIntent = nil; self.needsRecovery = false; self.error = nil; self.regionPreviewPending = false
         while !self.needsRecovery && !self.blockedIntents.isEmpty {
           let pending = self.blockedIntents; self.blockedIntents = []
           for (status, replay, autosave, operation) in pending {
@@ -656,6 +860,9 @@ package final class FlowAuthoringModel {
       document = snapshot; sourceData = nil; loadedSourceHash = nil
       program = nil; loadedProgramID = nil
     }
+    if candidate?.id != loadedProgramID {
+      document = snapshot; program = nil; loadedProgramID = nil; candidateLoadError = nil
+    }
     let lastFit = snapshot.fits.last(where: \.hasCheckpoint)
     let activeFit = snapshot.fits.first { $0.id == snapshot.activeFitID }
     let nextFittedSnapshot = snapshot.trainingSnapshots.first { $0.id == lastFit?.snapshotID }
@@ -690,7 +897,14 @@ package final class FlowAuthoringModel {
     var selectedProgram = program, programID = loadedProgramID
     if let candidate {
       if programID != candidate.id {
-        selectedProgram = try? await store.candidateProgram(candidate.id); try assertCurrent(); programID = candidate.id
+        do {
+          selectedProgram = try await store.candidateProgram(candidate.id); try assertCurrent()
+          programID = candidate.id; candidateLoadError = nil
+        } catch is CancellationError { throw CancellationError() }
+        catch {
+          try assertCurrent(); selectedProgram = nil; programID = nil
+          candidateLoadError = "Drawing unavailable: " + error.localizedDescription
+        }
       }
     } else { selectedProgram = nil; programID = nil }
     var checkpoint = activeCheckpoint, issue = activeModelIssue
@@ -709,6 +923,8 @@ package final class FlowAuthoringModel {
     let round = snapshot.rounds.first { $0.id == snapshot.currentRoundID }
     let ids = round.map { $0.displayedCandidateIDs.isEmpty ? $0.candidateIDs : $0.displayedCandidateIDs } ?? []
     let visibleIDs = Set(ids)
+    let availabilityIDs = visibleIDs.union(candidate.map { [$0.id] } ?? [])
+    let unavailable = try await store.candidateUnavailableReasons(Array(availabilityIDs)); try assertCurrent()
     var nextPreviews = previews.filter { visibleIDs.contains($0.key) }
     var nextKeys = previewKeys.filter { visibleIDs.contains($0.key) }
     for candidate in snapshot.candidates where visibleIDs.contains(candidate.id) {
@@ -730,7 +946,7 @@ package final class FlowAuthoringModel {
     fittedSnapshot = nextFittedSnapshot; activeSnapshot = nextActiveSnapshot
     trainingProgress = summary; trainingProgressKey = summaryKey
     activeCheckpoint = checkpoint; activeModelIssue = issue; checkpointKey = nextCheckpointKey
-    previews = nextPreviews; previewKeys = nextKeys
+    previews = nextPreviews; previewKeys = nextKeys; candidateUnavailableReasons = unavailable
   }
 
   private func restoreRanking() async throws {

@@ -398,7 +398,7 @@ import Testing
       window.installDocumentHandling()
     }
     await delegate.settleDrawingDocuments()
-    #expect(route.workspace == .library && route.activeCollection == .drawings)
+    #expect(route.workspace == .drawingStudio && route.activeCollection == .drawings)
     #expect(route.drawing == fixture.reference)
     #expect(route.photo == nil && route.input == nil && route.branchParent == nil)
     let opened = try #require(acquisition.sketches.selected)

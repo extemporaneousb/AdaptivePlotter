@@ -18,6 +18,7 @@ let package = Package(
     .executable(name: "DrawingDestinationHarness", targets: ["DrawingDestinationHarness"]),
   ],
   targets: [
+    .executableTarget(name: "FlowProductionProfile", dependencies: ["PortraitArtists", "PortraitCore", "PortraitLibrary", "PortraitStudioUI", "PlotterModel"]),
     .executableTarget(name: "HistoricalDrawingImport", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitArtists", "PortraitLibrary", "PlotterModel"]),
     .executableTarget(name: "DrawingDestinationHarness", dependencies: ["DrawingLibrary", "PortraitCore", "PortraitLibrary", "PlotterModel"]),
     .target(name: "EpisodeCore"),

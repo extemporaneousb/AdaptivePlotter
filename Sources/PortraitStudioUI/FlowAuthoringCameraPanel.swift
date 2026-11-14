@@ -22,7 +22,7 @@ package struct FlowAuthoringCameraPanel: View {
         Text("Choose camera").tag(Optional<CameraDeviceID>.none)
         ForEach(camera.devices) { Text($0.name).tag(Optional($0.id)) }
       }.disabled(busy || camera.isCapturing)
-        .onChange(of: camera.selectedDeviceID) { _, _ in Task { await start() } }
+        .onChange(of: camera.selectedDeviceID) { _, _ in Task { await camera.stopCamera() } }
       PortraitCameraPreview(model: camera.preview)
         .environment(\.colorScheme, .dark)
         .frame(width: 580, height: 330)
@@ -62,12 +62,10 @@ package struct FlowAuthoringCameraPanel: View {
       }
     }.padding(20).frame(width: 620)
       .interactiveDismissDisabled(busy || camera.isCapturing)
-      .task { await start() }
+      .task { await camera.discover(excluding: nil) }
       .onDisappear {
-        if let ownedCapture = captureTask {
-          ownedCapture.cancel()
-          Task { await camera.cancelRendering() }
-        }
+        captureTask?.cancel()
+        Task { await camera.cancelRendering(); await camera.stopCamera() }
       }
   }
 

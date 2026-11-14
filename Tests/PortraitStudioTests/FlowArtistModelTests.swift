@@ -64,6 +64,11 @@ struct FlowArtistModelTests {
     let probabilities = try restored.deletionProbabilities(strokeFeatures: example.strokeFeatures)
     #expect(probabilities.count == example.strokeFeatures.count)
     #expect(Set(probabilities).count > 1)
+    #expect(try restored.removedIndices(probabilities: probabilities)
+      == restored.removedIndices(strokeFeatures: example.strokeFeatures))
+    #expect(try restored.removedIndices(probabilities: [0.9, 0.9]) == [1])
+    #expect(throws: FlowArtistModelError.self) { try restored.removedIndices(probabilities: [.nan]) }
+    #expect(throws: FlowArtistModelError.self) { try restored.removedIndices(probabilities: [1.1]) }
     let removed = try dataset.examples.map { try restored.removedIndices(strokeFeatures: $0.strokeFeatures, threshold: 0.5) }
     #expect(removed.contains { !$0.isEmpty })
     #expect(zip(removed, dataset.examples).allSatisfy { $0.count < $1.strokeFeatures.count })

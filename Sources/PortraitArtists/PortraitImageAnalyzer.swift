@@ -9,7 +9,30 @@ import PortraitCore
 import UniformTypeIdentifiers
 import Vision
 
+/// A selection in the oriented original photograph, normalized from its top-left.
+/// This is a render input; it never replaces or re-identifies the original Photo.
+package struct PortraitNormalizedRegion: Codable, Hashable, Sendable {
+  package let x: Double
+  package let y: Double
+  package let width: Double
+  package let height: Double
+
+  package init(x: Double, y: Double, width: Double, height: Double) {
+    self.x = x; self.y = y; self.width = width; self.height = height
+  }
+
+  package var bounded: Self {
+    guard [x, y, width, height].allSatisfy(\.isFinite), width > 0, height > 0 else {
+      return .init(x: 0, y: 0, width: 1, height: 1)
+    }
+    let left = min(0.999, max(0, x)), top = min(0.999, max(0, y))
+    return .init(x: left, y: top, width: min(1 - left, max(0.001, width)),
+      height: min(1 - top, max(0.001, height)))
+  }
+}
+
 package struct PortraitAnalysisOptions: Codable, Hashable, Sendable {
+  package var manualRegion: PortraitNormalizedRegion? = nil
   package var cropToFace = true
   package var removeBackground = true
   /// Padding around the detected face, as a fraction of its width. Smaller
@@ -20,7 +43,9 @@ package struct PortraitAnalysisOptions: Codable, Hashable, Sendable {
     faceCropMargin.isFinite ? min(0.8, max(0.05, faceCropMargin)) : 0.35
   }
 
-  package init(cropToFace: Bool = true, removeBackground: Bool = true, faceCropMargin: Double = 0.35) {
+  package init(cropToFace: Bool = true, removeBackground: Bool = true, faceCropMargin: Double = 0.35,
+    manualRegion: PortraitNormalizedRegion? = nil) {
+    self.manualRegion = manualRegion?.bounded
     self.cropToFace = cropToFace
     self.removeBackground = removeBackground
     self.faceCropMargin = faceCropMargin
@@ -347,7 +372,7 @@ package struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring 
     let faceAnalysis = preparedSource.faceAnalysis
     if let face = faceAnalysis.boundingBox {
       detectedFace = CGRect(x: face.x, y: face.y, width: face.width, height: face.height)
-      if options.cropToFace {
+      if options.cropToFace && options.manualRegion == nil {
         // The retained observation is top-left pixels; faceCrop accepts Vision's
         // normalized lower-left box. This conversion does not round landmarks.
         let bounds = CGRect(x: face.x / Double(image.width),
@@ -362,6 +387,16 @@ package struct PortraitImageAnalyzer: PortraitRendering, PortraitPhotoAcquiring 
       notes.append("No face located; full photo")
     } else {
       notes.append("Face analysis unavailable (\(faceAnalysis.unavailableReason ?? "unknown reason")); full photo")
+    }
+    if let region = options.manualRegion?.bounded {
+      // Explicit selection owns framing. Apply it once on the oriented decoded
+      // source so geometry/sourceToInput still refers to the exact original.
+      let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+      crop = CGRect(x: region.x * full.width, y: region.y * full.height,
+        width: region.width * full.width, height: region.height * full.height)
+        .integral.intersection(full)
+      notes = ["Selected photo region"] + notes.filter { $0 != "Full photo" }
+        .map { $0.replacingOccurrences(of: "; full photo", with: "") }
     }
     try Task.checkCancellation()
     guard let cropped = image.cropping(to: crop) else { throw PortraitDrawingError.unreadableImage }

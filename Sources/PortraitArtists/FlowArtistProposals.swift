@@ -4,7 +4,7 @@ import Foundation
 /// cover coordinated mechanisms; distance uses effective controls, not dead
 /// simplification ranges. At most two slots use the learned recipe/photo terms.
 package enum FlowArtistProposals {
-  package static let revision = "flow-themed-proposals-v1"
+  package static let revision = "flow-themed-proposals-no-circles-v2"
   package static let themes: [FlowArtistRecipe] = [
     .init(nativeValues: [3, 4, 0.15, 0, 1, 0.018, 0, 0.3, 0.3, 0.5, 0.2, 0]),
     .init(nativeValues: [4, 5, 0.18, 1.15, 2.6, 0.014, 0, 0.25, 0.25, 0.45, 0.3, 0]),
@@ -13,12 +13,8 @@ package enum FlowArtistProposals {
       marks: .init(polygon: 0.95, scale: 0.7)),
     .init(nativeValues: [4, 4, 0.15, 1.1, 1.4, 0.014, 0, 0.15, 0.15, 0.4, 0.4, 0.1],
       marks: .init(wave: 1, scale: 0.45)),
-    .init(nativeValues: [5, 3, 0.15, 1.15, 1.5, 0.016, 0, 0.12, 0.2, 0.5, 0.4, 0],
-      marks: .init(loop: 1, scale: 0.8)),
-    .init(nativeValues: [5, 3, 0.18, 1.1, 1.5, 0.018, 0, 0.1, 0.2, 0.5, 0.3, 0.5],
-      marks: .init(polygon: 0.7, loop: 1, scale: 0.8)),
     .init(nativeValues: [4, 5, 0.2, 1.1, 1.8, 0.016, 0.3, 0.2, 0.25, 0.5, 0.5, 0.4],
-      marks: .init(wave: 0.35, polygon: 0.35, loop: 0.35, scale: 0.5))
+      marks: .init(wave: 0.35, polygon: 0.35, scale: 0.5))
   ]
 
   package static func broad(count: Int, seed: UInt64) -> [FlowArtistRecipe] {
@@ -26,7 +22,7 @@ package enum FlowArtistProposals {
   }
 
   package static func propose(count: Int, seed: UInt64, parent: FlowArtistRecipe?,
-    raster: PortraitRaster?, checkpoint: FlowArtistCheckpoint?
+    raster: PortraitRaster?, checkpoint: FlowArtistCheckpoint?, refinementRadius: Double = 0.06
   ) throws -> [FlowArtistRecipe] {
     let count = min(24, max(1, count))
     if let checkpoint { try checkpoint.validateForInference() }
@@ -34,8 +30,9 @@ package enum FlowArtistProposals {
     var pool: [FlowArtistRecipe] = [], selected: [FlowArtistRecipe] = []
     let guidedCount = checkpoint?.ranker == nil || raster == nil ? 0 : min(2, max(1, count / 4))
     if let parent {
-      selected = [parent]
-      pool = Array(parent.refined(count: 24, seed: seed, radius: 0.12).dropFirst())
+      let center = parent.withoutSyntheticLoops
+      selected = [center]
+      pool = Array(center.refined(count: 24, seed: seed, radius: refinementRadius).dropFirst())
     } else {
       var order = Array(themes.indices)
       for index in order.indices.reversed() where index > 0 {
@@ -43,7 +40,7 @@ package enum FlowArtistProposals {
       }
       // Seed chooses the starting family, not a random cluster. Fill the theme
       // order by effective-control maximin so even a three-slot panel separates
-      // mechanisms instead of showing three similar loop mixtures.
+      // mechanisms instead of showing three similar mark mixtures.
       var remaining = Array(order.dropFirst()), spread = [order[0]]
       while !remaining.isEmpty {
         let next = remaining.indices.max { a, b in
@@ -117,7 +114,7 @@ package enum FlowArtistProposals {
 
   private static func recipe(_ coordinates: [Double]) -> FlowArtistRecipe {
     .init(values: Array(coordinates.prefix(12)),
-      marks: .init(wave: coordinates[12], polygon: coordinates[13], loop: coordinates[14], scale: coordinates[15]))
+      marks: .init(wave: coordinates[12], polygon: coordinates[13], scale: coordinates[15]))
   }
   private static func effective(_ recipe: FlowArtistRecipe) -> [Double] {
     var x = recipe.coordinates

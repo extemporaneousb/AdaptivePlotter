@@ -51,7 +51,7 @@ package struct DrawingLibrarySourceView: View {
               Toggle("Exclude from training", isOn: Binding(get: { metadata.excluded }, set: { value in
                 metadata.excluded = value; save(ref, .init(excluded: value), field: "Training exclusion")
               }))
-              Button("Open in Flow Edge") { Task {
+              Button("Open in Photo Booth") { Task {
                 let message = await openStudio(ref)
                 if route.photo == ref { failure = message }
               } }

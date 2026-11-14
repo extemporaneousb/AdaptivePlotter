@@ -1817,8 +1817,14 @@ native tick marks or planning every pointer movement.
 
 ### Independent Portrait Studio and immutable exchange
 
-Portrait Studio owns photo browsing and Flow Edge authoring. The operator
-chooses a photo, explores a broad parameter panel, selects a direction, refines it,
+Portrait Studio owns photo browsing and Flow Edge authoring. Its top destinations
+are **Photo Booth**, **Photos** and **Drawing**, with one right-aligned **Send to
+Plotter** action. File-menu commands own original-photo and photo-set import. Photo
+Booth shows the immutable oriented source and an explicitly committed region beside
+one bounded drawing suggestion. A valid active preference checkpoint may label its
+actual scored winner **Predicted favorite** only for the exact scored removal mask;
+untrained, historical-mask or edited-mask suggestions remain **Suggested drawing**.
+The operator explores a broad parameter panel, clicks a direction to refine it,
 prunes whole lines, ranks outputs and fits/deploys a personal artist. Historical
 Contour, Sketch, SwiftSketch, saved-style, single-canvas Previous/Next and separate
 Review interfaces are not current alternative authoring routes. Earlier archives
@@ -1835,6 +1841,14 @@ for its judgments without retaining every unselected program. Missing content,
 corruption or persistence failure is reported; uncertain mutations reconcile before
 retry. One writer owns a library. There is no separate portfolio head/delta writer.
 
+Camera acquisition starts only from an explicit live-preview or capture action and
+a deliberately selected Studio device. Repeated live captures share the owned
+session; leaving live Photo Booth cancels capture, clears illumination and releases
+that session. An original's manual region uses normalized oriented top-left
+coordinates, supersedes automatic face crop, and creates a new prepared input while
+preserving the original Photo and historical drawings. Dragging is draft-only;
+Apply commits once, invalidates stale suggestions and starts bounded regeneration.
+
 Camera sources retain exact capture identity/time, frame timestamp, measured extent
 and selection provenance; retrying the same identity cannot duplicate a source.
 Only the actual acquisition session supplies initial session grouping, never
@@ -1848,10 +1862,27 @@ comparison distinguishes new/withdrawn supervision from navigation and distingui
 latest fit attempt, latest usable checkpoint and active checkpoint. Failed fitting
 does not consume pending feedback.
 
-Broad and local rounds use native Flow Edge parameters. The selected parent and
-mask remain an exact refinement anchor. Optional wave, angular-segment and closed
-loop/polygon marks extend native tonal construction inside the same support and
-occupancy constraints; absent mark coordinates retain exact legacy rendering. Rectilinear tonal strokes and supported
+Broad and local rounds use native Flow Edge parameters. Clicking a produced tile
+records exactly one weak direction choice against its frozen offered set, opens a
+child page immediately and progressively contracts the effective neighborhood to a
+nonzero floor. Broad sample resets depth and radius; Back and branch-history
+navigation generate no drawings or feedback. Bounded temporary storage keeps the
+current and one previous same-source/options panel, evicting optional history under
+the existing artifact limits. Retained drawings remain available. Expired unchosen
+tiles keep their historical preview when present, state their unavailable reason,
+and refuse edit/refinement before a choice or save-recovery intent can be created.
+Automatic suggestion entry is neutral
+and may display a transient starting anchor without inventing a refinement parent.
+Available completed tiles and history can replace active generation; stale workers
+cannot publish into the new intent.
+
+The selected parent and mask remain an exact refinement anchor when the native
+basis is compatible. New proposals exclude synthesized circular loop marks across
+broad, local and noise/blend sampling. Optional wave and angular-segment marks
+remain inside the same support and occupancy constraints; absent mark coordinates
+retain exact legacy rendering. Older loop-bearing recipes and drawings remain
+readable and renderable as historical anchors. Sanitized descendants rerender their
+new basis and do not inherit an index mask from incompatible old geometry. Rectilinear tonal strokes and supported
 angular regional contours remain distinct mechanisms. The renderer retains its
 image-evidence, point/path and nominal material constraints. New parameter samples
 are not learned drawing quality; failed, duplicate, cancelled and interrupted
@@ -1859,7 +1890,13 @@ outcomes remain explicit. Late or cancelled work cannot replace another source's
 selection or revive excluded/deleted historical authority.
 
 Pruning removes/restores entire original polylines without changing surviving
-coordinates, order or pen style. Undo/Redo and operation provenance are retained.
+coordinates, order or pen style. Studio's local editing availability is independent
+of Plotter connection, calibration and motion. Comparison overlays state their
+read-only reason and provide a return-to-edit action; opening another edit clears
+inherited comparison state. Send availability derives from the visibly selected,
+loaded, supported and nonempty exact revision, its source/region and local
+persistence state. Photo-only, stale, loading, recovery and pending-region selections
+cannot send; a valid unplaced drawing may send regardless of Plotter readiness. Undo/Redo and operation provenance are retained.
 An autosaved unfinished edit supplies only its explicit corrections. **Finish
 pruning** declares a complete intended selection target, including target membership
 for retained lines; it is not required for persistence. Model-generated masks

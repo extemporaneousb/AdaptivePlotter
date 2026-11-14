@@ -52,6 +52,24 @@ enum FlowPortfolioValidation {
         try require(candidates[parent]?.sourceID == round.sourceID && (candidates[parent]?.createdAt ?? .distantFuture) <= round.createdAt,
           "Refinement parent must be an earlier candidate of the same source.")
       }
+      if let depth = round.explorationDepth { try require(depth >= 0 && depth <= 10_000, "Exploration depth is invalid.") }
+      if let radius = round.refinementRadius { try require(radius.isFinite && (0.015...1).contains(radius), "Refinement radius is invalid.") }
+      if let policy = round.explorationPolicy {
+        try require(policy == "contracting-neighborhood-v1" && round.explorationDepth != nil,
+          "Exploration policy is unavailable.")
+        if let parent = round.parentCandidateID.flatMap({ candidates[$0] }) {
+          let parentRound = rounds[parent.roundID]
+          try require(parentRound?.analysisOptions == round.analysisOptions,
+            "Refinement parent belongs to a different source region.")
+          let depth = min(10_000, (parentRound?.explorationDepth ?? 0) + 1)
+          let radius = max(0.015, 0.06 * pow(0.85, Double(depth - 1)))
+          try require(round.explorationDepth == depth && round.refinementRadius == radius,
+            "Refinement differs from its frozen contracting neighborhood policy.")
+        } else {
+          try require(round.explorationDepth == 0 && round.refinementRadius == nil,
+            "Broad exploration must reset its neighborhood.")
+        }
+      }
       let owned = state.candidates.filter { $0.roundID == round.id }
       try require(Set(round.candidateIDs) == Set(owned.map(\.id)) && round.candidateIDs.count == owned.count,
         "Round's candidate list differs from its committed results.")
@@ -65,6 +83,13 @@ enum FlowPortfolioValidation {
       }
       if let recommended = round.recommendedCandidateID {
         try require(round.displayedCandidateIDs.contains(recommended), "Recommended candidate was not in the displayed round.")
+      }
+      if let mask = round.recommendedRemovedIndices {
+        guard let id = round.recommendedCandidateID, let candidate = candidates[id] else {
+          throw FlowPortfolioError.invalid("A scored recommendation mask requires its exact candidate.")
+        }
+        try require(mask == Set(mask).sorted() && mask.allSatisfy { (0..<candidate.strokeCount).contains($0) }
+          && mask.count < candidate.strokeCount, "Scored recommendation membership is invalid or empty.")
       }
     }
     for candidate in state.candidates {

@@ -108,9 +108,12 @@ package final class DrawingLibraryBrowserModel {
     isClosed = true; requestRevision &+= 1
     selectionTask?.cancel(); dismissEditor(); isBusy = false
   }
+  package var canSendSelected: Bool {
+    !isClosed && !isBusy && !sketches.isClosing && editor == nil && !sketches.isLoading
+      && sketches.selected.map { $0.reference != nil && !$0.program.strokes.isEmpty && $0.capabilities.supported.contains(.plot) } == true
+  }
   package func makeHandoffRequest() -> DrawingBrowserHandoffRequest? {
-    guard !isClosed, !isBusy, !sketches.isClosing,
-      let drawing = sketches.selected, let ref = drawing.reference else { return nil }
+    guard canSendSelected, let drawing = sketches.selected, let ref = drawing.reference else { return nil }
     do { try drawing.capabilities.require(.plot) }
     catch { self.error = "Send unavailable: this drawing requires unsupported features."; return nil }
     requestRevision &+= 1; dismissEditor()
@@ -215,18 +218,21 @@ package struct DrawingLibraryBrowser: View {
   @State private var drawingName = ""
   @State private var namingReference: DrawingRef?
   private let close: () -> Void
+  private let embedded: Bool
   @State private var model: DrawingLibraryBrowserModel
   package init(sketches: PortraitSketchCollection, close: @escaping () -> Void, handoff: DrawingBrowserHandoff? = nil,
     route: Binding<DrawingLibraryRoute> = .constant(.init()), openStudio: @escaping (PhotoRef) async -> String? = { _ in nil },
-    review: @escaping (Drawing) -> AnyView = { _ in AnyView(EmptyView()) }) {
+    review: @escaping (Drawing) -> AnyView = { _ in AnyView(EmptyView()) },
+    model: DrawingLibraryBrowserModel? = nil, embedded: Bool = false) {
     self.sketches = sketches; self.close = close; self.handoff = handoff
     _route = route; self.openStudio = openStudio; self.review = review
-    _model = State(initialValue: DrawingLibraryBrowserModel(sketches: sketches))
+    self.embedded = embedded
+    _model = State(initialValue: model ?? DrawingLibraryBrowserModel(sketches: sketches))
   }
   package var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("Library").font(.title2)
+        Text(embedded ? "Photos and retained drawings" : "Library").font(.title2)
         Picker("Collection", selection: showsPhotos) { Text("Photos").tag(true); Text("Drawings").tag(false) }
           .pickerStyle(.segmented).frame(width: 200)
         if route.activeCollection == .children {
@@ -237,9 +243,9 @@ package struct DrawingLibraryBrowser: View {
           .accessibilityIdentifier("drawing.library.import").disabled(model.isBusy)
         Button("Import Result", systemImage: "tray.and.arrow.down") { Task { await importResult() } }
           .accessibilityIdentifier("drawing.library.importResult").disabled(model.isBusy)
-        Button("Close") { model.close(); close() }
+        if !embedded { Button("Close") { model.close(); close() }
           .keyboardShortcut(.escape, modifiers: presentationPolicy.modalUnavailableReason == nil ? [] : [.command])
-          .accessibilityIdentifier("drawing.library.close")
+          .accessibilityIdentifier("drawing.library.close") }
       }
       if let draft = model.editor {
         DrawingMembershipEditor(model: draft, completion: {
@@ -288,8 +294,8 @@ package struct DrawingLibraryBrowser: View {
                 .foregroundStyle(.secondary).frame(minWidth: 250, minHeight: 220)
             }
             VStack(alignment: .leading, spacing: 8) {
-              if let handoff {
-                Button("Prepare in AdaptivePlotter") { Task { await model.sendSelected(using: handoff) } }
+              if let handoff, !embedded {
+                Button("Send to Plotter") { Task { await model.sendSelected(using: handoff) } }
                   .fixedSize()
                   .accessibilityIdentifier("drawing.library.send").disabled(!drawing.capabilities.supported.contains(.plot))
               }
@@ -326,7 +332,7 @@ package struct DrawingLibraryBrowser: View {
         await model.restore(requested, isStillCurrent: { route.scopeKey == requested.scopeKey })
       }
       .onChange(of: sketches.selected?.reference) { _, ref in if let ref { route.drawing = ref } }
-      .onDisappear { model.close() }
+      .onDisappear { if !embedded { model.close() } else { model.dismissEditor() } }
       .onChange(of: presentationPolicy.modalUnavailableReason) { _, reason in if reason != nil { activePanel?.cancel(nil) } }
   }
   private func importDrawing() async {

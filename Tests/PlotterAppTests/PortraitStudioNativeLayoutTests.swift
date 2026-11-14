@@ -182,9 +182,9 @@ struct PortraitStudioNativeLayoutTests {
     guard size.width == 1000 || stage == .fit else { return }
     let observation = try renderedAuthoringLabels(host)
     let labels = observation.labels.map(normalizeAuthoringLabel)
-    let required = ["Flow Edge", "Import Photo", "Capture Photo", "Branches",
+    let required = ["Drawing", "Capture Photo", "Branches",
       "Curation stage", "Explore", "Prune", "Rank", "Fit & deploy"]
-      + (stage == .explore ? ["Broad exploration", "Compare this set"]
+      + (stage == .explore ? ["Broad sample", "Compare this set"]
         : stage == .prune ? ["Finish pruning", "Original"]
         : stage == .rank ? ["Rank by artistic preference", "Next pair"] : ["Fit portfolio"])
     for title in required {
@@ -311,7 +311,7 @@ struct PortraitStudioNativeLayoutTests {
     }
     // SwiftUI can expose the workspace's inherited identifier on these header
     // buttons. Their exact accessible action label is the native fallback.
-    for (id, title) in [("flowAuthoring.importPhoto", "Import Photo"), ("flowAuthoring.openCamera", "Capture Photo")] {
+    for (id, title) in [("flowAuthoring.openCamera", "Capture Photo")] {
       _ = try #require(descendants(window).first { element in
         element.accessibilityIdentifier() == id || (element.accessibilityRole() == .button
           && [element.accessibilityLabel(), (element as? NSButton)?.title].compactMap { $0 }
@@ -324,8 +324,8 @@ struct PortraitStudioNativeLayoutTests {
     let browse = try #require(descendants(window).first { element in
       element.accessibilityRole() == .button
         && [element.accessibilityLabel(), (element as? NSButton)?.title].compactMap { $0 }
-          .contains { normalizeAuthoringLabel($0) == "openprune" }
-    }, "Missing native Open / prune action.")
+          .contains { normalizeAuthoringLabel($0) == "editdrawing" }
+    }, "Missing native Edit drawing action.")
     reveal(browse, in: window); await settle(host)
     #expect(browse.accessibilityPerformPress())
     let browseDeadline = ContinuousClock.now.advanced(by: .seconds(3))
@@ -333,15 +333,9 @@ struct PortraitStudioNativeLayoutTests {
     #expect(authoring.stage == .prune && authoring.candidate?.id == candidate.id)
     #expect(authoring.document?.choices.count == originalChoices, "Opening a drawing must not cast a preference vote.")
     authoring.stage = .explore; await settle(host)
-    let choice = try requiredElement("flowAuthoring.choose.\(candidate.slot)", in: window)
-    reveal(choice, in: window); await settle(host)
-    #expect(choice.accessibilityPerformPress())
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while (authoring.document?.choices.count ?? 0) == originalChoices && ContinuousClock.now < deadline {
-      try await Task.sleep(for: .milliseconds(10))
-    }
-    #expect(authoring.document?.choices.count == originalChoices + 1)
-    #expect(authoring.candidate?.id == candidate.id && authoring.stage == .explore)
+    // Choose-and-refine is exercised by the standalone shell test against the
+    // same tile control. This geometry host preserves its frozen render count.
+
   }
 
   private func runPanelChecks(requiresAX: Bool) async throws {

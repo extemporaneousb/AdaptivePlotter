@@ -90,23 +90,26 @@ extension FlowPortfolioStore {
     guard Set(values.map(\.ordinal)).count == values.count else { throw FlowPortfolioError.invalid("Duplicate Library entity order.") }
     return values.sorted { $0.ordinal < $1.ordinal }.map(\.value)
   }
-  package func loadRecords() async throws {
+  /// The opt-out is a diagnostic parity path through the original full numeric
+  /// decoder. It changes no admission or validation rules and is never persisted.
+  package func loadRecords(reusingEncodedStrokeBasis: Bool = true) async throws {
     try await storage.library.open()
     let sessions = try await rows(FlowPortfolioSession.self, "session")
     guard sessions.count <= 1 else { throw FlowPortfolioError.invalid("Multiple Flow sessions in one Library.") }
     guard let header = sessions.first else { return }
     guard requestedPurpose == nil || requestedPurpose == header.purpose else { throw FlowPortfolioError.invalid("The Library purpose differs from this session.") }
     guard header.profile == "adaptiveplotter.flow-session/2" else { throw FlowPortfolioError.invalid("Unsupported Flow session.") }
+    let feedbackBudget = FlowFeatureReadBudget(reusesEncodedStrokeBasis: reusingEncodedStrokeBasis)
     var next = FlowPortfolioSnapshot.empty(purpose: header.purpose)
     next = FlowPortfolioSnapshot(schemaVersion: 2, purpose: header.purpose, id: header.id,
       createdAt: header.createdAt, revision: header.revision,
       sources: try await rows(FlowPortfolioSource.self, "source"),
       rounds: try await rows(FlowPortfolioRound.self, "round"),
       candidates: try await rows(FlowPortfolioCandidate.self, "candidate"),
-      choices: try await feedbackRows(FlowPortfolioChoice.self, name: "choice"),
-      pruneRevisions: try await feedbackRows(FlowPortfolioPruneRevision.self, name: "prune"),
+      choices: try await feedbackRows(FlowPortfolioChoice.self, name: "choice", budget: feedbackBudget),
+      pruneRevisions: try await feedbackRows(FlowPortfolioPruneRevision.self, name: "prune", budget: feedbackBudget),
       presentations: try await rows(FlowPortfolioPresentation.self, "presentation"),
-      rankings: try await feedbackRows(FlowPortfolioRanking.self, name: "ranking"),
+      rankings: try await feedbackRows(FlowPortfolioRanking.self, name: "ranking", budget: feedbackBudget),
       trainingSnapshots: try await rows(FlowPortfolioTrainingSnapshot.self, "training"),
       fits: try await rows(FlowPortfolioFit.self, "fit"),
       activations: try await rows(FlowPortfolioActivation.self, "activation"),
@@ -114,6 +117,7 @@ extension FlowPortfolioStore {
       currentCandidateID: header.currentCandidateID, currentPruneRevisionID: header.currentPruneRevisionID,
       activeFitID: header.activeFitID, currentPresentationID: header.currentPresentationID)
     try FlowPortfolioValidation.validate(next)
+    lastFeedbackReadStatistics = feedbackBudget.statistics
     publishedPhotoIDs.formUnion(next.sources.map(\.id))
     storage.markPublished(durableAssets(next, includingLocalPreviews: false))
     state = next

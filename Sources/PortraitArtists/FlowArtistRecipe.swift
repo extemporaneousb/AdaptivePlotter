@@ -46,18 +46,26 @@ package struct FlowArtistRecipe: Codable, Hashable, Sendable {
     FlowArtistProposals.broad(count: count, seed: seed)
   }
 
-  /// The selected parent is always first and immutable. Reflection at bounds
-  /// avoids collapsed clamp duplicates at the corners of the parameter space.
+  /// New-authoring policy excludes synthesized circles, including noise and
+  /// blends. Decoding and vectorOptions retain historical loop rendering.
+  package var withoutSyntheticLoops: Self {
+    guard let marks, marks.loop > 0 else { return self }
+    return .init(values: values, marks: .init(wave: marks.wave, polygon: marks.polygon, scale: marks.scale))
+  }
+
+  /// The policy-compatible parent is first. Reflection at bounds avoids
+  /// collapsed clamp duplicates at the corners of the parameter space.
   package func refined(count: Int, seed: UInt64, radius: Double = 0.12) -> [Self] {
     let count = min(24, max(1, count)), radius = radius.isFinite ? min(0.35, max(0.005, radius)) : 0.12
-    var random = FlowArtistRandom(seed: seed), result = [self]
+    let center = withoutSyntheticLoops
+    var random = FlowArtistRandom(seed: seed), result = [center]
     for _ in 0..<(count * 12) where result.count < count {
-      let next = coordinates.map { value in
+      let next = center.coordinates.map { value in
         let next = value + (random.unit() * 2 - 1) * radius
         return next < 0 ? -next : next > 1 ? 2 - next : next
       }
       let candidate = Self(values: Array(next.prefix(12)),
-        marks: .init(wave: next[12], polygon: next[13], loop: next[14], scale: next[15]))
+        marks: .init(wave: next[12], polygon: next[13], scale: next[15]))
       if !result.contains(candidate) { result.append(candidate) }
     }
     return result

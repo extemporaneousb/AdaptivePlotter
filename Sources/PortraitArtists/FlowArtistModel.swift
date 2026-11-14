@@ -217,10 +217,19 @@ package struct FlowArtistCheckpoint: Codable, Equatable, Sendable {
   /// Conservative proposal policy. Never silently synthesize geometry or emit an
   /// empty drawing. Full probabilities remain available for retained inference.
   package func removedIndices(strokeFeatures: [[Double]], threshold: Double = 0.65) throws -> Set<Int> {
+    try removedIndices(probabilities: deletionProbabilities(strokeFeatures: strokeFeatures), threshold: threshold)
+  }
+
+  /// Reuse the exact probabilities already retained for inference provenance.
+  /// Threshold and keep-one behavior are shared with the feature-based API.
+  package func removedIndices(probabilities: [Double], threshold: Double = 0.65) throws -> Set<Int> {
+    try validate()
+    guard probabilities.count <= 10_000, probabilities.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
+      throw FlowArtistModelError.invalid("Invalid deletion probability array.")
+    }
     guard threshold.isFinite, (0.5...1).contains(threshold) else {
       throw FlowArtistModelError.invalid("Deletion probability threshold must be between 0.5 and 1.")
     }
-    let probabilities = try deletionProbabilities(strokeFeatures: strokeFeatures)
     var result = Set(probabilities.indices.filter { probabilities[$0] >= threshold })
     if !probabilities.isEmpty, result.count == probabilities.count,
       let keep = probabilities.indices.min(by: { probabilities[$0] < probabilities[$1] }) { result.remove(keep) }

@@ -67,17 +67,20 @@ package final class PortraitStudioModel {
     self.captureClock = captureClock; self.photoRetention = photoRetention
   }
   package func discover(excluding plotterDeviceID: CameraDeviceID?) async {
+    guard !isShutdown else { return }
     await camera.discoverDevices()
-    devices = await camera.snapshot().devices.filter { $0.id != plotterDeviceID }
+    let snapshot = await camera.snapshot()
+    guard !isShutdown else { return }
+    devices = snapshot.devices.filter { $0.id != plotterDeviceID }
     if !devices.contains(where: { $0.id == selectedDeviceID }) {
-      selectedDeviceID = devices.first?.id
+      selectedDeviceID = nil
     }
   }
 
   package func startCamera() async {
     guard !isShutdown else { return }
     guard let selectedDeviceID else {
-      cameraStatus = "No portrait camera is available. Connect a face camera and retry Portrait Studio, or import a photo."
+      cameraStatus = devices.isEmpty ? "No portrait camera is available. Connect a camera or import a photo." : "Choose a camera explicitly, then start Live preview."
       return
     }
     // Repeated photos share the same live session. Restarting here on every

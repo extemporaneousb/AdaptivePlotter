@@ -12,6 +12,10 @@ package actor FlowPortfolioStore {
   var state: FlowPortfolioSnapshot
   var committedRecords = Set<DrawingLibraryRecordKey>()
   var inFlightCandidates: [UUID: Int] = [:]
+  var recentTransientRoundIDs: [UUID] = []
+  var observedTransientRoundID: UUID?
+  var observedTransientSourceID: UUID?
+  var observedTransientOptions: PortraitAnalysisOptions?
   var temporaryDrawings: [UUID: Drawing] = [:]
   var drawingInputs: [UUID: FrozenImageInputRecord] = [:]
   var sourcePhotoRecords: [UUID: FrozenPhotoRecord] = [:]
@@ -27,6 +31,7 @@ package actor FlowPortfolioStore {
   var frozenTrainingViews: [UUID: Data] = [:]
   var featureSupportingAssets: [ExchangeDigest: Data] = [:]
   var featureCapsules: [UUID: FlowPortfolioFeatureCapsule] = [:]
+  package var lastFeedbackReadStatistics = FlowFeatureReadStatistics()
   let requestedPurpose: FlowPortfolioPurpose?
   package nonisolated let directory: URL
 
@@ -127,7 +132,8 @@ package actor FlowPortfolioStore {
   package func selectSource(_ id: UUID) async throws {
     _ = try source(id)
     var next = state; next.selectedSourceID = id
-    next.currentRoundID = next.rounds.last(where: { $0.sourceID == id })?.id
+    let options = next.sources.first(where: { $0.id == id })?.authoringOptions
+    next.currentRoundID = next.rounds.last(where: { $0.sourceID == id && (options == nil || $0.analysisOptions == options) })?.id
     next.currentCandidateID = next.choices.last(where: { $0.roundID == next.currentRoundID })?.candidateID
     next.currentPruneRevisionID = next.currentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
     try await commit(next, operation: "sourceSelected", subjectID: id)
@@ -165,9 +171,19 @@ package actor FlowPortfolioStore {
     try await commit(next, operation: "sourceCurationChanged", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(excluded: excluded))])
   }
 
+  package func setAuthoringOptions(sourceID: UUID, options: PortraitAnalysisOptions) async throws {
+    _ = try source(sourceID)
+    var next = state
+    next.sources[next.sources.firstIndex { $0.id == sourceID }!].authoringOptions = options
+    // A changed region is a new input, never an implicit refinement of old pixels.
+    next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    try await commit(next, operation: "sourceRegionSelected", subjectID: sourceID)
+  }
+
   @discardableResult package func beginRound(sourceID: UUID, recipes: [FlowArtistRecipe],
     parentCandidateID: UUID? = nil, modelID: String? = nil, seed: UInt64 = 0,
-    analysisOptions: PortraitAnalysisOptions = .init()) async throws -> FlowPortfolioRound {
+    analysisOptions: PortraitAnalysisOptions = .init(), explorationDepth: Int? = nil,
+    refinementRadius: Double? = nil, explorationPolicy: String? = nil) async throws -> FlowPortfolioRound {
     _ = try source(sourceID)
     guard (1...24).contains(recipes.count), recipes.allSatisfy({ $0.values.allSatisfy { $0.isFinite && (0...1).contains($0) } }) else {
       throw FlowPortfolioError.invalid("A round requires one to twenty-four bounded Flow Edge recipes.")
@@ -175,9 +191,16 @@ package actor FlowPortfolioStore {
     if let parentCandidateID, try candidate(parentCandidateID).sourceID != sourceID {
       throw FlowPortfolioError.invalid("A refinement must retain its parent's source photograph.")
     }
+    if explorationPolicy != nil, let parentCandidateID {
+      let parent = try candidate(parentCandidateID)
+      guard try self.round(parent.roundID).analysisOptions == analysisOptions else {
+        throw FlowPortfolioError.invalid("The refinement parent belongs to a different source region.")
+      }
+    }
     let round = FlowPortfolioRound(id: UUID(), createdAt: Date(), sourceID: sourceID,
       parentCandidateID: parentCandidateID, recipes: recipes, analysisOptions: analysisOptions, seed: seed, modelID: modelID,
-      status: .generating, candidateIDs: [], displayedCandidateIDs: [], recommendedCandidateID: nil, failures: [])
+      status: .generating, candidateIDs: [], displayedCandidateIDs: [], recommendedCandidateID: nil, failures: [], explorationDepth: explorationDepth,
+      refinementRadius: refinementRadius, explorationPolicy: explorationPolicy)
     var next = state; next.rounds.append(round); next.selectedSourceID = sourceID
     next.currentRoundID = round.id; next.currentCandidateID = parentCandidateID
     next.currentPruneRevisionID = parentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
@@ -198,10 +221,12 @@ package actor FlowPortfolioStore {
     }
     let previewAsset = try Self.validatedSourceAsset(previewPNG)
     guard previewAsset.mediaType == "image/png" else { throw FlowPortfolioError.invalid("Candidate preview must be PNG.") }
+    let rasterBytes = try encode(raster)
+    try admitTemporaryArtifacts([rasterBytes, previewPNG])
     let result = FlowPortfolioCandidate(id: UUID(), createdAt: Date(), sourceID: round.sourceID,
       roundID: roundID, slot: slot, parentCandidateID: round.parentCandidateID, recipe: round.recipes[slot],
       modelID: round.modelID,
-      raster: try storage.retain(encode(raster), mediaType: "application/json"),
+      raster: try storage.retain(rasterBytes, mediaType: "application/json"),
       preview: try storage.retain(previewPNG, mediaType: "image/png"),
       programHash: program.contentHash.description, strokeCount: program.strokes.count)
     temporaryDrawings[result.id] = production.drawing
@@ -222,7 +247,7 @@ package actor FlowPortfolioStore {
   }
 
   package func finishRound(_ id: UUID, cancelled: Bool = false, displayOrder: [UUID]? = nil,
-    recommendedCandidateID: UUID? = nil) async throws {
+    recommendedCandidateID: UUID? = nil, recommendedRemovedIndices: [Int]? = nil) async throws {
     let round = try round(id)
     guard round.status == .generating else { throw FlowPortfolioError.conflict("This round has already settled.") }
     guard cancelled || round.candidateIDs.count + round.failures.count == round.recipes.count else {
@@ -238,6 +263,7 @@ package actor FlowPortfolioStore {
     next.rounds[index].status = cancelled ? .cancelled : .completed
     next.rounds[index].displayedCandidateIDs = order
     next.rounds[index].recommendedCandidateID = recommendedCandidateID
+    next.rounds[index].recommendedRemovedIndices = recommendedRemovedIndices
     try await commit(next, operation: cancelled ? "roundCancelled" : "roundCompleted", subjectID: id)
   }
 
@@ -248,14 +274,44 @@ package actor FlowPortfolioStore {
     try await commit(next, operation: "pendingRoundsRecovered")
   }
 
-  package func chooseCandidate(_ id: UUID) async throws {
+  package func chooseCandidate(_ id: UUID, offeredItems frozenItems: [FlowPortfolioPresentationItem]? = nil) async throws {
     let value = try candidate(id), round = try round(value.roundID)
-    let offered = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
-    let items = try offered.map { offeredID -> FlowPortfolioPresentationItem in
+    let declared = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
+    let pinned = frozenItems?.map(\.candidateID) ?? declared
+    for candidateID in pinned { pinCandidate(candidateID) }
+    defer { for candidateID in pinned { unpinCandidate(candidateID) } }
+    if let reason = try await candidateUnavailableReason(id) { throw FlowPortfolioError.invalid(reason) }
+    var offered: [UUID] = []
+    if let frozenItems {
+      offered = frozenItems.map(\.candidateID)
+      for item in frozenItems {
+        let candidate = try candidate(item.candidateID)
+        guard item.removedIndices.count < candidate.strokeCount else {
+          throw FlowPortfolioError.invalid("An empty drawing was not an enabled exploration choice.")
+        }
+        if let reason = try await candidateUnavailableReason(item.candidateID) { throw FlowPortfolioError.invalid(reason) }
+      }
+    } else {
+      for candidateID in declared {
+        let candidate = try candidate(candidateID)
+        if (state.latestPrune(candidateID: candidateID)?.removedIndices.count ?? 0) < candidate.strokeCount,
+          try await candidateUnavailableReason(candidateID) == nil { offered.append(candidateID) }
+      }
+    }
+    guard Set(offered).isSubset(of: Set(round.candidateIDs)), Set(offered).count == offered.count,
+      offered.contains(id) else {
+      throw FlowPortfolioError.invalid("The offered drawings must be enabled members of the selected round.")
+    }
+    let currentItems = try offered.map { offeredID -> FlowPortfolioPresentationItem in
       let value = try candidate(offeredID), edit = state.latestPrune(candidateID: offeredID)
       return .init(id: edit?.id ?? offeredID, candidateID: offeredID, revisionID: edit?.id,
         sourceID: value.sourceID, removedIndices: edit?.removedIndices ?? [])
     }
+    let items = frozenItems ?? currentItems
+    guard items.map(\.candidateID) == offered, items.contains(where: { $0.candidateID == id }) else {
+      throw FlowPortfolioError.invalid("The exploration choice differs from the exact offered set.")
+    }
+    // Validation below verifies every frozen revision and its original mask.
     let selectedItem = items.first(where: { $0.candidateID == id })!.id
     let alreadyRecorded = state.choices.contains {
       $0.roundID == round.id && $0.selectedItemID == selectedItem && $0.offeredItems == items

@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import PlotterModel
 import PlotterRuntime
 import PortraitArtists
@@ -14,23 +13,25 @@ package struct FlowAuthoringView: View {
   package var selectCamera: () async -> String? = { nil }
   package var handoffTitle = "Export Drawing"
   package var handoff: ((Drawing) async -> String?)? = nil
+  package var embedded = false
   package var photoSelected: (PhotoRef?) -> Void = { _ in }
-  @State private var importing = false
   @State private var showingCamera = false
   @Environment(\.drawingPresentationPolicy) private var presentationPolicy
   @State private var message: String?
+  @State private var roundHistory: [UUID] = []
+  @State private var restoringHistory = false
 
   package init(model: FlowAuthoringModel, camera: PortraitStudioModel,
     selectCamera: @escaping () async -> String? = { nil }, handoffTitle: String = "Export Drawing",
-    handoff: ((Drawing) async -> String?)? = nil, photoSelected: @escaping (PhotoRef?) -> Void = { _ in }) {
+    handoff: ((Drawing) async -> String?)? = nil, embedded: Bool = false, photoSelected: @escaping (PhotoRef?) -> Void = { _ in }) {
     self.model = model; self.camera = camera; self.selectCamera = selectCamera
     self.handoffTitle = handoffTitle; self.handoff = handoff
-    self.photoSelected = photoSelected
+    self.photoSelected = photoSelected; self.embedded = embedded
   }
 
   package var body: some View {
     VStack(spacing: 0) {
-      acquisitionBar.padding(12)
+      if !embedded { acquisitionBar.padding(12) }
       if model.document?.purpose == .validationFixture {
         Text("VALIDATION PORTFOLIO — test-created judgments, not your artistic preferences")
           .font(.caption.weight(.semibold)).foregroundStyle(.orange).padding(.bottom, 6)
@@ -60,25 +61,20 @@ package struct FlowAuthoringView: View {
         Text(model.directory.lastPathComponent).font(.caption).foregroundStyle(.secondary).help(model.directory.path)
       }.padding(8)
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("flowAuthoring.workspace")
     .task { await model.open() }
-    .onChange(of: model.currentPhotoRef) { _, ref in photoSelected(ref) }
+    .onChange(of: model.currentPhotoRef) { _, ref in roundHistory = []; photoSelected(ref) }
+    .onChange(of: model.round?.id) { old, new in
+      if restoringHistory { restoringHistory = false }
+      else if let old, let new, old != new { roundHistory.append(old) }
+    }
     .onChange(of: presentationPolicy.modalUnavailableReason) { _, reason in
-      if reason != nil { importing = false; showingCamera = false; FlowAuthoringFiles.cancelPanel() }
+      if reason != nil { showingCamera = false; FlowAuthoringFiles.cancelPanel() }
     }
     .sheet(isPresented: $showingCamera) {
       FlowAuthoringCameraPanel(camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera) { photo in
         await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt))
-      }
-    }
-    .fileImporter(isPresented: $importing, allowedContentTypes: [.png, .jpeg]) { result in
-      Task {
-        do {
-          let url = try result.get()
-          let bytes = try await Task.detached { try FlowAuthoringFiles.readImage(url) }.value
-          await model.addPhoto(data: bytes, title: url.deletingPathExtension().lastPathComponent,
-            mediaType: url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg")
-        } catch { message = error.localizedDescription }
       }
     }
     .overlay(alignment: .bottom) {
@@ -93,13 +89,12 @@ package struct FlowAuthoringView: View {
 
   private var acquisitionBar: some View {
     HStack(spacing: 10) {
-      Text("Flow Edge").font(.title2.weight(.semibold))
-      Button("Import Photo", systemImage: "photo.badge.plus") { if permitModal() { importing = true } }
-        .accessibilityIdentifier("flowAuthoring.importPhoto")
+      Text("Drawing").font(.title2.weight(.semibold))
+
       Button("Capture Photo", systemImage: "camera") { if permitModal() { showingCamera = true } }
         .accessibilityIdentifier("flowAuthoring.openCamera")
       Spacer()
-      Button("Import Photo Set…") { if permitModal() { Task { if let url = await FlowAuthoringFiles.openPhotoCollection() { await model.importPhotoCollection(url) } } } }
+
       Button(handoffTitle, systemImage: "square.and.arrow.up") {
         Task {
           do {
@@ -130,64 +125,16 @@ package struct FlowAuthoringView: View {
 
   private var exploration: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .top, spacing: 14) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text(model.selectedSource.map(model.photoName) ?? "Choose a photo to begin").font(.title3.weight(.semibold))
-          HStack {
-            Text(model.currentBranch).font(.callout).foregroundStyle(.secondary)
-            if !model.branchAncestors.isEmpty {
-              Menu("Parent drawings") {
-                ForEach(model.branchAncestors) { parent in
-                  Button(model.drawingName(parent)) { Task { await model.browseCandidate(parent.id) } }
-                }
-              }
-            }
-          }
-          PortraitAdaptiveRow {
-            Stepper("\(model.count) drawings", value: $model.count, in: 3...9).fixedSize()
-            Button("Broad exploration") { Task { await model.generate(refining: false) } }
-              .disabled(model.selectedSource == nil)
-              .accessibilityIdentifier("flowAuthoring.broad")
-            Button("Refine selected drawing") { Task { await model.generate(refining: true) } }
-              .disabled(model.candidate == nil)
-              .accessibilityIdentifier("flowAuthoring.refine")
-          }
-          HStack {
-            Button("Prune selected drawing") { model.stage = .prune }.disabled(model.candidate == nil)
-            Button("Compare this set") { if let round = model.round { Task { await model.presentRanking(scope: .round(round.id), count: 2) } } }.disabled(model.roundCandidates.count < 2)
-          }
-        }
-      }.disabled(model.isBusy || model.needsRecovery)
+      explorationControls
+      explorationAnchor
       if let round = model.round, !round.failures.isEmpty {
         Text("\(round.failures.count) proposal(s) unavailable: " + round.failures.map(\.message).joined(separator: "; "))
           .font(.caption).foregroundStyle(.orange).textSelection(.enabled)
       }
       ScrollView {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
-          ForEach(model.roundCandidates) { candidate in
-            VStack(alignment: .leading, spacing: 6) {
-              FlowAuthoringImage(data: model.previews[candidate.id], identity: model.previewIdentity(candidate: candidate)).frame(height: 220)
-              HStack {
-                Text(model.drawingName(candidate)).font(.headline)
-                Spacer()
-                if candidate.id == model.round?.recommendedCandidateID { Label("Recommended", systemImage: "sparkle").font(.caption) }
-              }
-              HStack {
-                Button("Choose direction") { Task { await model.selectCandidate(candidate.id) } }
-                  .buttonStyle(.borderedProminent)
-                  .accessibilityIdentifier("flowAuthoring.choose.\(candidate.slot)")
-              }.disabled(model.isBusy || model.needsRecovery)
-              HStack {
-                Button("Open / prune") { Task { await model.browseCandidate(candidate.id, prune: true) } }
-                Spacer()
-                Button { Task { await model.excludeCandidate(candidate, excluded: !candidate.excluded) } } label: {
-                  Image(systemName: candidate.excluded ? "eye.slash" : "eye")
-                }.help(candidate.excluded ? "Include in training" : "Exclude from training")
-              }.disabled(model.isBusy || model.needsRecovery)
-              Text(candidate.recipe.themeTitle + " · \(candidate.strokeCount) source lines" + (candidate.excluded ? " · excluded" : ""))
-                .font(.caption).foregroundStyle(.secondary)
-            }.padding(10).background(.background, in: RoundedRectangle(cornerRadius: 8))
-              .overlay { RoundedRectangle(cornerRadius: 8).stroke(model.candidate?.id == candidate.id ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1) }
+          ForEach(visibleExplorationCandidates) { candidate in
+            FlowExplorationCandidateCard(model: model, candidate: candidate)
           }
         }.padding(2)
       }
@@ -196,6 +143,86 @@ package struct FlowAuthoringView: View {
           description: Text("Import or capture a photo, then start broad exploration. Every drawing and choice is saved automatically."))
       }
     }.frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var explorationControls: some View {
+    HStack(alignment: .top, spacing: 14) {
+      VStack(alignment: .leading, spacing: 8) {
+        Text(model.selectedSource.map(model.photoName) ?? "Choose a photo to begin").font(.title3.weight(.semibold))
+        HStack {
+          Text(model.currentBranch).font(.callout).foregroundStyle(.secondary)
+          if !model.branchAncestors.isEmpty {
+            Menu("Parent drawings") {
+              ForEach(model.branchAncestors) { parent in
+                Button(model.drawingName(parent)) { Task { await model.browseCandidate(parent.id) } }
+              }
+            }
+          }
+        }
+        PortraitAdaptiveRow {
+          Button("Back") {
+            guard let id = roundHistory.popLast() else { return }
+            restoringHistory = true
+            Task { await model.selectRound(id) }
+          }.disabled(roundHistory.isEmpty)
+            .accessibilityIdentifier("flowAuthoring.back")
+            .help("Restore an earlier set without generating drawings or recording preference.")
+          Stepper("\(model.count) drawings", value: $model.count, in: 3...9).fixedSize()
+          Button("Broad sample") { roundHistory = []; restoringHistory = true; Task { await model.generate(refining: false) } }
+            .disabled(model.selectedSource == nil)
+            .accessibilityIdentifier("flowAuthoring.broad")
+          Button("Choose and refine") { if let id = model.candidate?.id { Task { await model.exploreCandidate(id) } } }
+            .disabled(selectedRefinementDisabled)
+            .help(selectedRefinementHelp)
+            .accessibilityIdentifier("flowAuthoring.refine")
+        }
+        HStack {
+          Button("Edit drawing") { model.beginPruning() }
+            .disabled(selectedEditingDisabled)
+            .help(selectedEditingHelp)
+          Button("Compare this set") { if let round = model.round { Task { await model.presentRanking(scope: .round(round.id), count: 2) } } }.disabled(model.roundCandidates.count < 2 || model.isBusy || model.needsRecovery)
+        }
+      }
+    }.disabled(!model.canNavigateExploration)
+  }
+
+  @ViewBuilder private var explorationAnchor: some View {
+    if let parentID = model.pendingBroadAnchorID ?? model.pendingExplorationParentID ?? model.round?.parentCandidateID,
+      let parent = model.document?.candidates.first(where: { $0.id == parentID }) {
+      HStack {
+        FlowExplorationAnchor(model: model, candidate: parent, frozenPreview: model.pendingBroadAnchorPreview).frame(width: 120, height: 120)
+        VStack(alignment: .leading) {
+          Text(model.pendingBroadAnchorID != nil ? "Starting drawing · Broad sample" : "Chosen direction · " + model.drawingName(parent)).font(.headline)
+          if model.pendingBroadAnchorID != nil { Text("Preparing broad variations…").foregroundStyle(.secondary); ProgressView().controlSize(.small) }
+          else if model.pendingExplorationParentID != nil { Text("Preparing closer variations…").foregroundStyle(.secondary); ProgressView().controlSize(.small) }
+          else { Text("Click a drawing below to choose the next direction.").foregroundStyle(.secondary) }
+        }
+      }
+    }
+  }
+
+  private var selectedRefinementDisabled: Bool {
+    guard let candidate = model.candidate else { return true }
+    return !model.canRefineCandidate(candidate)
+  }
+  private var selectedRefinementHelp: String {
+    guard let candidate = model.candidate else { return "Choose this direction and create closer variations." }
+    return model.candidateRefinementUnavailableReason(candidate) ?? "Choose this direction and create closer variations."
+  }
+  private var selectedEditingDisabled: Bool {
+    guard let candidate = model.candidate else { return true }
+    return model.isBusy || model.needsRecovery || model.candidateUnavailableReason(candidate) != nil
+  }
+  private var selectedEditingHelp: String {
+    guard let candidate = model.candidate else { return "Remove or restore whole lines in this drawing." }
+    return model.candidateUnavailableReason(candidate) ?? "Remove or restore whole lines in this drawing."
+  }
+
+  private var visibleExplorationCandidates: [FlowPortfolioCandidate] {
+    if let id = model.pendingBroadAnchorID,
+      let anchor = model.document?.candidates.first(where: { $0.id == id }), model.round?.id == anchor.roundID { return [] }
+    if let id = model.pendingExplorationParentID, model.round?.parentCandidateID != id { return [] }
+    return model.roundCandidates
   }
 
   private var pruning: some View {
@@ -209,7 +236,13 @@ package struct FlowAuthoringView: View {
           Button("Delete Selected") { Task { await model.edit(.remove, ids: model.selection) } }.disabled(model.selection.isEmpty)
           Button("Undo") { Task { await model.edit(.undo) } }.disabled(model.prune?.undoOperationIDs.isEmpty != false)
           Button("Redo") { Task { await model.edit(.redo) } }.disabled(model.prune?.redoOperationIDs.isEmpty != false)
-        }.disabled(model.isBusy || model.needsRecovery || model.showsOriginal || model.showsPhoto)
+        }.disabled(!model.canEdit)
+        if let reason = model.editingUnavailableReason {
+          HStack {
+            Text(reason).font(.callout).foregroundStyle(.secondary)
+            if model.showsOriginal || model.showsPhoto { Button("Return to editing") { model.returnToEditing() } }
+          }
+        }
         HStack {
           Toggle("Original", isOn: $model.showsOriginal).toggleStyle(.button)
           Toggle("Photo", isOn: $model.showsPhoto).toggleStyle(.button)
@@ -239,7 +272,8 @@ package struct FlowAuthoringView: View {
           }
         }
       } else {
-        ContentUnavailableView("Choose a drawing", systemImage: "cursorarrow", description: Text("Choose a result from an exploration round to remove or restore whole lines."))
+        ContentUnavailableView("Choose a drawing", systemImage: "cursorarrow", description: Text(model.candidateLoadError ?? "Choose a result from an exploration round to remove or restore whole lines."))
+        if model.candidateLoadError != nil { Button("Retry drawing load") { Task { await model.retryCandidateLoad() } }.disabled(model.isBusy || model.needsRecovery) }
       }
     }
   }
@@ -397,7 +431,7 @@ private struct FlowAuthoringCanvas: NSViewRepresentable {
     view.model = nil; view.program = program
     view.removed = model.showsOriginal ? [] : model.removedIDs
     view.selected = model.selection
-    view.editingEnabled = !model.isBusy && !model.needsRecovery && !model.showsOriginal && !model.showsPhoto
+    view.editingEnabled = model.canEdit
     view.tool = model.tool
     view.onSelection = { model.selection = $0 }
     view.onRemove = { ids in Task { await model.edit(.remove, ids: ids) } }
@@ -405,5 +439,18 @@ private struct FlowAuthoringCanvas: NSViewRepresentable {
     view.onUndo = { Task { await model.edit(.undo) } }
     view.onRedo = { Task { await model.edit(.redo) } }
     view.needsDisplay = true
+  }
+}
+
+private struct FlowExplorationAnchor: View {
+  let model: FlowAuthoringModel
+  let candidate: FlowPortfolioCandidate
+  let frozenPreview: Data?
+  @State private var pixels: Data?
+  var body: some View {
+    FlowAuthoringImage(data: frozenPreview ?? model.previews[candidate.id] ?? pixels, identity: model.previewIdentity(candidate: candidate))
+      .task(id: model.previewIdentity(candidate: candidate)) {
+        if frozenPreview == nil { pixels = await model.thumbnail(candidate: candidate) }
+      }
   }
 }

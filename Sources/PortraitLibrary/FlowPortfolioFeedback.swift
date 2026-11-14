@@ -328,7 +328,8 @@ extension FlowPortfolioStore {
   package func exportFeedback(judgmentID: UUID, to destination: URL) async throws {
     try await storage.library.exportFeedback(feedbackReference(for: judgmentID).publication, to: destination)
   }
-  func feedbackRows<T: Codable>(_ type: T.Type, name: String) async throws -> [T] {
+  func feedbackRows<T: Codable>(_ type: T.Type, name: String, budget: FlowFeatureReadBudget = .init()) async throws -> [T] {
+    try budget.beginNavigationCategory()
     let key = kind(name), records = try await storage.library.records(kind: key)
     var values: [(Int, T)] = []
     let ordered = try records.map { row -> (DrawingLibraryRecord, [String: Any], Int) in
@@ -340,7 +341,6 @@ extension FlowPortfolioStore {
     // rows from a feedback batch are adjacent; eight contexts cap open roots.
     var publications: [DrawingLibraryFeedbackRef: ValidatedExchangePackage] = [:]
     var publicationOrder: [DrawingLibraryFeedbackRef] = []
-    let budget = FlowFeatureReadBudget()
     for (row, json, _) in ordered {
       if type == FlowPortfolioPruneRevision.self, let raw = json["value"] as? [String: Any], raw["feedback"] == nil {
         let attributed = try JSONDecoder().decode(FlowLibraryEntity<FlowPortfolioPruneRevision>.self, from: row.payload)
@@ -373,15 +373,27 @@ extension FlowPortfolioStore {
 
 /// Invocation-local limits, shared by all historical judgments in one task read.
 /// This is not a durable cache or an interpretation registry.
+package struct FlowFeatureReadStatistics: Codable, Equatable, Sendable {
+  package var decodedCapsules = 0
+  package var decodedStrokeMatrices = 0
+  package var reusedEncodedStrokeMatrices = 0
+  package var admittedBytes: UInt64 = 0
+  package var admittedElements = 0
+}
 final class FlowFeatureReadBudget {
   private let maximumBytes: UInt64
   private let maximumElements: Int
   private var assets: [ExchangeDigest: ExchangeAsset] = [:]
+  private var seenDescriptors: [ExchangeDigest: ExchangeAsset] = [:]
   private var usedBytes: UInt64 = 0
   private var countedFeatures = Set<ExchangeDigest>()
   private var sharedStrokeBases = Set<ExchangeDigest>()
   private var usedElements = 0
+  private var navigationCategories = 0
   fileprivate var features: [ExchangeDigest: FlowPortfolioFeatureCapsule] = [:]
+  fileprivate var rootStrokeJSONDigests: [ExchangeDigest: ExchangeDigest] = [:]
+  var statistics = FlowFeatureReadStatistics()
+  fileprivate let reusesEncodedStrokeBasis: Bool
   fileprivate var verifiedBytes: [ExchangeDigest: Data] = [:]
   private let maximumCachedBytes: Int
   private var cachedByteCount = 0
@@ -396,9 +408,20 @@ final class FlowFeatureReadBudget {
   /// check. Default standalone answer/ranking reads settle their own read set.
   weak var batchedFiles: VerifiedExchangeFiles?
   init(maximumBytes: UInt64 = 512 * 1024 * 1024, maximumElements: Int = 8_000_000,
-    maximumCachedBytes: Int = 64 * 1024 * 1024) {
+    maximumCachedBytes: Int = 64 * 1024 * 1024, reusesEncodedStrokeBasis: Bool = true) {
     self.maximumBytes = maximumBytes; self.maximumElements = maximumElements
     self.maximumCachedBytes = max(0, maximumCachedBytes)
+    self.reusesEncodedStrokeBasis = reusesEncodedStrokeBasis
+  }
+  /// Loading choices, pruning and rankings keeps their original independent
+  /// admission ceilings. Only verified immutable parse results cross categories.
+  /// Thus one graph load retains at most three 8m-element category bases, while
+  /// raw-byte reuse remains capped separately at 64MiB.
+  func beginNavigationCategory() throws {
+    guard navigationCategories < 3 else { throw FlowPortfolioError.unavailable("Too many feedback navigation categories in one load.") }
+    navigationCategories += 1
+    assets.removeAll(keepingCapacity: true); usedBytes = 0
+    countedFeatures.removeAll(keepingCapacity: true); sharedStrokeBases.removeAll(keepingCapacity: true); usedElements = 0
   }
   func cacheVerified(_ bytes: Data, digest: ExchangeDigest) {
     guard verifiedBytes[digest] == nil, bytes.count <= maximumCachedBytes else { return }
@@ -420,11 +443,15 @@ final class FlowFeatureReadBudget {
     context.assets.insert(asset.object)
   }
   func admit(_ asset: ExchangeAsset) throws {
+    if let old = seenDescriptors[asset.object], old != asset {
+      throw FlowPortfolioError.invalid("Conflicting exact JSON asset descriptor across feedback categories.")
+    }
     if let old = assets[asset.object] {
       guard old == asset else { throw FlowPortfolioError.invalid("Conflicting exact JSON asset descriptor.") }; return
     }
     guard asset.byteLength <= maximumBytes - usedBytes else { throw FlowPortfolioError.unavailable("Frozen feature materialization budget exceeded.") }
-    usedBytes += asset.byteLength; assets[asset.object] = asset
+    usedBytes += asset.byteLength; assets[asset.object] = asset; seenDescriptors[asset.object] = asset
+    statistics.admittedBytes += asset.byteLength
   }
   func admitFeature(_ asset: ExchangeAsset, value: FlowPortfolioFeatureCapsule) throws {
     guard !countedFeatures.contains(asset.object) else { return }
@@ -432,6 +459,7 @@ final class FlowFeatureReadBudget {
     let count = value.drawing.count + (sharedStrokeBases.contains(basis) ? 0 : value.strokes.reduce(0) { $0 + $1.count })
     guard count <= maximumElements - usedElements else { throw FlowPortfolioError.unavailable("Frozen historical feature budget exceeded.") }
     usedElements += count; countedFeatures.insert(asset.object); sharedStrokeBases.insert(basis)
+    statistics.admittedElements += count
   }
 }
 
@@ -593,17 +621,43 @@ extension FlowFeedbackReader {
     let cacheKey = asset.object
     let cached = budget.features[cacheKey]
     var value: FlowPortfolioFeatureCapsule
+    var decodedBytes: Data?
+    var verifiedBase: FlowPortfolioFeatureCapsule?
+    var members: [String: Range<Int>]?
     if let cached {
       try requireJSONContext(asset, package: package, budget: budget, maximumBytes: 128 * 1024 * 1024)
       if budget.verified(asset, in: package.files) { try package.files.verify(asset.object) }
       else { _ = try exactJSON(asset, package: package, budget: budget) }
       value = cached
-    } else { value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: exactJSON(asset, package: package, budget: budget)) }
+    } else {
+      let bytes = try exactJSON(asset, package: package, budget: budget)
+      decodedBytes = bytes
+      members = budget.reusesEncodedStrokeBasis ? FlowFeatureJSON.members(bytes) : nil
+      if let rootRange = members?["rootFeatures"], let strokeRange = members?["strokes"],
+        bytes[rootRange.lowerBound] != 110 {
+        let root = try JSONDecoder().decode(ExchangeAsset.self, from: bytes.subdata(in: rootRange))
+        guard allowRootReference, root.object != asset.object else { throw FlowPortfolioError.invalid("Cyclic root feature basis.") }
+        let base = try feature(root, package: package, budget: budget, allowRootReference: false)
+        verifiedBase = base
+        if let rootDigest = budget.rootStrokeJSONDigests[root.object],
+          ExchangeDigest.hash(bytes.subdata(in: strokeRange)) == rootDigest {
+          value = try JSONDecoder().decode(FlowFeatureMetadata.self, from: bytes).capsule(strokes: base.strokes)
+          budget.statistics.reusedEncodedStrokeMatrices += 1
+        } else {
+          value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: bytes)
+          budget.statistics.decodedStrokeMatrices += 1
+        }
+      } else {
+        value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: bytes)
+        budget.statistics.decodedStrokeMatrices += 1
+      }
+      budget.statistics.decodedCapsules += 1
+    }
     let config = try exactJSON(value.extractor.record, package: package, budget: budget, maximumBytes: 1024 * 1024)
     let receipt = try exactJSON(value.producer.record, package: package, budget: budget, maximumBytes: 1024 * 1024)
     if let root = value.rootFeatures {
       guard allowRootReference, root.object != asset.object else { throw FlowPortfolioError.invalid("Cyclic root feature basis.") }
-      let base = try feature(root, package: package, budget: budget, allowRootReference: false)
+      let base = try verifiedBase ?? feature(root, package: package, budget: budget, allowRootReference: false)
       guard base.rootFeatures == nil, base.id == value.candidateID, base.candidateID == value.candidateID,
         base.sourceID == value.sourceID, base.programDigest == value.programDigest, base.strokeIDs == value.strokeIDs,
         base.recipe == value.recipe,
@@ -631,10 +685,16 @@ extension FlowFeedbackReader {
         value.removedIndices.allSatisfy({ value.strokeIDs.indices.contains($0) }),
         value.extractor.id == "adaptiveplotter.flow-features", value.extractor.version == FlowArtistFeatures.revision,
         !value.producer.id.isEmpty, !value.producer.version.isEmpty else { throw FlowPortfolioError.invalid("Malformed or unsupported feature basis.") }
-      try budget.admitFeature(asset, value: value)
       guard try JSONDecoder().decode(FlowFeatureExtractorConfiguration.self, from: config) == .current else { throw FlowPortfolioError.unavailable("Unsupported extractor configuration.") }
       _ = try ExchangeJSON.validate(receipt)
+      if value.rootFeatures == nil, let bytes = decodedBytes,
+        let strokeRange = members?["strokes"] {
+        budget.rootStrokeJSONDigests[asset.object] = .hash(bytes.subdata(in: strokeRange))
+      }
     }
+    // Charge the current category even when another category verified the
+    // cached capsule. Reuse never expands any category's admission authority.
+    try budget.admitFeature(asset, value: value)
     budget.features[cacheKey] = value
     return value
   }
@@ -663,5 +723,116 @@ extension FlowFeedbackReader {
   static func decodeJSON<T: Decodable>(_ value: Any?, _ type: T.Type) throws -> T {
     guard let value else { throw FlowPortfolioError.invalid("Canonical field unavailable.") }
     return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]))
+  }
+}
+
+/// A mask's numerical stroke basis is already present in its verified root. The
+/// metadata decoder still parses the complete JSON document, but only skips
+/// materializing that matrix after its exact JSON bytes match the validated root.
+private struct FlowFeatureMetadata: Decodable {
+  let profile: String
+  let id: UUID
+  let candidateID: UUID
+  let sourceID: UUID
+  let programDigest: ExchangeDigest
+  let rootFeatures: ExchangeAsset?
+  let strokeIDs: [StrokeID]
+  let recipe: FlowArtistRecipe
+  let producer: FlowPortfolioFeatureProvenance
+  let extractor: FlowPortfolioFeatureProvenance
+  let drawing: [Double]
+  let removedIndices: [Int]
+  let requiredFeatures: [String]
+  func capsule(strokes: [[Double]]) -> FlowPortfolioFeatureCapsule {
+    .init(profile: profile, id: id, candidateID: candidateID, sourceID: sourceID,
+      programDigest: programDigest, rootFeatures: rootFeatures, strokeIDs: strokeIDs, recipe: recipe,
+      producer: producer, extractor: extractor, drawing: drawing, strokes: strokes,
+      removedIndices: removedIndices, requiredFeatures: requiredFeatures)
+  }
+}
+
+/// Finds byte ranges only; JSONDecoder remains the syntax/type authority. Any
+/// unusual top-level key spelling, duplicate key, malformed container or trailing
+/// content declines this optimization and takes the original full decoder path.
+private enum FlowFeatureJSON {
+  static func members(_ data: Data) -> [String: Range<Int>]? {
+    data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> [String: Range<Int>]? in
+      var offset = 0
+      func whitespace(_ value: UInt8) -> Bool { value == 32 || value == 9 || value == 10 || value == 13 }
+      func space() { while offset < bytes.count && whitespace(bytes[offset]) { offset += 1 } }
+      space(); guard offset < bytes.count, bytes[offset] == 123 else { return nil }; offset += 1
+      var result: [String: Range<Int>] = [:]
+      while true {
+        space(); guard offset < bytes.count else { return nil }
+        if bytes[offset] == 125 {
+          offset += 1; space(); return offset == bytes.count ? result : nil
+        }
+        guard bytes[offset] == 34 else { return nil }; offset += 1
+        let keyStart = offset
+        while offset < bytes.count && bytes[offset] != 34 {
+          // Escaped/non-ASCII keys remain supported through the full decoder.
+          guard bytes[offset] >= 32, bytes[offset] < 128, bytes[offset] != 92 else { return nil }
+          offset += 1
+        }
+        guard offset < bytes.count else { return nil }
+        let key = String(decoding: bytes[keyStart..<offset], as: UTF8.self)
+        guard result[key] == nil else { return nil }
+        offset += 1; space(); guard offset < bytes.count, bytes[offset] == 58 else { return nil }
+        offset += 1; space(); let start = offset
+        var stack: [UInt8] = [], string = false, escaped = false
+        while offset < bytes.count {
+          let byte = bytes[offset]
+          if string {
+            if escaped { escaped = false }
+            else if byte == 92 { escaped = true }
+            else if byte == 34 { string = false }
+          } else if byte == 34 { string = true }
+          else if byte == 91 || byte == 123 {
+            guard stack.count < 64 else { return nil }; stack.append(byte)
+          } else if byte == 93 || byte == 125 {
+            if stack.isEmpty { break }
+            guard stack.removeLast() == (byte == 93 ? 91 : 123) else { return nil }
+          } else if byte == 44 && stack.isEmpty { break }
+          offset += 1
+        }
+        guard !string, stack.isEmpty else { return nil }
+        var end = offset
+        while end > start && whitespace(bytes[end - 1]) { end -= 1 }
+        guard end > start else { return nil }; result[key] = start..<end
+        space(); guard offset < bytes.count else { return nil }
+        if bytes[offset] == 44 {
+          offset += 1; space()
+          guard offset < bytes.count, bytes[offset] != 125 else { return nil }
+        } else if bytes[offset] != 125 { return nil }
+      }
+    }
+  }
+}
+
+private struct FlowFeedbackProjection: Encodable {
+  let choices: [FlowPortfolioChoice]
+  let pruneRevisions: [FlowPortfolioPruneRevision]
+  let rankings: [FlowPortfolioRanking]
+}
+extension FlowPortfolioStore {
+  /// Diagnostic digest of typed canonical answers plus their exact navigation.
+  /// A frozen original snapshot limits this to preexisting judgments, so adding
+  /// new generated candidates/model masks cannot hide a changed historical row.
+  package func feedbackProjectionDigest(matching original: FlowPortfolioSnapshot? = nil) throws -> String {
+    let choiceIDs = original.map { Set($0.choices.map(\.id)) }
+    let pruneIDs = original.map { Set($0.pruneRevisions.map(\.id)) }
+    let rankingIDs = original.map { Set($0.rankings.map(\.id)) }
+    let projection = FlowFeedbackProjection(
+      choices: state.choices.filter { choiceIDs?.contains($0.id) ?? true },
+      pruneRevisions: state.pruneRevisions.filter { pruneIDs?.contains($0.id) ?? true },
+      rankings: state.rankings.filter { rankingIDs?.contains($0.id) ?? true })
+    if let original {
+      guard projection.choices.count == original.choices.count,
+        projection.pruneRevisions.count == original.pruneRevisions.count,
+        projection.rankings.count == original.rankings.count else {
+        throw FlowPortfolioError.invalid("A preexisting feedback row is missing from the projection.")
+      }
+    }
+    return DrawingArtifactCoding.sha256(try DrawingArtifactCoding.encoder().encode(projection))
   }
 }

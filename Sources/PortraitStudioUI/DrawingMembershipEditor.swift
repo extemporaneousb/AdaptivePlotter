@@ -28,6 +28,14 @@ package struct DrawingMembershipEditor: View {
         Button("Undo") { model.undo() }.disabled(!model.canUndo)
         Button("Redo") { model.redo() }.disabled(!model.canRedo)
       }
+      if let reason = model.editingUnavailableReason {
+        HStack {
+          Text(reason).foregroundStyle(.secondary)
+          if model.showsOriginal || model.showsPhoto {
+            Button("Return to editing") { model.returnToEditing() }
+          }
+        }
+      }
       if let original = model.original, PortraitLineEditModel.supports(original),
         original.capabilities.supported.contains(.preview) {
         PortraitLineEditorCanvas(model: model, program: original.program)

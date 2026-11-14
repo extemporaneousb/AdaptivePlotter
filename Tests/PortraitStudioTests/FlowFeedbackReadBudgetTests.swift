@@ -99,6 +99,121 @@ struct FlowFeedbackReadBudgetTests {
     await fixture.library.closeLibrary()
   }
 
+  @Test("Verified encoded root reuse matches full decoding and cold graph loading preserves every answer")
+  func encodedRootReuseAndLoadParity() async throws {
+    let root = DrawingExchangeFeedbackFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = try await DrawingExchangeFeedbackFixture.make(directory: root, candidateCount: 2)
+    let candidate = fixture.candidates[0][0]
+    try await fixture.store.chooseCandidate(candidate.id)
+    let edit = try await fixture.store.applyPrune(candidateID: candidate.id, action: .remove, indices: [0])
+    let presentation = try await fixture.store.presentRoundRanking(candidate.roundID, seed: 19)
+    _ = try await fixture.store.recordRanking(presentationID: presentation.id, orderedGroups: presentation.items.map { [$0.id] })
+    let restored = try await fixture.store.applyPrune(candidateID: candidate.id, action: .restore, indices: [0])
+    let snapshot = try await fixture.store.freezeTrainingSnapshot()
+    let package = try await fixture.library.feedback(try #require(snapshot.publication))
+    let edited = try await fixture.store.featureCapsule(candidateID: candidate.id, revisionID: edit.id)
+    let fast = FlowFeatureReadBudget(), full = FlowFeatureReadBudget(reusesEncodedStrokeBasis: false)
+    let a = try FlowFeedbackReader.feature(edited.asset, package: package, budget: fast)
+    let b = try FlowFeedbackReader.feature(edited.asset, package: package, budget: full)
+    #expect(try DrawingArtifactCoding.encoder().encode(a) == DrawingArtifactCoding.encoder().encode(b))
+    #expect(fast.statistics.reusedEncodedStrokeMatrices == 1 && fast.statistics.decodedStrokeMatrices == 1)
+    #expect(full.statistics.reusedEncodedStrokeMatrices == 0 && full.statistics.decodedStrokeMatrices == 2)
+    let baseElements = edited.strokes.reduce(0) { $0 + $1.count }
+    let categoryLimit = baseElements + FlowArtistFeatures.drawingCount * 2
+    let categories = FlowFeatureReadBudget(maximumElements: categoryLimit)
+    _ = try FlowFeedbackReader.feature(edited.asset, package: package, budget: categories)
+    try categories.beginNavigationCategory()
+    _ = try FlowFeedbackReader.feature(edited.asset, package: package, budget: categories)
+    let restoredAsset = try await fixture.store.featureCapsule(candidateID: candidate.id, revisionID: restored.id).asset
+    #expect(throws: (any Error).self) { try FlowFeedbackReader.feature(restoredAsset, package: package, budget: categories) }
+    #expect(categories.statistics.admittedElements == categoryLimit * 2)
+    let expected = await fixture.store.snapshot()
+    let expectedDigest = try await fixture.store.feedbackProjectionDigest()
+    await fixture.library.closeLibrary()
+    let reopened = FlowPortfolioStore(directory: root)
+    try await reopened.loadRecords()
+    #expect(await reopened.snapshot() == expected)
+    #expect(try await reopened.feedbackProjectionDigest(matching: expected) == expectedDigest)
+    let statistics = await reopened.lastFeedbackReadStatistics
+    #expect(statistics.reusedEncodedStrokeMatrices > 0 && statistics.decodedStrokeMatrices < statistics.decodedCapsules)
+    #expect(statistics.admittedBytes <= 3 * 512 * 1024 * 1024 && statistics.admittedElements <= 24_000_000)
+    await reopened.closeLibrary()
+    let fullDecode = FlowPortfolioStore(directory: root)
+    try await fullDecode.loadRecords(reusingEncodedStrokeBasis: false)
+    #expect(await fullDecode.snapshot() == expected)
+    #expect(try await fullDecode.feedbackProjectionDigest() == expectedDigest)
+    #expect(await fullDecode.lastFeedbackReadStatistics.reusedEncodedStrokeMatrices == 0)
+    await fullDecode.closeLibrary()
+  }
+
+  @Test("Category resets retain exact descriptors and recharge cached feature admission")
+  func categoryDescriptorIdentity() throws {
+    let asset = try ExchangeAsset(bytes: Data("{}".utf8), mediaType: "application/json", encoding: "utf8-json")
+    var json = try #require(JSONSerialization.jsonObject(with: DrawingArtifactCoding.encoder().encode(asset)) as? [String: Any])
+    json["byteLength"] = asset.byteLength + 1
+    let conflicting = try JSONDecoder().decode(ExchangeAsset.self, from: JSONSerialization.data(withJSONObject: json))
+    let budget = FlowFeatureReadBudget(maximumBytes: asset.byteLength)
+    try budget.admit(asset); try budget.beginNavigationCategory(); try budget.admit(asset)
+    #expect(budget.statistics.admittedBytes == asset.byteLength * 2)
+    #expect(throws: (any Error).self) { try budget.admit(conflicting) }
+  }
+
+  @Test("Whitespace, escaped keys and duplicate members decline reuse without changing decoder semantics",
+    arguments: ["pretty", "reordered", "escaped-key", "duplicate-strokes", "trailing"])
+  func encodedStrokeFallback(change: String) async throws {
+    let root = DrawingExchangeFeedbackFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = try await DrawingExchangeFeedbackFixture.make(directory: root, candidateCount: 1)
+    let candidate = fixture.candidates[0][0]
+    let edit = try await fixture.store.applyPrune(candidateID: candidate.id, action: .remove, indices: [0])
+    let ref = try await fixture.store.feedbackReference(for: edit.id), package = try await fixture.library.feedback(ref.publication)
+    let feature = try await fixture.store.featureCapsule(candidateID: candidate.id, revisionID: edit.id)
+    let canonical = try DrawingArtifactCoding.encoder().encode(feature)
+    var changed: Data
+    switch change {
+    case "pretty": changed = try JSONSerialization.data(withJSONObject: JSONSerialization.jsonObject(with: canonical), options: [.prettyPrinted, .sortedKeys])
+    case "reordered":
+      let object = try #require(JSONSerialization.jsonObject(with: canonical) as? [String: Any])
+      let fields = try object.keys.sorted().reversed().map { key -> Data in
+        var entry = try JSONSerialization.data(withJSONObject: key, options: [.fragmentsAllowed])
+        entry.append(Data(": ".utf8))
+        entry.append(try JSONSerialization.data(withJSONObject: object[key]!, options: [.fragmentsAllowed, .prettyPrinted, .sortedKeys]))
+        return entry
+      }
+      changed = Data("{\n".utf8)
+      for (index, field) in fields.enumerated() { if index > 0 { changed.append(Data(",\n".utf8)) }; changed.append(field) }
+      changed.append(Data("\n}".utf8))
+    case "escaped-key":
+      let text = try #require(String(data: canonical, encoding: .utf8))
+      changed = Data(text.replacingOccurrences(of: "\"strokes\":", with: "\"\\u0073trokes\":").utf8)
+    case "duplicate-strokes":
+      let values = try DrawingArtifactCoding.encoder().encode(feature.strokes)
+      changed = Data(canonical.dropLast()); changed.append(Data(",\"strokes\":".utf8)); changed.append(values); changed.append(125)
+    default: changed = canonical; changed.append(Data(" false".utf8))
+    }
+    let asset = try ExchangeAsset(bytes: changed, mediaType: "application/json", encoding: "utf8-json")
+    var files = try payloadFiles(package)
+    files["data/objects/sha256/" + asset.object.description] = changed
+    let indexBytes = try #require(files["data/exchange.json"])
+    var index = try #require(JSONSerialization.jsonObject(with: indexBytes) as? [String: Any])
+    var descriptors = try #require(index["assets"] as? [[String: Any]])
+    descriptors.append(try #require(JSONSerialization.jsonObject(with: DrawingArtifactCoding.encoder().encode(ExchangeAssetDescriptor(asset: asset))) as? [String: Any]))
+    index["assets"] = descriptors; files["data/exchange.json"] = try DrawingExchangeFeedbackFixture.json(index)
+    let prepared = try FlowFeedbackCarrier.prepare(files)
+    defer { try? FileManager.default.removeItem(at: prepared.temporaryRoot) }
+    let fast = FlowFeatureReadBudget(), full = FlowFeatureReadBudget(reusesEncodedStrokeBasis: false)
+    let a = Result { try FlowFeedbackReader.feature(asset, package: prepared.package, budget: fast) }
+    let b = Result { try FlowFeedbackReader.feature(asset, package: prepared.package, budget: full) }
+    switch (a, b) {
+    case (.success(let first), .success(let second)):
+      #expect(try DrawingArtifactCoding.encoder().encode(first) == DrawingArtifactCoding.encoder().encode(second))
+    case (.failure, .failure): break
+    default: Issue.record("Optimized and full decoder acceptance differ for \(change)")
+    }
+    #expect(fast.statistics.reusedEncodedStrokeMatrices == 0)
+    if change == "trailing" { #expect(throws: (any Error).self) { try a.get() } }
+    await fixture.library.closeLibrary()
+  }
+
   private func payloadFiles(_ package: ValidatedExchangePackage) throws -> [String: Data] {
     var result: [String: Data] = [:]
     for path in package.files.entries.keys where path.hasPrefix("data/") { result[path] = try package.files.record(at: path, maximumBytes: 128 * 1024 * 1024) }

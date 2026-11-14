@@ -30,6 +30,16 @@ final class FlowAuthoringArtifacts: @unchecked Sendable {
     assets[digest] = bytes
     return .init(sha256: digest, byteCount: bytes.count, mediaType: mediaType)
   }
+  func isAvailable(_ blob: FlowPortfolioBlob) -> Bool { assets[blob.sha256] != nil || published.contains(blob.sha256) }
+  func canRetain(_ values: [Data]) -> Bool {
+    var additions: [String: Int] = [:]
+    for bytes in values {
+      let digest = ExchangeDigest.hash(bytes).description
+      if assets[digest] == nil && !published.contains(digest) { additions[digest] = bytes.count }
+    }
+    return additions.count <= Self.maximumCount - assets.count
+      && additions.values.reduce(0, +) <= Self.maximumBytes - byteCount
+  }
   func read(_ blob: FlowPortfolioBlob) async throws -> Data {
     let bytes: Data
     if let cached = assets[blob.sha256] { bytes = cached }

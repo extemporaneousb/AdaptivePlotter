@@ -204,7 +204,7 @@ struct PortraitStudioWorkspaceLayoutTests {
     let normalized = (rendered + nativeLabels).map(normalize)
     let diagnostic = "stage=\(stage.rawValue) size=\(size) native=\(nativeLabels) rendered=\(rendered)"
     print("FLOW_AUTHORING_HOSTED_LAYOUT \(diagnostic)")
-    for label in ["Flow Edge", "Import Photo", "Portfolio", "Branches"] + coreLabels(stage) {
+    for label in ["Drawing", "Branches"] + coreLabels(stage) {
       #expect(normalized.contains { $0.contains(normalize(label)) }, "Core action '\(label)' is not visibly rendered: \(diagnostic)")
     }
 
@@ -259,7 +259,7 @@ struct PortraitStudioWorkspaceLayoutTests {
 
   private func coreLabels(_ stage: FlowAuthoringModel.Stage) -> [String] {
     switch stage {
-    case .explore: return ["Broad exploration", "Refine selected drawing", "Prune selected drawing"]
+    case .explore: return ["Broad sample", "Choose and refine", "Edit drawing"]
     case .prune: return ["Delete Selected", "Undo", "Redo", "Finish pruning", "Original"]
     case .rank: return ["Rank by artistic preference", "This set", "Across photos", "Next pair", "Skip"]
     case .fit: return ["Fit portfolio", "Use untrained exploration", "Results", "Training loss", "Holdout loss"]

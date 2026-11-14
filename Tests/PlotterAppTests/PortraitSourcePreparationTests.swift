@@ -6,6 +6,63 @@ import Testing
 
 @Suite("Portrait reusable source preparation")
 struct PortraitSourcePreparationTests {
+  @Test("analysis options retain selected region across Codable boundaries without changing legacy nil bytes")
+  func analysisOptionsCoding() throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+    let legacyBytes = Data("{\"cropToFace\":true,\"faceCropMargin\":0.18,\"removeBackground\":true}".utf8)
+    let legacy = try JSONDecoder().decode(PortraitAnalysisOptions.self, from: legacyBytes)
+    #expect(legacy.manualRegion == nil)
+    #expect(try encoder.encode(legacy) == legacyBytes)
+    let region = PortraitNormalizedRegion(x: 0.125, y: 0.25, width: 0.5, height: 0.625)
+    let selected = PortraitAnalysisOptions(cropToFace: true, removeBackground: false,
+      faceCropMargin: 0.18, manualRegion: region)
+    let bytes = try encoder.encode(selected)
+    #expect(try JSONDecoder().decode(PortraitAnalysisOptions.self, from: bytes) == selected)
+    let object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+    #expect(object["manualRegion"] is [String: Any])
+    var unbounded = selected
+    unbounded.manualRegion = .init(x: -0.25, y: 0.8, width: 2, height: 1)
+    let normalized = try JSONDecoder().decode(PortraitAnalysisOptions.self, from: encoder.encode(unbounded))
+    #expect(normalized.manualRegion == unbounded.manualRegion?.bounded)
+    let rawRegion = Data("{\"manualRegion\":{\"x\":-0.25,\"y\":0.8,\"width\":2,\"height\":1}}".utf8)
+    #expect(try JSONDecoder().decode(PortraitAnalysisOptions.self, from: rawRegion).manualRegion == unbounded.manualRegion?.bounded)
+    let whole = PortraitAnalysisOptions(cropToFace: true, manualRegion: .init(x: 0, y: 0, width: 1, height: 1))
+    #expect(try JSONDecoder().decode(PortraitAnalysisOptions.self, from: encoder.encode(whole)).manualRegion == whole.manualRegion)
+    #expect(throws: DecodingError.self) {
+      try JSONDecoder().decode(PortraitAnalysisOptions.self, from: Data("{\"manualRegion\":\"invalid\"}".utf8))
+    }
+  }
+
+  @Test("manual region supersedes face framing, preserves source metric, and old options decode")
+  func manualRegion() throws {
+    let data = try portraitTestImage()
+    let extent = try PortraitSourceCropExtent(widthPixels: 6_000, heightPixels: 8_000)
+    let source = try PortraitImageAnalyzer.prepareSource(data: data, sourcePixelExtent: extent,
+      faceAnalyzer: sourceFixtureFace,
+      personMaskAnalyzer: { _ in .init(status: .noPerson, requestRevision: 1) })
+    let selection = PortraitNormalizedRegion(x: 0.25, y: 0.125, width: 0.5, height: 0.625)
+    let selected = try PortraitImageAnalyzer.analyze(preparedSource: source,
+      options: .init(cropToFace: true, removeBackground: false, manualRegion: selection), maximumDimension: 320)
+    let faceDisabled = try PortraitImageAnalyzer.analyze(preparedSource: source,
+      options: .init(cropToFace: false, removeBackground: false, manualRegion: selection), maximumDimension: 320)
+    let geometry = try #require(selected.analysisGeometry)
+    #expect(geometry.crop.x == 15 && geometry.crop.y == 10)
+    #expect(geometry.crop.width == 30 && geometry.crop.height == 50)
+    #expect(geometry.sourcePixelExtent == extent)
+    #expect(selected.sourceCropExtent?.widthPixels == 3_000)
+    #expect(selected.sourceCropExtent?.heightPixels == 5_000)
+    #expect(selected.luminance == faceDisabled.luminance)
+    #expect(selected.analysisSummary.contains("Selected photo region"))
+    #expect(!selected.analysisSummary.contains("Face crop"))
+    let legacy = try JSONDecoder().decode(PortraitAnalysisOptions.self,
+      from: Data("{\"cropToFace\":true,\"removeBackground\":true,\"faceCropMargin\":0.18}".utf8))
+    #expect(legacy.manualRegion == nil)
+    #expect(PortraitNormalizedRegion(x: -.infinity, y: 0, width: 1, height: 1).bounded
+      == .init(x: 0, y: 0, width: 1, height: 1))
+    try selected.validateAnalysisEvidence()
+  }
+
   @Test("one source analysis supplies different crops and resolutions with exact source coordinates")
   func cropReuse() throws {
     var faceCalls = 0, maskCalls = 0

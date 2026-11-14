@@ -7,12 +7,14 @@ import UniformTypeIdentifiers
 package enum FlowAuthoringFiles {
   private static var activePanel: NSSavePanel?
   package static func cancelPanel() { activePanel?.cancel(nil) }
-  package static func openPhotoCollection() async -> URL? {
-    let panel = NSOpenPanel(); panel.title = "Import Photo Set"
+  package static func openPhotos(multiple: Bool) async -> [URL] {
+    let panel = NSOpenPanel(); panel.title = multiple ? "Import Photo Set" : "Import Photo"
+    panel.allowedContentTypes = [.png, .jpeg]
+    panel.canChooseDirectories = multiple; panel.canChooseFiles = true
+    panel.allowsMultipleSelection = multiple
+    panel.message = multiple ? "Choose photographs, or a photo collection folder." : "Choose an original photograph."
     activePanel = panel; defer { activePanel = nil }
-    panel.message = "Choose a photo collection folder containing photo-collection.json and its images. Originals and provenance are retained."
-    panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
-    return await withCheckedContinuation { continuation in panel.begin { continuation.resume(returning: $0 == .OK ? panel.url : nil) } }
+    return await panel.begin() == .OK ? panel.urls : []
   }
   package static func exportDrawing() async -> URL? {
     let panel = NSSavePanel(); panel.title = "Export Drawing"; panel.allowedContentTypes = [.zip]

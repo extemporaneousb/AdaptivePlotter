@@ -30,6 +30,8 @@ package struct FlowPortfolioSource: Codable, Identifiable, Equatable, Sendable {
   package var importProvenance: FlowPortfolioSourceImport? = nil
   package var captureProvenance: FlowPortfolioCaptureProvenance? = nil
   package var photo: PhotoRef? = nil
+  /// The selected derivation never changes the original Photo or holdout group.
+  package var authoringOptions: PortraitAnalysisOptions? = nil
   /// Exact source identity is the minimum grouping boundary. Declared identities
   /// are joined transitively by the training consumer, never inferred from pixels.
   package var groupKeys: [String] {
@@ -52,7 +54,14 @@ package struct FlowPortfolioRound: Codable, Identifiable, Equatable, Sendable {
   package var candidateIDs: [UUID]
   package var displayedCandidateIDs: [UUID]
   package var recommendedCandidateID: UUID?
+  /// Exact stable-index membership used by the checkpoint when this winner was
+  /// scored. Nil in older rounds means the historical score basis is unknown.
+  package var recommendedRemovedIndices: [Int]? = nil
   package var failures: [FlowPortfolioGenerationFailure]
+  /// Optional for old portfolios; absent values retain historical sampling semantics.
+  package var explorationDepth: Int? = nil
+  package var refinementRadius: Double? = nil
+  package var explorationPolicy: String? = nil
 }
 package struct FlowPortfolioGenerationFailure: Codable, Equatable, Sendable {
   package let slot: Int

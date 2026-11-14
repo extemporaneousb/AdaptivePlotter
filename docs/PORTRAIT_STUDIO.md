@@ -46,14 +46,41 @@ image hash. Retrying the same capture identity is idempotent; distinct capture
 identities remain separate observations even when image bytes match. The actual
 acquisition session can join training partitions; it is not a person identity.
 
-Startup discovers cameras without beginning capture. Explicit capture uses the
+The top row has **Photo Booth**, **Photos**, **Drawing**, and one right-aligned
+**Send to Plotter** action. **File → Import Photo…** imports one original;
+**File → Import Photo Set…** imports several original images or an existing curated
+photo-collection folder. Import and export commands belong to the active window.
+
+**Photo Booth** has resizable photo and drawing panes. The left pane shows the
+immutable, oriented original: drag outside the current rectangle to make a region,
+drag inside to move it, or drag a corner to resize. **Whole photo** bypasses face
+cropping; **Auto face** restores automatic face framing. **Selection** inspects the
+draft without changing it. **Apply region** commits once and requests a drawing for
+that exact region; dragging never renders on each pixel. Leaving with an unapplied
+draft discards it. Historical regions and their drawings remain available in Drawing.
+
+The right pane shows **Suggested drawing** for an untrained artist. It says
+**Predicted favorite** only when a valid active preference checkpoint scored the
+bounded produced set and selected its actual best candidate with the exact displayed
+removal mask. Editing that mask downgrades the label to Suggested drawing; undoing
+back to the scored membership can restore it. Clicking the suggestion
+opens Drawing immediately and begins broad exploration without recording feedback.
+The clicked suggestion remains a temporary Starting drawing anchor while that broad
+set loads; it creates no parent relation or direction-choice judgment.
+
+No camera starts at launch or on tab changes. **Live preview** opens deliberate
+camera selection; **Start preview** acquires only that chosen Studio camera.
+Repeated captures reuse the owned session, freeze separate immutable originals, and
+update the suggestion without rendering continuously from video. **Use still photo**,
+leaving Photo Booth, and closing Studio cancel capture, clear illumination and release
+Studio's session. File-photo authoring works without a camera. Explicit capture uses the
 existing camera acquisition owner. Quit cancels and joins generation and fitting,
 stops capture and waits for durable work. The standalone app has no controller,
 calibration, motion, paper-clearance or mechanical Learning controls.
 
 ## Edit a retained Drawing
 
-In Portrait Studio, open **Library** and choose **Drawings**, or select a photo
+In Portrait Studio, open **Photos** and choose **Drawings**, or select a photo
 and follow its prepared inputs to their drawings. A photo can have zero or more
 drawings. Photo rows show their images and drawing rows preview their strokes.
 Titles are optional. Titles and training annotations belong to the catalog. The original pixels,
@@ -77,15 +104,20 @@ data or recovery journals. Editing alone does not send to the plotter or record 
 Flow choice/ranking. Use the handoff action to prepare a saved revision or
 **Export Drawing** to write a portable copy.
 
-## Prepare in AdaptivePlotter
+## Send to Plotter
 
-In Library or Flow Edge, select a drawing and choose **Prepare in AdaptivePlotter**.
+Select a visible drawing and choose the top-row **Send to Plotter**. It is disabled
+for a photo-only or empty selection, a stale source/region, an unsupported or empty
+drawing, generation/loading, local edit recovery, or an active handoff. A valid
+unplaced drawing can be sent independently of Plotter's connection, calibration or
+current motion. Changing tabs, photos, regions or revisions cancels stale handoff
+publication; the exact selected revision is rechecked across asynchronous work.
 Studio records a Prepare request for the exact revision. It opens the running
 Plotter or the sibling AdaptivePlotter bundle on a cold launch. The destination
 shows the reference drawing and reports any missing tip registration or Drawing
 Boundary. Once placement is available, review the prepared drawing in the
 plotter's Drawing panel. Opening a Drawing Exchange document in Studio selects
-the imported revision in the Library.
+the imported revision in Drawing.
 
 Prepare and document opening issue no Start/controller commands. Explicit native
 **Draw** uses the existing Run owner and durably binds the exact request, Drawing,
@@ -118,15 +150,15 @@ process/log/XML/refusal artifacts and scope are in
 
 ## Build a portfolio
 
-1. **Import Photo** retains the supplied PNG or JPEG bytes inside the portfolio.
-   **Capture Photo** retains the selected frame through the existing acquisition
+1. **File → Import Photo…** retains the supplied PNG or JPEG bytes inside the portfolio.
+   **Capture photo** in Photo Booth retains the selected frame through the existing acquisition
    path. The photo list uses representative artwork or source thumbnails and durable
    names. Browsing a photo, round or drawing records navigation without creating a
-   preference; **Choose** is the explicit weaker judgment. Renaming never changes
+   preference; clicking a generated tile is an explicit **Choose and refine** direction judgment. Renaming never changes
    image, geometry or training labels. **Import Photo Set** accepts a self-contained
    curated collection of original sources with hash-bound provenance; it creates no
    rankings, targets or inferred subject identities.
-2. In **Explore**, choose three to nine drawings and start **Broad exploration**.
+2. In **Drawing → Explore**, choose three to nine drawings and start **Broad sample**.
    A seeded, bounded panel spans native Flow Edge settings and named geometry
    families. Source context and an activated preference model can guide a bounded
    portion of the panel; generation still performs the requested number of full
@@ -136,14 +168,29 @@ process/log/XML/refusal artifacts and scope are in
    feature capsules and previews for its presentations.
    Failed, duplicate and cancelled slots remain recorded; a failed slot does not
    silently become another source or a successful drawing.
-3. **Choose** records the displayed alternatives and chosen drawing. **Refine chosen
-   drawing** makes a narrower panel around that recipe, including the selected
-   parent and its existing mask as an unchanged anchor. Refinement does not erase
-   earlier rounds or imply that unchosen alternatives were tied or rejected.
+3. Click any completed drawing tile to **Choose and refine**: this records one
+   weak direction choice against the exact offered alternatives and immediately
+   opens a child page around that recipe. The chosen parent and its existing mask
+   remain the unchanged anchor while nearby results appear. The first neighborhood
+   has radius 0.06; each deeper choice contracts it by 0.85 to a floor of 0.015.
+   **Broad sample** starts a fresh wide root; **Back** and branch history restore
+   saved sets without rendering or recording preference. The current panel and one
+   previous panel for the same photo/region keep temporary geometry within the
+   existing count/byte budget. Older unchosen drawings may be **Preview only**:
+   the tile states why its geometry is unavailable and cannot cast a choice or open
+   a nonfunctional editor. Retained drawings remain available; Broad sample can
+   always start a new set from the exact original source. Completed tiles and history
+   remain navigable during generation; replacing a request cancels stale publication.
+   **Edit drawing** opens line editing separately from the tile's direction choice.
+   Refinement preserves earlier rounds and supplies no strong rating or explicit
+   pairwise ranking for unchosen drawings.
 4. **Prune** opens the frozen drawing. Click to Delete removes an entire polyline;
    Lasso selects whole intersecting polylines for Delete Selected. **Restore**
    recovers original lines. Undo/Redo retain their operation relationships.
-   **Original**, **Photo**, zoom and Fit provide inspection. There is no drawing,
+   **Original**, **Photo**, zoom and Fit provide inspection; **Return to editing**
+   exits comparison explicitly, and opening an edit clears inherited comparisons.
+   Any disabled editor reports its local reason. A separate running Plotter has no
+   authority over Studio line editing. There is no drawing,
    replacement or reshaping tool: every target is an exact subset of its basis.
 5. **Finish pruning** declares the current kept/removed mask to be the intended
    training target. It is not a Save button: every preceding edit is already on
@@ -183,11 +230,11 @@ acknowledged in-memory state stays unchanged until reconciliation succeeds.
 There is no requirement to save photos, drawings, choices, rankings or line edits
 explicitly. Source identity declarations and training exclusions are also retained.
 
-In **Library → Photos**, choose a Photo to edit its optional title, subject/session
+In **Photos**, choose a Photo to edit its optional title, subject/session
 and training exclusion. These fields replace the Curate popover and use the same
 neutral metadata authority. Accepted edits drain before shutdown. Exclusion retains
 images, descendants and judgments; subject identity is never inferred from appearance.
-**Open in Flow Edge** uses the photo’s exact reference and preserves its dates and
+**Open in Photo Booth** uses the photo’s exact reference and preserves its dates and
 cleared metadata. Supported PNG/JPEG sources remain authorable; raw/unsupported sources
 stay browsable/exportable with an explicit authoring refusal. Photos show capture,
 import-fallback or unknown date truthfully, with exact prepared Inputs and branches.
@@ -204,7 +251,7 @@ after execution. Select a job-bound attempt and choose **Export Run Result** to
 write its Drawing Exchange ZIP with the retained staged, interrupted or terminal evidence. It does not create a new attempt. Missing/corrupt evidence
 produces a visible refusal while recovery and possible-ink facts stay retained.
 
-The Portrait Studio Library offers **Import Result** and export of an exact mounted result. The read-only inspector shows job/attempt identity, recorded frontiers,
+The retained drawing browser in **Photos** and **Drawing** offers **Import Result** and export of an exact mounted result. The read-only inspector shows job/attempt identity, recorded frontiers,
 missing reasons and separately attributed annotations. Open an original image
 explicitly to preview it; unsupported or oversized previews keep the retained
 original available for export. Unknown annotations do not invent a physical
@@ -219,22 +266,29 @@ spacing, minimum line length, simplification, tone density, coherence, edge
 threshold, rectilinearity, tone support, structure support, evidence scale,
 seed irregularity and angularity. An optional version-two mark recipe adds wave,
 polygon, loop and scale coordinates. Missing mark settings preserve exact legacy
-rendering. Outline, Fluid, Rectilinear, Angular, Wavy, Looped, Polygon loops and Blend
-families guide broad seeded sampling; local sampling retains the exact selected
-basis and perturbs nearby native coordinates.
+rendering. New broad samples use Outline, Fluid, Rectilinear, Angular, Wavy and
+supported blends. New proposals and refinements exclude synthesized circular loop
+marks, including noise or blend paths that previously reintroduced them. Natural
+curved image contours remain supported. Historical circle-bearing recipes still
+decode and render exactly; their old drawings remain available.
+
+Local exploration perturbs nearby effective controls within the contracting radius.
+An older circle-bearing parent remains a historical anchor. Its new descendants use
+sanitized recipes and are rendered again; their new geometry does not inherit an
+index-based removal mask from the incompatible old basis.
 
 Rectilinearity controls straight horizontal/vertical tonal strokes. Angularity
 uses the existing supported face-region contour treatment; it requires applicable
 landmark evidence and is not a promise of arbitrary jagged geometry. Source
 preparation and the renderer's existing point/path/material bounds still apply.
-Wave, polygon and loop controls mix native tonal constructions within the same
+Wave and polygon controls mix native tonal constructions within the same
 image-evidence and occupancy field. Their maximum controls the probability of a
 new mark form, their relative weights choose the form, and the remainder uses
-legacy tonal flow. Scale controls wave period, angular segment length and bounded
-loop radius. Polygon/loop mixtures can produce closed polygons; loop-only marks
-produce circles. Every segment is checked against support, image/field bounds and
-occupancy before commitment. These are generated bases, not an edit-time line-add
-operation. The source photo, recipe and resulting complete geometry remain available
+legacy tonal flow. Scale controls wave period and angular segment length. The
+historical renderer also supports polygon/loop mixtures and loop-only circles for
+retained recipes; these controls do not enter new authoring proposals. Every
+segment is checked against support, image/field bounds and occupancy before
+commitment. These are generated bases, not an edit-time line-add operation. The source photo, recipe and resulting complete geometry remain available
 even when the learned mask removes most lines.
 
 The fitted artist has two components:
@@ -437,10 +491,10 @@ python3 Scripts/convert_historical_drawings.py "$HOME/Documents/Recovered Drawin
 ```
 
 Open the resulting `DrawingLibrary` directory with Studio's existing `--library` launch argument
-after quitting Studio. In **Library**, select a photo to browse its prepared inputs and exact
+after quitting that Studio instance. In **Photos**, select a photo to browse its prepared inputs and exact
 drawings, or use **Drawings** for the full list. Expand **Historical plot runs** on a recovered
 drawing to inspect recorded status, stroke counts and operator no-ink confirmations.
-Choose **Prepare in AdaptivePlotter** to send the selected revision.
+Choose the top-row **Send to Plotter** to send the selected revision.
 
 The default selection includes all source photo occurrences, catalog drawings associated with
 execution or possible ink, and the saved transfers. The adjacent `conversion.json` maps the old

@@ -34,13 +34,14 @@ struct PortraitStudioApp: App {
   }
 
   var body: some Scene {
-    Window("Portrait Studio — Flow Edge", id: "portrait-studio") {
+    Window("Portrait Studio", id: "portrait-studio") {
       if let launchError {
         ContentUnavailableView("Drawing Library configuration", systemImage: "folder.badge.questionmark", description: Text(launchError))
       } else {
         PortraitStudioAuthoringWindow(authoring: authoring, acquisition: acquisition, library: library, delegate: delegate)
       }
     }.defaultSize(width: 1440, height: 940)
+      .commands { PortraitStudioFileCommands() }
   }
 }
 
@@ -49,21 +50,47 @@ struct PortraitStudioAuthoringWindow: View {
   @Bindable var authoring: FlowAuthoringModel
   @Bindable var acquisition: PortraitStudioModel
   let library: DrawingLibrary
+  private let showsCaptureLight: Bool
   @ObservedObject var delegate: PortraitStudioApplicationDelegate
   @State private var libraryError: String?
+  @State private var browserModel: DrawingLibraryBrowserModel
+  @State private var routeEpoch: UInt64 = 0
+  @State private var sending = false
+  @AppStorage("PortraitStudio.destination.v1") private var savedDestination = ""
+  private var destination: PortraitStudioDestination {
+    .restored(savedDestination, route: route.wrappedValue, hasSavedRoute: !savedRoute.isEmpty || routeOverride != nil)
+  }
+  private var destinationBinding: Binding<PortraitStudioDestination> {
+    Binding(get: { destination }, set: { next in
+      routeEpoch &+= 1; savedDestination = next.rawValue
+      route.wrappedValue.workspace = next == .photos ? .library : .drawingStudio
+      if next != .photos, (next == .booth || route.wrappedValue.drawing == nil), let ref = route.wrappedValue.photo,
+        authoring.currentPhotoRef != ref {
+        let epoch = routeEpoch
+        Task {
+          _ = await authoring.selectPhoto(ref, isStillCurrent: { routeEpoch == epoch && route.wrappedValue.photo == ref })
+        }
+      }
+    })
+  }
   @AppStorage("PortraitStudio.libraryRoute.v1") private var savedRoute = Data()
   private let routeOverride: Binding<DrawingLibraryRoute>?
   private var route: Binding<DrawingLibraryRoute> {
-    routeOverride ?? Binding(get: { .restored(savedRoute) }, set: { savedRoute = $0.encoded })
+    Binding(get: { routeOverride?.wrappedValue ?? .restored(savedRoute) }, set: { next in
+      routeEpoch &+= 1
+      if let routeOverride { routeOverride.wrappedValue = next } else { savedRoute = next.encoded }
+    })
   }
   init(authoring: FlowAuthoringModel, acquisition: PortraitStudioModel, library: DrawingLibrary,
-    delegate: PortraitStudioApplicationDelegate, route: Binding<DrawingLibraryRoute>? = nil) {
+    delegate: PortraitStudioApplicationDelegate, route: Binding<DrawingLibraryRoute>? = nil, showsCaptureLight: Bool = true) {
     self.authoring = authoring; self.acquisition = acquisition; self.library = library; self.delegate = delegate
-    routeOverride = route
+    routeOverride = route; self.showsCaptureLight = showsCaptureLight
+    _browserModel = State(initialValue: DrawingLibraryBrowserModel(sketches: acquisition.sketches))
     let location = library.directoryURL.standardizedFileURL.resolvingSymlinksInPath()
     let isDefault = location == PortraitStudioApp.defaultLibraryURL.standardizedFileURL.resolvingSymlinksInPath()
     let key = "PortraitStudio.libraryRoute.v1" + (isDefault ? "" : "." + location.path)
     _savedRoute = AppStorage(wrappedValue: Data(), key)
+    _savedDestination = AppStorage(wrappedValue: "", "PortraitStudio.destination.v1" + (isDefault ? "" : "." + location.path))
   }
   /// Install the same route binding used by the window; a document can arrive
   /// before this callback exists, so the delegate retains only its reveal ref.
@@ -71,60 +98,137 @@ struct PortraitStudioAuthoringWindow: View {
     delegate.installDocumentHandling(library: library, acquisition: acquisition) { reference in
       var next = route.wrappedValue
       next.showDrawing(reference)
-      next.workspace = .library
+      next.workspace = .drawingStudio
       route.wrappedValue = next
+      destinationBinding.wrappedValue = .drawing
     }
   }
   var drawingBrowser: DrawingLibraryBrowser {
-    DrawingLibraryBrowser(sketches: acquisition.sketches, close: { Task { libraryError = await showStudio() } },
+    DrawingLibraryBrowser(sketches: acquisition.sketches, close: {},
       handoff: { drawing, request in
         guard request.isCurrent else { return "Drawing handoff was cancelled." }
         return await prepareDrawingAtDestination(drawing, isStillCurrent: { request.isCurrent })
-      }, route: route, openStudio: openPhoto)
+      }, route: route, openStudio: openPhoto, model: browserModel, embedded: true)
   }
   private func prepareDrawingAtDestination(_ drawing: Drawing,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
-    let opening = route.wrappedValue
+    let opening = route.wrappedValue, epoch = routeEpoch
     return await delegate.prepareAtDestination(drawing, isStillCurrent: {
-      route.wrappedValue == opening && isStillCurrent()
+      routeEpoch == epoch && route.wrappedValue == opening && isStillCurrent()
     })
-  }
-  private func showStudio() async -> String? {
-    if let ref = route.wrappedValue.photo { return await openPhoto(ref) }
-    route.wrappedValue.workspace = .drawingStudio; return nil
   }
   private func openPhoto(_ ref: PhotoRef) async -> String? {
-    let openingWorkspace = route.wrappedValue.workspace
-    await authoring.open(); let failure = await authoring.selectPhoto(ref, isStillCurrent: {
-      route.wrappedValue.photo == ref && route.wrappedValue.workspace == openingWorkspace
+    let openingWorkspace = route.wrappedValue.workspace, epoch = routeEpoch
+    await authoring.open()
+    guard routeEpoch == epoch, route.wrappedValue.photo == ref, route.wrappedValue.workspace == openingWorkspace else { return "The Library selection changed." }
+    let failure = await authoring.selectPhoto(ref, isStillCurrent: {
+      routeEpoch == epoch && route.wrappedValue.photo == ref && route.wrappedValue.workspace == openingWorkspace
     })
-    guard route.wrappedValue.photo == ref, route.wrappedValue.workspace == openingWorkspace else { return "The Library selection changed." }
+    guard routeEpoch == epoch, route.wrappedValue.photo == ref, route.wrappedValue.workspace == openingWorkspace else { return "The Library selection changed." }
     if let failure { return failure }
     guard authoring.currentPhotoRef == ref, authoring.error == nil else { return authoring.error ?? "The exact Photo is unavailable for authoring." }
-    route.wrappedValue.workspace = .drawingStudio
+    destinationBinding.wrappedValue = .booth
     return nil
+  }
+  private var showsRetainedDrawing: Bool {
+    destination == .photos || (destination == .drawing && route.wrappedValue.drawing != nil)
+  }
+  var sendUnavailableReason: String? {
+    if sending { return "Sending drawing…" }
+    if showsRetainedDrawing {
+      guard let selected = route.wrappedValue.drawing else { return "Select a retained drawing to send." }
+      guard selected == acquisition.sketches.selected?.reference else { return "Wait for the exact selected drawing to load." }
+      return browserModel.canSendSelected ? nil : "Finish loading or editing a supported nonempty drawing before sending."
+    }
+    guard authoring.currentPhotoRef == route.wrappedValue.photo else { return "Open the exact selected photo before sending." }
+    if let reason = authoring.sendUnavailableReason { return reason }
+    if destination == .booth, authoring.recommendationCandidate?.id != authoring.candidate?.id {
+      return "Wait for a drawing for this exact photo and region."
+    }
+    return nil
+  }
+  var canSendToPlotter: Bool { sendUnavailableReason == nil }
+  private func sendToPlotter() async {
+    guard canSendToPlotter else { return }
+    let epoch = routeEpoch, opening = route.wrappedValue, currentDestination = destination
+    let retained = showsRetainedDrawing
+    let generated = retained ? nil : PortraitStudioGeneratedHandoffSelection(model: authoring)
+    guard retained || generated != nil else { return }
+    sending = true; defer { sending = false }
+    let current: @MainActor () -> Bool = {
+      routeEpoch == epoch && route.wrappedValue == opening && destination == currentDestination
+        && (retained || generated?.isCurrent(in: authoring) == true)
+    }
+    if retained {
+      await browserModel.sendSelected { drawing, request in
+        guard current(), request.isCurrent else { return "Drawing handoff was cancelled." }
+        return await delegate.prepareAtDestination(drawing, isStillCurrent: { current() && request.isCurrent })
+      }
+    } else {
+      do {
+        let drawing = try await authoring.retainedDrawing()
+        guard current() else { return }
+        libraryError = await delegate.prepareAtDestination(drawing, isStillCurrent: current)
+      } catch { if current() { libraryError = error.localizedDescription } }
+    }
+  }
+  private func importPhotos(multiple: Bool) async {
+    guard !authoring.isBusy, !authoring.needsRecovery else { return }
+    let urls = await FlowAuthoringFiles.openPhotos(multiple: multiple)
+    var failures: [String] = []
+    for url in urls {
+      if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+        await authoring.importPhotoCollection(url)
+      } else {
+        do {
+          let bytes = try await Task.detached { try FlowAuthoringFiles.readImage(url) }.value
+          await authoring.addPhoto(data: bytes, title: url.deletingPathExtension().lastPathComponent,
+            mediaType: url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg")
+        } catch { failures.append(url.lastPathComponent + ": " + error.localizedDescription) }
+      }
+      if let error = authoring.error { failures.append(url.lastPathComponent + ": " + error) }
+    }
+    guard !urls.isEmpty else { return }
+    if let ref = authoring.currentPhotoRef { route.wrappedValue.selectPhoto(ref) }
+    destinationBinding.wrappedValue = .booth
+    libraryError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+  }
+  private func exportSelected() async {
+    guard canSendToPlotter, let url = await FlowAuthoringFiles.exportDrawing() else { return }
+    do {
+      if showsRetainedDrawing, let ref = acquisition.sketches.selected?.reference { try await library.exportDrawing(ref, to: url) }
+      else { try await authoring.exportDrawing(to: url) }
+    } catch { libraryError = error.localizedDescription }
   }
   var body: some View {
     VStack(spacing: 0) {
-      HStack {
-        ForEach([DrawingWorkspace.library, .drawingStudio], id: \.self) { workspace in
-          Button(workspace.title) {
-            if workspace == .drawingStudio { Task { libraryError = await showStudio() } }
-            else { route.wrappedValue.workspace = workspace }
-          }
-            .accessibilityIdentifier("portraitStudio.workspace.\(workspace.rawValue)")
-        }
-        Spacer()
-      }.padding(12)
+      PortraitStudioHeader(destination: destinationBinding, canSend: canSendToPlotter,
+        sendReason: sendUnavailableReason,
+        send: { Task { await sendToPlotter() } })
       Divider()
-      if route.wrappedValue.workspace == .library { drawingBrowser }
-      else { FlowAuthoringView(model: authoring, camera: acquisition, selectCamera: {
-      await acquisition.startCamera(); return acquisition.cameraStatus
-      }, handoffTitle: "Prepare in AdaptivePlotter", handoff: { drawing in
-        await prepareDrawingAtDestination(drawing)
-      }, photoSelected: { ref in if let ref { route.wrappedValue.selectPhoto(ref) } }) }
+      if destination == .booth {
+        PortraitStudioBooth(model: authoring, camera: acquisition,
+          showsSource: route.wrappedValue.photo != nil && authoring.currentPhotoRef == route.wrappedValue.photo,
+          showsCaptureLight: showsCaptureLight, photoSelected: { ref in
+          if destination == .booth { route.wrappedValue.selectPhoto(ref) }
+        }) {
+          route.wrappedValue.drawing = nil; destinationBinding.wrappedValue = .drawing
+        }
+      } else if showsRetainedDrawing { drawingBrowser }
+      else if route.wrappedValue.photo != nil && authoring.currentPhotoRef != route.wrappedValue.photo {
+        ContentUnavailableView("Opening the selected photo", systemImage: "photo", description: Text(authoring.error ?? "Loading the exact source before authoring."))
+      } else if route.wrappedValue.photo == nil {
+        ContentUnavailableView("Choose a photo", systemImage: "photo", description: Text("Open a source in Photo Booth or Photos before exploring drawings."))
+      } else {
+        FlowAuthoringView(model: authoring, camera: acquisition, embedded: true, photoSelected: { ref in
+          if let ref { route.wrappedValue.selectPhoto(ref) }
+        })
+      }
     }
     .frame(minWidth: 1100, minHeight: 720)
+    .focusedSceneValue(\.portraitStudioFileActions, PortraitStudioFileActions(
+      canImport: !authoring.isBusy && !authoring.needsRecovery, canExport: canSendToPlotter,
+      importPhotos: { multiple in Task { await importPhotos(multiple: multiple) } }, export: { Task { await exportSelected() } }))
     .onChange(of: route.wrappedValue.photo) { _, _ in libraryError = nil }
     .overlay(alignment: .bottom) {
       VStack {
@@ -142,15 +246,13 @@ struct PortraitStudioAuthoringWindow: View {
       }
       do { try await library.open() }
       catch { libraryError = "Drawing Library unavailable: " + error.localizedDescription }
-      if route.wrappedValue.workspace == .drawingStudio, let ref = route.wrappedValue.photo {
-        await authoring.open(); await authoring.selectPhoto(ref, isStillCurrent: { route.wrappedValue.photo == ref && route.wrappedValue.workspace == .drawingStudio })
-        if route.wrappedValue.workspace == .drawingStudio, route.wrappedValue.photo == ref,
-          authoring.currentPhotoRef != ref || authoring.error != nil {
-          libraryError = authoring.error ?? "The exact Photo is unavailable for authoring."
-          route.wrappedValue.workspace = .library
-        }
+      await authoring.open()
+      if let ref = route.wrappedValue.photo {
+        let epoch = routeEpoch
+        _ = await authoring.selectPhoto(ref, isStillCurrent: { routeEpoch == epoch && route.wrappedValue.photo == ref })
+      } else if route.wrappedValue.drawing == nil, let ref = authoring.currentPhotoRef {
+        route.wrappedValue.selectPhoto(ref)
       }
-      await acquisition.discover(excluding: nil)
       while !Task.isCancelled {
         await delegate.recoverDestinationRequests()
         try? await Task.sleep(for: .seconds(1))

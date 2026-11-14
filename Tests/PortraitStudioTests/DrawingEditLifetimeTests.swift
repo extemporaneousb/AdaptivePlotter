@@ -1,5 +1,6 @@
 import Foundation
 import DrawingLibrary
+import PlotterModel
 import PortraitCore
 import PortraitLibrary
 import PortraitStudioUI
@@ -8,6 +9,48 @@ import Testing
 @Suite("DX08 editor transaction and lifetime", .serialized)
 @MainActor
 struct DrawingEditLifetimeTests {
+  @Test("A source-free retained 77-stroke drawing edits independently and reopens an immutable child")
+  func seventySevenStrokes() async throws {
+    let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
+    let library = DrawingLibrary(directoryURL: root)
+    let template = try DrawingEditFixture.value(), style = try #require(template.program.strokes.first?.style)
+    var strokes: [LogicalStroke] = []
+    for index in 0..<77 {
+      let y = Double(index + 1)
+      let start = try Point2<FieldSpace>(x: 10, y: y)
+      let end = try Point2<FieldSpace>(x: 90, y: y)
+      let path = try Polyline<FieldSpace>(points: [start, end])
+      strokes.append(LogicalStroke(id: StrokeID(), path: path, style: style, ordering: UInt32(index)))
+    }
+    let program = try DrawingProgram(id: ProgramID(), fieldExtent: .init(width: 100, height: 100),
+      strokes: strokes, source: template.program.source)
+    let sourceFree = try Drawing(program: program, input: .none, parent: .none, producer: template.producer)
+    let retained = try await library.retain(sourceFree, reason: "77-stroke test fixture")
+    let base = try await library.drawing(retained.reference), originalJSON = base.producer.originalJSON
+    let sketches = PortraitSketchCollection(library: library); try sketches.selectLoaded(base)
+    let editor = PortraitLineEditModel(base: base, sketches: sketches); await editor.load()
+    #expect(editor.canEdit && editor.remainingCount == 77)
+    editor.showsOriginal = true; #expect(!editor.canEdit && editor.editingUnavailableReason != nil)
+    editor.returnToEditing(); editor.remove([strokes[12].id]); #expect(editor.remainingCount == 76)
+    editor.undo(); #expect(editor.remainingCount == 77)
+    editor.redo(); #expect(editor.remainingCount == 76)
+    editor.restore([strokes[12].id]); #expect(editor.remainingCount == 77)
+    editor.undo(); #expect(editor.remainingCount == 76)
+    #expect(await editor.save())
+    let child = try #require(editor.savedDrawing), ref = try #require(child.reference)
+    #expect(child.parent == SourceLink<DrawingRef>.present(retained.reference))
+    #expect(child.input == SourceLink<ImageInputRef>.none)
+    #expect(child.program.strokes == strokes.filter { $0.id != strokes[12].id })
+    #expect(child.producer.id == "adaptiveplotter.stroke-membership")
+    #expect(try await library.drawing(retained.reference).producer.originalJSON == originalJSON)
+    #expect(try await library.drawing(retained.reference).program == program)
+    await sketches.shutdown(); await library.closeLibrary()
+    let reopened = DrawingLibrary(directoryURL: root)
+    #expect(try await reopened.drawing(ref).program.strokes == child.program.strokes)
+    #expect(try await reopened.drawing(retained.reference).program.strokes.count == 77)
+    await reopened.closeLibrary()
+  }
+
   @Test("Opening, modifying and cancelling a temporary draft writes nothing")
   func cancelIsWriteFree() async throws {
     let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }

@@ -1,5 +1,6 @@
 import Foundation
 import PortraitCore
+import PortraitArtists
 
 package struct FlowAuthoringCacheStatistics: Sendable {
   package let artifactCount: Int
@@ -33,11 +34,58 @@ extension FlowPortfolioStore {
   }
   func admitTemporaryDrawing(_ drawing: Drawing, input: FrozenImageInputRecord?) throws {
     trimTransientCaches()
-    let current = transientCacheStatistics()
+    let incoming = temporaryBytes(drawing, input: input)
+    var current = transientCacheStatistics()
+    if current.temporaryDrawingCount >= Self.maximumTemporaryDrawings
+      || incoming > Self.maximumTemporaryDrawingBytes - current.temporaryDrawingBytes {
+      evictOptionalHistory(); current = transientCacheStatistics()
+    }
     guard current.temporaryDrawingCount < Self.maximumTemporaryDrawings,
-      temporaryBytes(drawing, input: input) <= Self.maximumTemporaryDrawingBytes - current.temporaryDrawingBytes else {
+      incoming <= Self.maximumTemporaryDrawingBytes - current.temporaryDrawingBytes else {
       throw FlowPortfolioError.unavailable("The active drawing panel exceeds the temporary authoring memory budget.")
     }
+  }
+  func admitTemporaryArtifacts(_ values: [Data]) throws {
+    if !storage.canRetain(values) { evictOptionalHistory() }
+    guard storage.canRetain(values) else {
+      throw FlowPortfolioError.unavailable("The active drawing panel exceeds the temporary artifact memory budget.")
+    }
+  }
+  private func evictOptionalHistory() { recentTransientRoundIDs = []; trimTransientCaches() }
+
+  /// Metadata availability never substitutes for reading retained data. This
+  /// detects known expired session artifacts; actual retained corruption still
+  /// travels through the existing exact loader/recovery path.
+  package func candidateUnavailableReason(_ id: UUID) async throws -> String? {
+    guard let value = state.candidates.first(where: { $0.id == id }) else {
+      return "This drawing is no longer in the authoring session."
+    }
+    let programAvailable = value.drawing != nil || temporaryDrawings[id] != nil
+    if programAvailable && storage.isAvailable(value.raster) { return nil }
+    if try await historicalCandidate(id) != nil { return nil }
+    return programAvailable
+      ? "Preview only: the temporary source raster has expired. Start a broad sample to make new drawings."
+      : "Preview only: temporary drawing geometry has expired. Start a broad sample to make new drawings."
+  }
+  package func candidateUnavailableReasons(_ ids: [UUID]) async throws -> [UUID: String] {
+    var reasons: [UUID: String] = [:]
+    for id in ids { if let reason = try await candidateUnavailableReason(id) { reasons[id] = reason } }
+    return reasons
+  }
+
+  private func observeTransientRound() {
+    let source = state.selectedSourceID
+    let current = state.currentRoundID
+    let options = state.rounds.first(where: { $0.id == current })?.analysisOptions
+      ?? state.sources.first(where: { $0.id == source })?.authoringOptions
+    if source != observedTransientSourceID || options != observedTransientOptions {
+      recentTransientRoundIDs = []
+    } else if current != observedTransientRoundID, let previous = observedTransientRoundID {
+      recentTransientRoundIDs.removeAll { $0 == previous }
+      recentTransientRoundIDs.insert(previous, at: 0)
+    }
+    observedTransientRoundID = current; observedTransientSourceID = source; observedTransientOptions = options
+    recentTransientRoundIDs = Array(recentTransientRoundIDs.filter { $0 != current }.prefix(1))
   }
   func requireArtifactMutationAdmission() throws {
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else {
@@ -49,7 +97,10 @@ extension FlowPortfolioStore {
   /// also own immutable copies, so a retry cannot depend on a later cache fill.
   func trimTransientCaches() {
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else { return }
-    let rounds = Set(state.rounds.filter { $0.id == state.currentRoundID || $0.status == .generating }.map(\.id))
+    observeTransientRound()
+    let rounds = Set(state.rounds.filter {
+      $0.id == state.currentRoundID || $0.status == .generating || recentTransientRoundIDs.contains($0.id)
+    }.map(\.id))
     let kept = Set(state.candidates.filter {
       $0.drawing == nil && (rounds.contains($0.roundID) || $0.id == state.currentCandidateID || inFlightCandidates[$0.id] != nil)
     }.map(\.id))

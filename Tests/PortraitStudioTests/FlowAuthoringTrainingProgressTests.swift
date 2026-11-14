@@ -31,7 +31,10 @@ struct FlowAuthoringTrainingProgressTests {
     #expect(progress.removeLabelCount == 1 && progress.keepLabelCount == 3 && progress.completedTargetCount == 1)
     #expect(progress.feedbackPhotoCount == 1 && progress.generatedDrawingCount == 4)
     #expect(progress.photo(source.id).candidateCount == 4)
+    // Move beyond the current/previous panel window without adding geometry or feedback.
     // No extraction should touch an unused generated raster, even if it is unreadable.
+    let nextRound = try await store.beginRound(sourceID: source.id, recipes: [.standard])
+    try await store.finishRound(nextRound.id, cancelled: true)
     await #expect(throws: FlowPortfolioError.self) { try await store.candidateProgram(unused[0].id) }
     let dataset = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
     #expect(!dataset.examples.contains { $0.id == unused[0].id.uuidString })

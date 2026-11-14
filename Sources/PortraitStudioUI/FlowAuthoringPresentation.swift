@@ -8,6 +8,93 @@ import PortraitCore
 /// Stable names and ancestry are projections of durable identities. Browsing
 /// them never declares artistic preference or creates another drawing.
 extension FlowAuthoringModel {
+  /// Completed metadata is not proof that a temporary drawing survived eviction
+  /// or reopening. Only exact program/preview reads qualify a Booth suggestion.
+  package var recommendationCandidate: FlowPortfolioCandidate? {
+    guard let candidate = recommendationProposal, verifiedRecommendationIDs.contains(candidate.id),
+      self.candidate?.id == candidate.id, program != nil, candidateLoadError == nil else { return nil }
+    return candidate
+  }
+  private var recommendationProposal: FlowPortfolioCandidate? {
+    guard !regionPreviewPending, let document, let source = selectedSource else { return nil }
+    let rounds = document.rounds.filter {
+      $0.sourceID == source.id && $0.status == .completed && $0.analysisOptions == committedAnalysisOptions
+        && $0.modelID == activeCheckpoint?.id
+    }
+    func hasUsableMask(_ candidate: FlowPortfolioCandidate) -> Bool {
+      (document.latestPrune(candidateID: candidate.id)?.removedIndices.count ?? 0) < candidate.strokeCount
+    }
+    if activeCheckpoint?.ranker != nil {
+      for round in rounds.reversed() {
+        if let id = round.recommendedCandidateID, !unavailableRecommendationIDs.contains(id),
+          let candidate = document.candidates.first(where: { $0.id == id }), hasUsableMask(candidate) { return candidate }
+      }
+    }
+    for round in rounds.reversed() {
+      let ids = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
+      if let candidate = ids.lazy.compactMap({ id in document.candidates.first { $0.id == id } })
+        .first(where: { !unavailableRecommendationIDs.contains($0.id) && hasUsableMask($0) }) { return candidate }
+    }
+    return nil
+  }
+  package func isPredictedFavorite(_ candidate: FlowPortfolioCandidate) -> Bool {
+    guard let checkpoint = activeCheckpoint, checkpoint.ranker != nil,
+      candidateUnavailableReason(candidate) == nil, candidate.sourceID == selectedSource?.id,
+      let round = document?.rounds.first(where: { $0.id == candidate.roundID }),
+      round.status == .completed, round.modelID == checkpoint.id,
+      round.analysisOptions == committedAnalysisOptions, round.recommendedCandidateID == candidate.id,
+      let scoredMask = round.recommendedRemovedIndices, scoredMask.count < candidate.strokeCount,
+      scoredMask == (document?.latestPrune(candidateID: candidate.id)?.removedIndices ?? []) else { return false }
+    if self.candidate?.id == candidate.id { return program != nil && candidateLoadError == nil }
+    return previews[candidate.id] != nil
+  }
+  package var isRecommendationPredictedFavorite: Bool {
+    recommendationCandidate.map(isPredictedFavorite) ?? false
+  }
+  package func ensureRecommendation() async {
+    guard acceptsChanges, !isBusy, !needsRecovery, !regionPreviewPending, let source = selectedSource, let store else { return }
+    let options = committedAnalysisOptions, checkpoint = activeCheckpoint?.id
+    var intent = generationIntentRevision
+    func isCurrent() -> Bool {
+      !Task.isCancelled && acceptsChanges && !regionPreviewPending && !needsRecovery
+        && generationIntentRevision == intent && selectedSource?.id == source.id
+        && committedAnalysisOptions == options && activeCheckpoint?.id == checkpoint
+    }
+    clearRecommendationFailure()
+    // At most one new budget is rendered. Evicted metadata cannot create an
+    // unbounded retry loop, and corrupt retained work stays a truthful failure.
+    for attempt in 0...1 {
+      guard isCurrent() else { return }
+      if let candidate = recommendationProposal {
+        do {
+          _ = try await store.candidateProgram(candidate.id)
+          _ = try await store.candidatePreview(candidate.id)
+          guard isCurrent() else { return }
+          verifiedRecommendationIDs = [candidate.id]; clearRecommendationFailure()
+          await browseCandidate(candidate.id)
+          return
+        } catch {
+          guard isCurrent() else { return }
+          reportRecommendationFailure(candidate.id, reason: "Suggestion unavailable: " + error.localizedDescription, excludeTemporary: candidate.drawing == nil)
+          if candidate.drawing != nil { return }
+        }
+      }
+      guard attempt == 0, isCurrent() else { return }
+      await generate(refining: false, recommendation: true)
+      // generate owns exactly one new admission; any other invalidation wins.
+      guard generationIntentRevision == intent &+ 1 else { return }
+      intent = generationIntentRevision
+    }
+  }
+  package func exploreRecommendation() async {
+    guard let candidate = recommendationCandidate, !isBusy else { return }
+    let source = selectedSource?.id, options = committedAnalysisOptions
+    await browseCandidate(candidate.id)
+    guard !Task.isCancelled, selectedSource?.id == source, committedAnalysisOptions == options,
+      self.candidate?.id == candidate.id else { return }
+    await generate(refining: false, broadAnchor: candidate.id)
+  }
+
   package func photoName(_ source: FlowPortfolioSource) -> String {
     if !source.title.hasPrefix("Frame ") { return source.title }
     let index = (document?.sources.firstIndex(where: { $0.id == source.id }) ?? 0) + 1

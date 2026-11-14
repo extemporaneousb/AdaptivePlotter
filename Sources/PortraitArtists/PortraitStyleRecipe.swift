@@ -101,12 +101,23 @@ extension PortraitVectorOptions {
 }
 
 extension PortraitAnalysisOptions {
-  package enum CodingKeys: String, CodingKey { case cropToFace, removeBackground, faceCropMargin }
+  package enum CodingKeys: String, CodingKey { case cropToFace, removeBackground, faceCropMargin, manualRegion }
   package init(from decoder: Decoder) throws {
     self.init()
     let values = try decoder.container(keyedBy: CodingKeys.self)
     cropToFace = try values.decodeIfPresent(Bool.self, forKey: .cropToFace) ?? cropToFace
     removeBackground = try values.decodeIfPresent(Bool.self, forKey: .removeBackground) ?? removeBackground
     faceCropMargin = try values.decodeIfPresent(Double.self, forKey: .faceCropMargin) ?? faceCropMargin
+    manualRegion = try values.decodeIfPresent(PortraitNormalizedRegion.self, forKey: .manualRegion)?.bounded
+  }
+
+  package func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(cropToFace, forKey: .cropToFace)
+    try values.encode(removeBackground, forKey: .removeBackground)
+    try values.encode(faceCropMargin, forKey: .faceCropMargin)
+    // A whole-photo manual region still overrides face framing. Only nil is
+    // omitted, preserving the exact legacy three-field representation.
+    try values.encodeIfPresent(manualRegion?.bounded, forKey: .manualRegion)
   }
 }

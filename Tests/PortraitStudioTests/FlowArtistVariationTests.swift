@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import PlotterModel
 import PortraitArtists
 import PortraitCore
@@ -9,6 +10,197 @@ import Testing
 
 @Suite("Flow artist native mark grammar and bounded proposals", .serialized)
 struct FlowArtistVariationTests {
+  @Test("shared cropped input retains distinct Drawings, round/producer crop settings and cold source transforms")
+  func sharedInputRetention() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try await StudioDrawingFixture.store(directory: directory, purpose: .validationFixture)
+    let data = FlowAuthoringFixture.image(4)
+    let source = try await store.addSource(data: data, title: "Shared input fixture")
+    let photo = try await store.sourcePhoto(source.id)
+    let region = PortraitNormalizedRegion(x: 0.125, y: 0.125, width: 0.75, height: 0.75)
+    let options = PortraitAnalysisOptions(cropToFace: true, removeBackground: false, manualRegion: region)
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    let renderer = FlowAuthoringRenderer()
+    let round = try await store.beginRound(sourceID: source.id, recipes: [.standard, .standard], analysisOptions: options)
+    var candidates: [UUID] = [], inputs: [ImageInputRef] = []
+    var expectedInput: FrozenImageInputRecord?
+    var expectedRaster: PortraitRaster?
+    for slot in 0..<2 {
+      let produced = try await renderer.produce(data: data, recipe: .standard, strokeStyle: style,
+        nominalPenWidthMM: 0.4, photo: photo, analysisOptions: options)
+      let frozen = try #require(produced.artifacts.drawingInput)
+      inputs.append(frozen.reference)
+      expectedInput = frozen; expectedRaster = produced.artifacts.raster
+      let encodedClaim = try JSONDecoder().decode(PortraitFlowProducerClaim.self, from: produced.drawing.producer.originalJSON)
+      #expect(encodedClaim.settings.analysisOptions == options)
+      #expect(produced.artifacts.raster.analysisGeometry?.crop == PortraitAnalysisCrop(x: 5, y: 5, width: 30, height: 30))
+      let claim = try PortraitFlowProducerClaim(result: produced.artifacts,
+        input: .init(data: data, input: .present(frozen.reference), photo: photo),
+        settings: .init(recipe: .standard, analysisOptions: options, strokeStyle: style, nominalPenWidthMM: 0.4),
+        origin: "rendered")
+      #expect(try PortraitCandidateCoding.encoder().encode(claim) == produced.drawing.producer.originalJSON)
+      let saved = try await store.completeCandidate(roundID: round.id, slot: slot, production: produced,
+        previewPNG: PortraitDrawingPreview.png(produced.artifacts.program))
+      candidates.append(saved.id)
+    }
+    #expect(inputs[0] == inputs[1])
+    try await store.finishRound(round.id)
+    let first = try await store.retainedDrawing(candidateID: candidates[0])
+    let second = try await store.retainedDrawing(candidateID: candidates[1])
+    #expect(first.reference != second.reference && first.program == second.program)
+    #expect(first.input == second.input)
+    await store.closeLibrary()
+    let reopened = try await StudioDrawingFixture.store(directory: directory, purpose: .validationFixture)
+    let cold = try await reopened.retainedDrawing(candidateID: candidates[1])
+    #expect(cold.reference == second.reference && cold.input == second.input && cold.program == second.program)
+    let snapshot = await reopened.snapshot()
+    #expect(snapshot.rounds.first(where: { $0.id == round.id })?.analysisOptions == options)
+    let coldClaim = try JSONDecoder().decode(PortraitFlowProducerClaim.self, from: cold.producer.originalJSON)
+    #expect(coldClaim.settings.analysisOptions == options)
+    #expect(try await reopened.candidateRaster(candidates[1]) == expectedRaster)
+    guard case .present(let inputReference) = cold.input else {
+      Issue.record("Retained cropped drawing lost its exact image input"); await reopened.closeLibrary(); return
+    }
+    let coldInput = try await reopened.library.input(inputReference)
+    let originalInput = try #require(expectedInput)
+    #expect(coldInput.record.originalJSON == originalInput.record.originalJSON)
+    #expect(coldInput.record.sourceToInput == originalInput.record.sourceToInput)
+    #expect(coldInput.record.inputToField == originalInput.record.inputToField)
+    #expect(coldInput.photo.reference == photo.reference)
+    #expect(coldInput.photo.record.original.object == .hash(data))
+    #expect(coldInput.photo.assets.contains { $0.bytes == data && $0.descriptor.asset == photo.record.original })
+    await reopened.closeLibrary()
+    let otherPhoto = try PortraitDrawingImages.photo(data: data, issuer: UUID(), captureID: UUID(), capturedAt: nil, importedAt: Date())
+    let other = try await renderer.produce(data: data, recipe: .standard, strokeStyle: style,
+      nominalPenWidthMM: 0.6, photo: otherPhoto, analysisOptions: options)
+    #expect(other.artifacts.drawingInput?.reference != inputs[0])
+    #expect(other.artifacts.drawingInput?.photo.reference == otherPhoto.reference)
+    #expect(other.drawing.units.nominalPenWidthMM == 0.6)
+  }
+
+  @Test("selected oriented region retains exact original Photo and truthful source transform")
+  func selectedRegionOriginalTransform() async throws {
+    let image = try PortraitImageAnalyzer.image(from: FlowAuthoringFixture.image(4))
+    let bytes = NSMutableData()
+    let destination = try #require(CGImageDestinationCreateWithData(bytes, "public.jpeg" as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: 6] as CFDictionary)
+    try #require(CGImageDestinationFinalize(destination))
+    let data = bytes as Data
+    let photo = try PortraitDrawingImages.photo(data: data, issuer: UUID(), captureID: UUID(),
+      capturedAt: nil, importedAt: Date())
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    let options = PortraitAnalysisOptions(cropToFace: true, removeBackground: false,
+      manualRegion: .init(x: 0.2, y: 0.1, width: 0.6, height: 0.7))
+    let production = try await PortraitFlowDrawingProducer().produce(input: .init(data: data, photo: photo),
+      settings: .init(recipe: .standard, analysisOptions: options, strokeStyle: style),
+      preparationCache: PortraitFlowPreparationCache())
+    let input = try #require(production.artifacts.drawingInput)
+    #expect(input.photo.reference == photo.reference && input.record.photo == photo.reference)
+    #expect(input.photo.record.original.object == .hash(data))
+    let crop = try #require(production.artifacts.raster.analysisGeometry?.crop)
+    #expect(crop.x == 8 && crop.y == 4 && crop.width == 24 && crop.height == 28)
+    let matrix = input.record.sourceToInput.values
+    func transformed(_ x: Double, _ y: Double) -> (Double, Double) {
+      (matrix[0] * x + matrix[1] * y + matrix[2], matrix[3] * x + matrix[4] * y + matrix[5])
+    }
+    let topLeft = transformed(4, 32), bottomRight = transformed(32, 8)
+    #expect(abs(topLeft.0) < 1e-9 && abs(topLeft.1) < 1e-9)
+    #expect(abs(bottomRight.0 - Double(production.artifacts.raster.width)) < 1e-9)
+    #expect(abs(bottomRight.1 - Double(production.artifacts.raster.height)) < 1e-9)
+  }
+
+  @Test("trusted preparation matches uncached admission and invalidates on region, options, extent and bytes")
+  func trustedPreparationParity() async throws {
+    let data = FlowAuthoringFixture.image(4), cache = PortraitFlowPreparationCache()
+    let style = try StrokeStyle(nominalLineWidth: 0.4, penProfileID: PenProfileID())
+    let options = PortraitAnalysisOptions(cropToFace: false, removeBackground: false)
+    let input = PortraitFlowDrawingProducer.Input(data: data)
+    let settings = PortraitFlowDrawingProducer.Settings(recipe: .standard,
+      analysisOptions: options, strokeStyle: style, nominalPenWidthMM: 0.4)
+    let fresh = try await PortraitFlowDrawingProducer().produce(input: input, settings: settings)
+    let cold = try await PortraitFlowDrawingProducer().produce(input: input, settings: settings, preparationCache: cache)
+    let warm = try await PortraitFlowDrawingProducer().produce(input: input, settings: settings, preparationCache: cache)
+    #expect(cold.artifacts.raster == fresh.artifacts.raster && warm.artifacts.raster == fresh.artifacts.raster)
+    #expect(cold.drawing.program == fresh.drawing.program && warm.drawing.program == fresh.drawing.program)
+    #expect(cold.drawing.producer.originalJSON == fresh.drawing.producer.originalJSON)
+    #expect(warm.drawing.producer.originalJSON == fresh.drawing.producer.originalJSON)
+    #expect(cold.artifacts.timings?.rasterCacheHit == false && warm.artifacts.timings?.rasterCacheHit == true)
+    #expect(warm.artifacts.flowWorkspace?.diagnostics.sourceCacheHit == true)
+    #expect(warm.artifacts.flowWorkspace?.diagnostics.sourceBuilds == 1)
+    let croppedOptions = PortraitAnalysisOptions(cropToFace: true, removeBackground: false,
+      manualRegion: .init(x: 0.1, y: 0.1, width: 0.8, height: 0.8))
+    let croppedSettings = PortraitFlowDrawingProducer.Settings(recipe: .standard,
+      analysisOptions: croppedOptions, strokeStyle: style)
+    let cropped = try await PortraitFlowDrawingProducer().produce(input: input, settings: croppedSettings, preparationCache: cache)
+    #expect(cropped.artifacts.timings?.sourceCacheHit == true && cropped.artifacts.timings?.rasterCacheHit == false)
+    #expect(cropped.artifacts.raster.analysisGeometry?.crop != warm.artifacts.raster.analysisGeometry?.crop)
+    let changedExtent = PortraitFlowDrawingProducer.Input(data: data,
+      sourcePixelExtent: try .init(widthPixels: 4_000, heightPixels: 4_000))
+    let extentResult = try await PortraitFlowDrawingProducer().produce(input: changedExtent,
+      settings: croppedSettings, preparationCache: cache)
+    #expect(extentResult.artifacts.timings?.sourceCacheHit == false && extentResult.artifacts.timings?.rasterCacheHit == false)
+    let changedBytes = PortraitFlowDrawingProducer.Input(data: FlowAuthoringFixture.image(5))
+    let other = try await PortraitFlowDrawingProducer().produce(input: changedBytes, settings: settings, preparationCache: cache)
+    #expect(other.artifacts.timings?.sourceCacheHit == false && other.artifacts.timings?.rasterCacheHit == false)
+    let tiny = PortraitFlowPreparationCache(sourceByteLimit: 0, workspaceByteLimit: 0)
+    _ = try await PortraitFlowDrawingProducer().produce(input: input, settings: settings, preparationCache: tiny)
+    let tinyStats = await tiny.statistics()
+    #expect(tinyStats.sourceBytes == 0 && tinyStats.workspaceBytes == 0)
+    let stats = await cache.statistics()
+    #expect(stats.sourceBytes <= 48 * 1_024 * 1_024 && stats.workspaceBytes <= 64 * 1_024 * 1_024)
+    let cancelledCache = PortraitFlowPreparationCache()
+    let cancelled = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      return try await cancelledCache.analyzedRaster(data: data, options: options)
+    }
+    await #expect(throws: CancellationError.self) { try await cancelled.value }
+    let cancelledStats = await cancelledCache.statistics()
+    #expect(cancelledStats.sourceBytes == 0 && cancelledStats.rasterPixelBytes == 0)
+    let renderer = FlowAuthoringRenderer()
+    let photo = try PortraitDrawingImages.photo(data: data, issuer: UUID(), captureID: UUID(),
+      capturedAt: nil, importedAt: Date())
+    for _ in 0..<2 {
+      _ = try await renderer.proposals(data: data, count: 3, seed: 73, parent: nil,
+        checkpoint: nil, analysisOptions: options, photoReference: photo.reference)
+      let production = try await renderer.produce(data: data, recipe: .standard, strokeStyle: style,
+        nominalPenWidthMM: nil, photo: photo, analysisOptions: options)
+      #expect(production.artifacts.timings?.rasterCacheHit == true)
+      #expect(production.artifacts.flowWorkspace?.diagnostics.sourceBuilds == 1)
+    }
+  }
+
+  @Test("new authoring never reintroduces synthetic circles, including legacy-parent and guided refinement")
+  func noNewCircles() throws {
+    let legacy = FlowArtistRecipe(values: FlowArtistRecipe.standard.values,
+      marks: .init(wave: 0.3, polygon: 0.4, loop: 1, scale: 0.6))
+    #expect(try JSONDecoder().decode(FlowArtistRecipe.self, from: JSONEncoder().encode(legacy)) == legacy)
+    #expect(legacy.vectorOptions.flowMarks?.loop == 1)
+    let examples = (0..<3).map { index -> FlowArtistExample in
+      var features = Array(repeating: 0.0, count: FlowArtistFeatures.drawingCount)
+      features[0] = 1; features[1] = Double(index)
+      return .init(id: "circle-policy-\(index)", sourceGroupID: "photo", recipe: .standard,
+        features: features, strokeFeatures: [])
+    }
+    let checkpoint = try #require(FlowArtistTraining.fit(examples: examples,
+      rankings: [.init(id: "rank", tiers: [["circle-policy-2"], ["circle-policy-1"], ["circle-policy-0"]])]).checkpoint)
+    for seed in UInt64(0)..<20 {
+      for parent in [nil, legacy, FlowArtistRecipe.standard] {
+        let proposed = try FlowArtistProposals.propose(count: 12, seed: seed, parent: parent,
+          raster: field(), checkpoint: checkpoint, refinementRadius: 0.03)
+        #expect(proposed.allSatisfy { ($0.marks?.loop ?? 0) == 0 })
+        if let parent {
+          #expect(proposed.first == parent.withoutSyntheticLoops)
+          #expect(proposed.allSatisfy { candidate in
+            zip(candidate.coordinates, parent.withoutSyntheticLoops.coordinates)
+              .allSatisfy { abs($0 - $1) <= 0.030000001 }
+          })
+        }
+      }
+    }
+    #expect(legacy.refined(count: 12, seed: 54).allSatisfy { ($0.marks?.loop ?? 0) == 0 })
+  }
+
   @Test("The cached live producer admits one program and retains preparation after admission failure")
   func liveProducerCache() async throws {
     let data = FlowAuthoringFixture.image(4), renderer = FlowAuthoringRenderer()

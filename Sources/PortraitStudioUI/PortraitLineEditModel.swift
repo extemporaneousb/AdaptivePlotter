@@ -70,7 +70,16 @@ package final class PortraitLineEditModel: Identifiable {
   package var remainingCount: Int { base.program.strokes.count - removed.count }
   package var hasUnsavedChanges: Bool { removed != savedMask }
   package var canSave: Bool { original != nil && Self.supports(base) && remainingCount > 0 && !isBusy && !isClosed && !sketches.isClosing }
-  package var canEdit: Bool { original != nil && Self.supports(base) && !isBusy && !isClosed && !sketches.isClosing && !showsOriginal && !showsPhoto }
+  package var editingUnavailableReason: String? {
+    if isClosed || sketches.isClosing { return "The drawing editor is closing." }
+    if isBusy { return "Saving this drawing…" }
+    if !Self.supports(base) { return "Editing unavailable: this drawing requires unsupported features." }
+    if original == nil { return "Loading the exact retained drawing…" }
+    if showsOriginal || showsPhoto { return "Original is a read-only comparison. Return to editing to change lines." }
+    return nil
+  }
+  package var canEdit: Bool { editingUnavailableReason == nil }
+  package func returnToEditing() { showsOriginal = false; showsPhoto = false; selection = [] }
   package func load() async {
     guard !isClosed else { return }
     guard Self.supports(base) else { error = "Editing unavailable: this drawing requires unsupported features."; return }

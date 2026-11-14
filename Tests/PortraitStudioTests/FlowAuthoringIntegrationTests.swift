@@ -43,7 +43,34 @@ struct FlowAuthoringIntegrationTests {
     let proposals = (model.document?.pruneRevisions ?? []).filter { $0.action == .modelProposal }
     #expect(proposals.count == model.roundCandidates.count)
     #expect(proposals.contains { !$0.removedIndices.isEmpty })
-    let chosen = try #require(model.roundCandidates.first)
+    // Recommendation identity includes the membership that was actually scored.
+    await model.ensureRecommendation()
+    let winner = try #require(model.recommendationCandidate), scoredRound = try #require(model.round)
+    let scoredMask = try #require(scoredRound.recommendedRemovedIndices)
+    #expect(model.isRecommendationPredictedFavorite && model.removedIndices == Set(scoredMask))
+    var legacyJSON = try #require(JSONSerialization.jsonObject(with: DrawingArtifactCoding.encoder().encode(scoredRound)) as? [String: Any])
+    legacyJSON.removeValue(forKey: "recommendedRemovedIndices")
+    let legacyRound = try JSONDecoder().decode(FlowPortfolioRound.self, from: JSONSerialization.data(withJSONObject: legacyJSON))
+    #expect(legacyRound.recommendedCandidateID == winner.id && legacyRound.recommendedRemovedIndices == nil)
+    let kept = try #require(model.program?.strokes.filter { !model.removedIDs.contains($0.id) })
+    if kept.count > 1 { await model.edit(.remove, ids: [try #require(kept.first).id]) }
+    else { await model.edit(.restore, ids: [try #require(model.removedIDs.first)]) }
+    #expect(!model.isRecommendationPredictedFavorite && model.canSendToPlotter)
+    let shown = try #require(model.prune), store = try #require(model.store)
+    let expectedPreview = try await store.presentationPreview(.init(id: shown.id, candidateID: winner.id,
+      revisionID: shown.id, sourceID: winner.sourceID, removedIndices: shown.removedIndices))
+    #expect(model.previews[winner.id] == expectedPreview)
+    let sent = try await model.retainedDrawing()
+    #expect(sent.program.strokes.map(\.id) == model.program?.strokes.filter { !model.removedIDs.contains($0.id) }.map(\.id))
+    #expect(sent.reference == shown.drawing)
+    await model.edit(.undo)
+    #expect(model.isRecommendationPredictedFavorite && model.removedIndices == Set(scoredMask))
+    let remaining = Set(try #require(model.program).strokes.map(\.id)).subtracting(model.removedIDs)
+    await model.edit(.remove, ids: remaining)
+    #expect(model.recommendationCandidate?.id != winner.id && !model.canSendToPlotter)
+    await model.edit(.undo)
+    #expect(model.recommendationCandidate?.id == winner.id && model.isRecommendationPredictedFavorite)
+    let chosen = try #require(model.roundCandidates.first { $0.id != winner.id })
     await model.selectCandidate(chosen.id, prune: true)
     if let restoredID = model.removedIDs.first { await model.edit(.restore, ids: [restoredID]) }
     else if let id = model.program?.strokes.first?.id { await model.edit(.remove, ids: [id]) }
@@ -55,6 +82,12 @@ struct FlowAuthoringIntegrationTests {
     await model.activate(second.id)
     let secondCheckpoint = try #require(model.activeCheckpoint?.id)
     #expect(secondCheckpoint != checkpointID)
+    await model.browseCandidate(winner.id)
+    #expect(!model.isPredictedFavorite(winner))
+    await model.activate(fit.id)
+    #expect(model.isPredictedFavorite(winner))
+    await model.activate(second.id)
+    #expect(!model.isPredictedFavorite(winner))
     let revision = try #require(model.document?.revision)
     await model.shutdown()
     try FileManager.default.copyItem(at: directory, to: copied)

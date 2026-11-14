@@ -21,6 +21,9 @@ struct FlowAuthoringCameraTests {
     let authoring = FlowAuthoringModel(directory: directory.appendingPathComponent("portfolio"), purpose: .validationFixture)
     do {
       await camera.discover(excluding: nil)
+      #expect(camera.selectedDeviceID == nil && !camera.cameraIsRunning)
+      #expect(await driver.starts == 0)
+      camera.selectedDeviceID = try #require(camera.devices.first?.id)
       await camera.startCamera()
       let pen = authoring.strokeStyle
       let first = try #require(await camera.captureForPortfolio(strokeStyle: pen))
@@ -46,6 +49,8 @@ struct FlowAuthoringCameraTests {
       let after = await capture.snapshot().diagnostics
       #expect(after.returnOnlyExactRequestCount == before.returnOnlyExactRequestCount)
       #expect(after.exactContentHashComputationCount == before.exactContentHashComputationCount)
+      await camera.stopCamera()
+      #expect(!camera.cameraIsRunning && camera.preview.frame == nil && !camera.screenIlluminationActive)
       await camera.shutdown(); await authoring.shutdown()
     } catch { await camera.shutdown(); await authoring.shutdown(); throw error }
   }

@@ -61,7 +61,7 @@ package struct FlowAuthoringSidebar: View {
         }.padding(10)
       }
     }.padding(.top, 8)
-      .disabled(model.isBusy || model.needsRecovery)
+      .disabled(!model.canNavigateExploration)
       .onChange(of: model.round?.id, initial: true) { _, id in if let id { expandedRounds.insert(id) } }
       .task { await loadPhotos() }
       .onChange(of: model.document?.sources.count) { _, _ in Task { await loadPhotos() } }
@@ -106,12 +106,14 @@ package struct FlowAuthoringSidebar: View {
                   Text("\(edit.removedIndices.count) removed" + (edit.action == .completeTarget ? " · target" : ""))
                     .font(.caption).foregroundStyle(.secondary)
                 } else { Text("Generated").font(.caption).foregroundStyle(.secondary) }
+                if model.candidateUnavailableReason(candidate) != nil { Text("Preview only").font(.caption).foregroundStyle(.secondary) }
               }
               Spacer(minLength: 0)
             }.padding(4).contentShape(Rectangle())
               .background(model.candidate?.id == candidate.id ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 4))
           }.buttonStyle(.plain).padding(.leading, 18)
-            .help("Open this drawing without recording a preference")
+            .disabled(model.candidateUnavailableReason(candidate) != nil)
+            .help(model.candidateUnavailableReason(candidate) ?? "Open this drawing without recording a preference")
             .contextMenu { Button("Rename drawing…") { renaming = .init(id: candidate.id, photo: false, name: model.drawingName(candidate)) } }
         }
       }

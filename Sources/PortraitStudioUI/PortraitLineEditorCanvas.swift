@@ -44,6 +44,7 @@ package final class PortraitLineEditorNSView: NSView {
   private var tracking: NSTrackingArea?
   package override var isFlipped: Bool { true }
   package override var acceptsFirstResponder: Bool { true }
+  package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { editingEnabled }
 
   package override init(frame: NSRect) {
     super.init(frame: frame)
