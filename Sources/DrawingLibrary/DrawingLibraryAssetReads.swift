@@ -27,7 +27,7 @@ extension DrawingLibrary {
       expectedBytes += descriptor.asset.byteLength
     }
     guard let db = try commonReadDatabase(), try tableExists("dx_object", in: db) else { return [] }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       var result = Set<ExchangeDigest>()
       for (digest, descriptor) in unique {
         guard let raw = try db.scalar("SELECT byte_length FROM dx_object WHERE digest=?", [digest.description]) else {
@@ -66,7 +66,7 @@ extension DrawingLibrary {
   package func assetFiles(_ inventory: [ExchangeCatalogFile], limits: ExchangeCarrierLimits) throws -> VerifiedExchangeFiles {
     guard inventory.count <= limits.maximumEntries,
       let db = try commonReadDatabase(), try tableExists("dx_object", in: db) else { throw DrawingLibraryError.invalidQuery }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       var lengths: [ExchangeDigest: UInt64] = [:]
       for item in inventory {
         if let old = lengths[item.digest], old != item.byteLength { throw DrawingLibraryError.corruptAsset(item.digest) }

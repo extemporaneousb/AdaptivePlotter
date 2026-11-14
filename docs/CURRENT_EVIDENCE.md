@@ -8,6 +8,167 @@ This document records what was actually verified. Product meaning belongs to
 [Architecture](SWIFT_ADAPTIVE_PLOTTER_ARCHITECTURE.md), and the physical
 procedure to [Attended Hardware Runbook](ATTENDED_HARDWARE_RUNBOOK.md).
 
+## Startup and authoring performance maintenance, 2026-11-14
+
+The following source inventory is relative to `67a35e19a7180a50ef1b2822a551c9ddbc323e96`.
+It records ten primary optimizations, twenty cleanups and five refactors. Categories
+overlap: these are not thirty-five independent edits. Runtime timing, application
+restart and pruning observations are separate from this implementation inventory.
+
+| Optimization | Concrete implementation and eliminated work |
+| --- | --- |
+| P01 | [`MachineWirePrecision.number`](../Sources/PlotterRuntime/MachineWirePrecision.swift) reuses a synchronized `CFNumberFormatter` rather than configuring ICU for each wire coordinate. Finite-value refusal and three-decimal wire text remain the contract. |
+| P02 | [`DrawingLibrary.commonReadDatabase`](../Sources/DrawingLibrary/DrawingLibraryReads.swift) retains one read-only SQLite connection. Every reuse checks selected-file authority; main-file state and `PRAGMA data_version` invalidate schema/profile proof, including WAL-only commits. |
+| P03 | [`DrawingLibraryDatabase.withStatement`](../Sources/DrawingLibrary/DrawingLibraryDatabase.swift) reuses at most 64 idle prepared statements, clearing bindings and resetting each checked-out statement on success or failure. |
+| P04 | [`FlowFeedbackReader.feature`](../Sources/PortraitLibrary/FlowPortfolioFeedback.swift) replaces an edited feature capsule's stroke-matrix span only after its exact bytes match the fully decoded and validated root's digest. JSONDecoder then parses the compact metadata view; original asset verification, full byte/element admission and basis checks remain active. |
+| P05 | [`LibraryExchangeCatalogSelection.validate`](../Sources/DrawingLibrary/DrawingLibraryCatalog.swift) compares the canonical marker bytes directly; alternate JSON still takes strict duplicate-key and closed-key validation. Filesystem selection checks remain active. |
+| P06 | [`FlowSourceConnectivity.groups`](../Sources/PortraitLibrary/FlowSourceConnectivity.swift) computes source/subject/session components with union-find, replacing repeated all-pairs set propagation in live and frozen training projections. Excluded bridge sources still participate. |
+| P07 | [`FlowPortfolioValidation`](../Sources/PortraitLibrary/FlowPortfolioValidation.swift) groups candidates by round once instead of rescanning every candidate for each round. |
+| P08 | [`FlowArtistFeatures.pathShape`](../Sources/PortraitArtists/FlowArtistFeatures.swift) shares resampling and segment-angle work between turning and corner features. |
+| P09 | [`FlowArtistFeatures`](../Sources/PortraitArtists/FlowArtistFeatures.swift) uses integer spatial-cell keys and streams neighbor count/nearest-distance aggregation, preserving the existing first-128-neighbor order. |
+| P10 | [`FlowAuthoringPresentationIndex`](../Sources/PortraitStudioUI/FlowAuthoringPresentationIndex.swift) indexes sources, rounds, candidates, latest prunes and Photo-relative numbering once per immutable snapshot; [`FlowAuthoringModel.refresh`](../Sources/PortraitStudioUI/FlowAuthoringModel.swift) prepares the projection off the main actor and checks publication authority after awaiting it. |
+
+Supporting changes also remove scalar SQL result-matrix allocation in [`DrawingLibraryDatabase`](../Sources/DrawingLibrary/DrawingLibraryDatabase.swift) and cache the bounded artifact byte total in [`FlowAuthoringArtifacts`](../Sources/PortraitLibrary/FlowAuthoringArtifacts.swift).
+
+| Cleanup | Removed duplication or obsolete responsibility |
+| --- | --- |
+| C01 | Retired the unread `dx_summary` mirror, its publication writes, test-only rebuild API and fixture writes in [`DrawingLibraryCatalog`](../Sources/DrawingLibrary/DrawingLibraryCatalog.swift). Existing databases may retain the unused table; no migration deletes historical data. |
+| C02 | Removed the unused `FlowAuthoringContext` wrapper from [`FlowAuthoringModel`](../Sources/PortraitStudioUI/FlowAuthoringModel.swift). |
+| C03 | Removed the `FlowAuthoringSupervision` alias; [`FlowAuthoringTrainingProgress`](../Sources/PortraitStudioUI/FlowAuthoringTrainingProgress.swift) names the actual domain resolver directly. |
+| C04 | Derived `reportSummary` from `fitReport` instead of storing duplicate mutable state in [`FlowAuthoringModel`](../Sources/PortraitStudioUI/FlowAuthoringModel.swift). |
+| C05 | Removed unused `operation` and `subjectID` parameters from [`FlowPortfolioStore.commit`](../Sources/PortraitLibrary/FlowPortfolioStore.swift) and its callers. |
+| C06 | Removed unused `Darwin` from [`FlowPortfolioStore`](../Sources/PortraitLibrary/FlowPortfolioStore.swift) and `PlotterModel` from [`MachineWirePrecision`](../Sources/PlotterRuntime/MachineWirePrecision.swift). |
+| C07 | Removed the immediately discarded empty snapshot in [`FlowPortfolioStore.loadRecords`](../Sources/PortraitLibrary/FlowPortfolioGraph.swift). |
+| C08 | Reused one `isHumanEdit` predicate for feature capture, selection and retention in [`FlowPortfolioStore`](../Sources/PortraitLibrary/FlowPortfolioStore.swift). |
+| C09 | Removed the two separate connectivity engines from [`FlowPortfolioTraining`](../Sources/PortraitLibrary/FlowPortfolioTraining.swift); both use the shared component builder. |
+| C10 | Removed duplicated turning/corner resampling loops from [`FlowArtistFeatures`](../Sources/PortraitArtists/FlowArtistFeatures.swift). |
+| C11 | Removed the string-formatting spatial-cell helper from [`FlowArtistFeatures`](../Sources/PortraitArtists/FlowArtistFeatures.swift). |
+| C12 | Removed temporary nearby/filtered/distance arrays from the stroke neighbor calculation in [`FlowArtistFeatures`](../Sources/PortraitArtists/FlowArtistFeatures.swift). |
+| C13 | Hoisted invariant region and style arrays outside the per-stroke loop in [`FlowArtistFeatures`](../Sources/PortraitArtists/FlowArtistFeatures.swift). |
+| C14 | Evaluated each feature capsule's encoded `asset` once per publication in [`FlowPortfolioGraph`](../Sources/PortraitLibrary/FlowPortfolioGraph.swift). |
+| C15 | Reused one JSON decoder per entity-row batch in [`FlowPortfolioStore.rows`](../Sources/PortraitLibrary/FlowPortfolioGraph.swift). |
+| C16 | Removed the duplicate editing reset in [`FlowAuthoringModel.beginPruning`](../Sources/PortraitStudioUI/FlowAuthoringModel.swift); the stage observer owns it. |
+| C17 | Replaced grouped prune-history arrays with a last-entry lookup in [`FlowAuthoringTrainingProgress`](../Sources/PortraitStudioUI/FlowAuthoringTrainingProgress.swift). |
+| C18 | Removed intermediate X/Y arrays and forced min/max unwraps from per-stroke bounds construction in [`PortraitLineSelectionGeometry`](../Sources/PortraitStudioUI/PortraitLineSelectionGeometry.swift). |
+| C19 | Removed lasso filter/map intermediate arrays from [`PortraitLineSelectionGeometry.lasso`](../Sources/PortraitStudioUI/PortraitLineSelectionGeometry.swift). |
+| C20 | Reused the record-key and removal-key sets during [`LibraryExchangeCatalog.validateDomainBatch`](../Sources/DrawingLibrary/DrawingLibraryRecords.swift) instead of constructing each twice. |
+
+| Refactor | Owning boundary |
+| --- | --- |
+| R01 | [`DrawingLibraryDatabase.readSnapshot`](../Sources/DrawingLibrary/DrawingLibraryDatabase.swift) owns the read transaction and actual-connection rollback, replacing the actor-level snapshot wrapper across Library readers. |
+| R02 | [`DrawingLibraryDatabase.withStatement`](../Sources/DrawingLibrary/DrawingLibraryDatabase.swift) owns statement checkout, binding, reset and return for scalar, row and parameterized write operations. |
+| R03 | [`FlowSourceConnectivity`](../Sources/PortraitLibrary/FlowSourceConnectivity.swift) owns canonical connected-component construction for both current supervision and frozen task validation. |
+| R04 | [`FlowArtistFeatures.pathShape`](../Sources/PortraitArtists/FlowArtistFeatures.swift) owns shared resampled path metrics. |
+| R05 | [`FlowAuthoringPresentationIndex`](../Sources/PortraitStudioUI/FlowAuthoringPresentationIndex.swift) owns derived lookup/numbering state for one immutable portfolio snapshot; the document remains the authoritative value. |
+
+The quiet release-mode [backend benchmark](../Tests/PortraitStudioTests/BackendPerformanceTests.swift)
+uses one warmup and seven timed samples per operation. Before/after medians on
+this Mac were:
+
+| Software operation and synthetic fixture | Before, ms | After, ms |
+| --- | ---: | ---: |
+| Validate 2,000 rounds / 8,000 candidates | 1,901.05 | 25.59 |
+| Connect 800 source declarations | 1,046.34 | 2.24 |
+| Drawing features: 1,200 strokes × 120 points, every fifth stroke removed | 122.76 | 62.18 |
+| Stroke features: the same 1,200-stroke program | 90.14 | 84.93 |
+
+The drawing and stroke feature digests matched the frozen baseline exactly.
+
+The [Library metadata benchmark](../Tests/DrawingLibraryTests/DrawingLibraryMetadataPerformanceTests.swift)
+used 100 and 10,000 synthetic SQL rows, one actually retained Drawing per scale,
+and an unavailable artwork directory. Each operation had five warmups and thirty
+measured trials; both release binaries ran sequentially after compilation stopped.
+At 10,000 rows:
+
+| Metadata operation | Before p50 / p95, ms | After p50 / p95, ms |
+| --- | ---: | ---: |
+| First 30-row page | 2.410 / 3.096 | 1.306 / 1.320 |
+| Deep 30-row page | 2.462 / 2.854 | 1.340 / 1.447 |
+| Rename | 2.219 / 2.459 | 1.771 / 2.058 |
+| Clear title | 2.227 / 2.950 | 1.723 / 2.074 |
+
+At 100 rows, first/deep-page medians changed from 2.434/2.453 ms to
+1.333/1.346 ms. Across sixty measured pages at each scale, SQL statements fell
+from 810 to 510; the candidate opened no new connections, prepared no new
+statements and recorded 390 statement-cache hits. Query work remained 50,910 VM
+steps and 900 fullscan steps, with zero artwork hashing. These are metadata-only
+measurements, not 10,000 fully retained drawing loads.
+
+These measurements cover the named operations; they do not measure native launch
+or physical plotting.
+
+Three paired release processes fully validated a disposable copy of the current
+execution archive, retaining the identical archive identity, revision, 51 records
+and 26 attempts. Median archive-open time changed from 106.637 s to 43.786 s
+(58.94% lower); before/after ranges were 106.635–107.115 s and 43.752–45.352 s.
+The runs performed full read-only validation without competing builds or tests;
+filesystem caches were unspecified, and native first paint was outside the timed
+boundary. A candidate sample remained dominated by media-coverage JSON decoding;
+wire-schedule work appeared in about 2.3% of sampled stacks. The remaining roughly
+44-second archive path is still material startup work.
+
+Five paired fresh helper/model opens per release binary used the same small
+active-fit fixture: four Photos, twelve retained candidates and sixteen strokes
+per candidate. Median model-open time changed from 989.295 ms to 895.406 ms
+(9.49% lower); before/after ranges were 963.261–1,152.586 ms and
+862.946–914.134 ms. Fixture copying preceded timing, and the OS filesystem cache
+was unspecified. Feedback/program hashes, fixture identity and training state
+matched across all ten runs. This measures model open, with native first-window
+latency outside its scope.
+
+The [projection/pruning checks](../Tests/PortraitStudioTests/FlowAuthoringProjectionTests.swift)
+also ran preserved reference algorithms beside the current implementation inside
+the same candidate process, asserting exact output equality:
+
+| Same-candidate operation | Reference total, ms | Current total, ms |
+| --- | ---: | ---: |
+| Number 4,000 candidate rows, including index construction | 2,617.322 | 3.736 |
+| Twenty removed-ID projections: 512 strokes / 224 removed | 56.708 | 0.584 |
+
+Three serialized fresh-process opens of identical copies of the production
+Studio Library, with no active fit, changed median loader time from 23.419 s to
+22.552 s (3.704% lower). Before/after ranges were 23.307–23.635 s and
+22.506–22.725 s. All runs retained the same 1,596 candidates, 282 rounds,
+66 choices, 626 prune revisions, 37 rankings and feedback-projection digest.
+The profile performs diagnostic projection without candidate or feedback writes;
+filesystem caches were unspecified and native first paint was excluded. These
+isolated measurements supersede preliminary timings taken during compilation.
+
+On disposable copies of the current Library, full numeric decoding and compact
+metadata decoding produced the same feedback projection for 1,596 candidates and
+626 prune revisions. Both admitted 484,939,041 bytes and 8,653,524 elements across
+977 capsules. The full oracle decoded 977 stroke matrices; the optimized path
+fully decoded 363 and reused 614 exact root matrices. It skipped reparsing
+308,287,710 matrix bytes while retaining original-asset verification and admission
+limits.
+
+Three projection/pruning tests and eleven focused history/editor tests passed.
+The 512-stroke pruning fixture removed 256 strokes, restored 32, performed undo,
+redo and `completeTarget`, then cold-reopened with the same 224 removed stroke IDs
+and the unchanged original program. The affected Library/catalog run passed 126
+tests, including six read-reuse cases covering fresh commits, close, rollback
+after path replacement, statement rebinding/error cleanup, marker validation and
+WAL-only schema/profile invalidation. The WAL
+fixture establishes an initial WAL commit before opening its read-only owner;
+subsequent invalid schema/profile commits leave the main-file stat unchanged and
+are still refused.
+
+Updated signed Desktop bundles were published and both applications were
+restarted after the Mac was unlocked. Studio restored Photo 34, its branch
+history and saved feedback at revision 223. The selected temporary drawings
+were reported as preview-only after restart, so manual pruning should use a
+newly generated or available retained drawing. Plotter's initial window appeared
+while archive restoration was still running; final native readiness and user
+acceptance were handed to the user at their request. No physical operation was
+performed.
+
+The configured documentation check passed. The full `make quick-test` invocation
+returned failure after 798 seconds; Blackdog retained the exit status but discarded
+the test output, so the failing test was not identified. This broad check is not
+claimed as passed. The user requested landing and elected to perform application
+testing rather than continue agent verification. The focused passing evidence
+above remains separate from that unresolved broad-suite failure.
+
 ## Portrait Studio authoring catalog and two-app handoff, 2026-11-11–12
 
 The two original writable catalogs contained 217 Photo records each, including

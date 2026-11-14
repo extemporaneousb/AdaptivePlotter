@@ -20,7 +20,7 @@ private extension FlowPortfolioStore {
       programHash: program.contentHash.description, strokeCount: program.strokes.count)
     var next = state; next.candidates.append(candidate)
     next.rounds[next.rounds.firstIndex { $0.id == roundID }!].candidateIDs.append(candidate.id)
-    try await commit(next, operation: "preSpoolHistoricalFixtureInstalled", subjectID: candidate.id)
+    try await commit(next)
     return candidate
   }
   func forgetHistoricalFixtureArtifacts() {

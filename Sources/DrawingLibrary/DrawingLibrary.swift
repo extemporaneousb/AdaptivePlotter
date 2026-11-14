@@ -46,6 +46,7 @@ public struct DrawingLibraryPage: Sendable {
 public actor DrawingLibrary {
   public nonisolated let directoryURL: URL
   package var database: DrawingLibraryDatabase?
+  package var readDatabase: DrawingLibraryDatabase?
   package var cachedExchangeCatalog: LibraryExchangeCatalog?
   package let payloadValidators: ExchangePayloadValidators
   package let producerValidators: DrawingProducerValidators
@@ -137,7 +138,7 @@ public actor DrawingLibrary {
     pendingRetentions.removeAll()
     selectedDrawingCacheRecency.removeAll()
     selectedDrawingCache.removeAll(); existingAssetProofs.removeAll(); existingAssetRecency.removeAll()
-    cachedExchangeCatalog = nil; database = nil
+    cachedExchangeCatalog = nil; readDatabase = nil; database = nil
   }
   package func assignedLibraryIdentity(_ db: DrawingLibraryDatabase) throws -> UUID? {
     guard let value = try db.scalar("SELECT value FROM state WHERE key='library_uuid'") else { return nil }

@@ -98,20 +98,20 @@ package struct FlowAuthoringSidebar: View {
         Button { Task { await model.selectRound(round.id) } } label: {
           VStack(alignment: .leading, spacing: 2) {
             Text(model.roundName(round) + (round.parentCandidateID == nil ? " · Broad" : " · Refinement")).fontWeight(model.round?.id == round.id ? .semibold : .regular)
-            if let id = round.parentCandidateID, let parent = model.document?.candidates.first(where: { $0.id == id }) {
+            if let id = round.parentCandidateID, let parent = model.presentationIndex?.candidates[id] {
               Text("↳ " + model.drawingName(parent)).font(.caption).foregroundStyle(.secondary)
             }
           }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }.buttonStyle(.plain)
       }.padding(.leading, CGFloat(min(3, model.branchDepth(round))) * 7)
       if expandedRounds.contains(round.id) {
-        ForEach(round.candidateIDs.compactMap { id in model.document?.candidates.first(where: { $0.id == id }) }) { candidate in
+        ForEach(round.candidateIDs.compactMap { id in model.presentationIndex?.candidates[id] }) { candidate in
           Button { Task { await model.browseCandidate(candidate.id, prune: true) } } label: {
             HStack(spacing: 7) {
               CandidateThumbnail(model: model, candidate: candidate).frame(width: 42, height: 48)
               VStack(alignment: .leading, spacing: 2) {
                 Text(model.drawingName(candidate)).lineLimit(1)
-                if let edit = model.document?.latestPrune(candidateID: candidate.id) {
+                if let edit = model.presentationIndex?.latestPrunes[candidate.id] {
                   Text("\(edit.removedIndices.count) removed" + (edit.action == .completeTarget ? " · target" : ""))
                     .font(.caption).foregroundStyle(.secondary)
                 } else { Text("Generated").font(.caption).foregroundStyle(.secondary) }

@@ -238,7 +238,7 @@ extension DrawingLibrary {
 
   private func pinnedResultFiles(_ reference: DrawingLibraryResultRef) throws -> VerifiedExchangeFiles {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Result is not mounted") }
-    return try commonSnapshot(db) { try resultFiles(reference, database: $0) }
+    return try db.readSnapshot { try resultFiles(reference, database: $0) }
   }
 
   public func results(for drawing: DrawingRef, limit: Int = 50, after: DrawingLibraryResultCursor? = nil) throws -> DrawingLibraryResultPage {
@@ -255,7 +255,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500 else { throw DrawingLibraryError.invalidQuery }
     if let after, after.drawing != drawing { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       if let drawing, try tableExists("dx_record", in: db), let stored = try db.scalar("SELECT digest FROM dx_record WHERE kind='drawing' AND namespace=? AND identity=?", [drawing.issuer.uuidString.lowercased(), drawing.revision.uuidString.lowercased()]) {
         let actual = try ExchangeDigest(stored)
         guard actual == drawing.digest else { throw DrawingLibraryError.referenceConflict(drawing, actual: actual) }

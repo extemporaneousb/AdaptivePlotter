@@ -35,15 +35,16 @@ package enum FlowArtistFeatures {
     var bins = Array(repeating: 0.0, count: 9)
     for index in remaining {
       let path = program.strokes[index].path, points = path.points
-      let normalizedLength = path.length / height
-      length += normalizedLength
+      let pathLength = path.length
+      length += pathLength / height
       if let first = points.first, let last = points.last {
-        let ratio = min(1, hypot(last.x - first.x, last.y - first.y) / max(0.0001, path.length))
+        let ratio = min(1, hypot(last.x - first.x, last.y - first.y) / max(0.0001, pathLength))
         straightness += ratio
         if ratio < 0.025 { closed += 1 }
       }
       let normalized = points.map { CGPoint(x: $0.x / width, y: $0.y / height) }
-      turning += turn(normalized); corners += cornerFraction(normalized)
+      let shape = pathShape(normalized)
+      turning += shape.turn; corners += shape.cornerFraction
       for (a, b) in zip(points, points.dropFirst()) {
         let x = min(2, max(0, Int((a.x + b.x) / (2 * width) * 3)))
         let y = min(2, max(0, Int((a.y + b.y) / (2 * height) * 3)))
@@ -87,21 +88,26 @@ package enum FlowArtistFeatures {
       let total = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
       return CGPoint(x: total.x / Double(max(1, points.count)), y: total.y / Double(max(1, points.count)))
     }
-    func key(_ x: Int, _ y: Int) -> String { "\(x),\(y)" }
-    var cells: [String: [Int]] = [:]
-    for (index, center) in centers.enumerated() { cells[key(Int(floor(center.x / 0.08)), Int(floor(center.y / 0.08))), default: []].append(index) }
+    struct Cell: Hashable { let x: Int; let y: Int }
+    var cells: [Cell: [Int]] = [:]
+    for (index, center) in centers.enumerated() { cells[Cell(x: Int(floor(center.x / 0.08)), y: Int(floor(center.y / 0.08))), default: []].append(index) }
     let field = valid(raster) ? PortraitRegionalTreatment.Field(raster: raster) : nil
+    let regions: [PortraitTreatmentRegion] = [.face, .eyes, .mouth, .skin, .silhouette]
+    let style = [parameters[3], parameters[6], parameters[11], parameters[12], parameters[13], parameters[14]]
     return program.strokes.indices.map { index in
       let stroke = program.strokes[index], points = normalized[index], center = centers[index]
       let cellX = Int(floor(center.x / 0.08)), cellY = Int(floor(center.y / 0.08))
-      var nearby: [Int] = []
-      for y in (cellY - 1)...(cellY + 1) { for x in (cellX - 1)...(cellX + 1) { nearby += cells[key(x, y)] ?? [] } }
-      let neighbors = nearby.filter { $0 != index }
-      let nearest = neighbors.prefix(128).map { hypot(centers[$0].x - center.x, centers[$0].y - center.y) }.min() ?? 0.25
+      var neighborCount = 0, nearest = Double.infinity
+      for y in (cellY - 1)...(cellY + 1) { for x in (cellX - 1)...(cellX + 1) {
+        for neighbor in cells[Cell(x: x, y: y)] ?? [] where neighbor != index {
+          if neighborCount < 128 { nearest = min(nearest, hypot(centers[neighbor].x - center.x, centers[neighbor].y - center.y)) }
+          neighborCount += 1
+        }
+      } }
+      if neighborCount == 0 { nearest = 0.25 }
       let sampleStep = max(1, points.count / 32)
       let samples = Swift.stride(from: 0, to: points.count, by: sampleStep).prefix(33).map { points[$0] }
       var light = 0.0, gradient = 0.0, protection = 0.0, supports = Array(repeating: 0.0, count: 5)
-      let regions: [PortraitTreatmentRegion] = [.face, .eyes, .mouth, .skin, .silhouette]
       for p in samples {
         let point = CGPoint(x: p.x * Double(raster.width) - 0.5, y: p.y * Double(raster.height) - 0.5)
         light += luminance(x: point.x, y: point.y, raster: raster)
@@ -113,12 +119,11 @@ package enum FlowArtistFeatures {
       let endpointDistance: Double = points.count < 2 ? 0 : Double(hypot(points.last!.x - points.first!.x, points.last!.y - points.first!.y))
       let length = stroke.path.length / height
       let base: [Double] = [1, Double(center.x), Double(center.y), saturate(length, scale: 0.3),
-        min(1, endpointDistance / max(0.0001, length)), turn(points), light / sampleCount,
-        gradient / sampleCount, saturate(Double(neighbors.count), scale: 12), min(1, nearest / 0.25),
+        min(1, endpointDistance / max(0.0001, length)), pathShape(points, includingCorners: false).turn, light / sampleCount,
+        gradient / sampleCount, saturate(Double(neighborCount), scale: 12), min(1, nearest / 0.25),
         protection] + supports + [field == nil ? 0.0 : 1.0,
           endpointDistance / max(0.0001, length) < 0.025 ? 1.0 : 0.0]
       let geometry = [base[3], base[4], base[5], base[7], base[8]]
-      let style = [parameters[3], parameters[6], parameters[11], parameters[12], parameters[13], parameters[14]]
       var features = base
       features += parameters
       features += photo
@@ -145,29 +150,22 @@ package enum FlowArtistFeatures {
     hypot(luminance(x: x + 1, y: y, raster: raster) - luminance(x: x - 1, y: y, raster: raster),
       luminance(x: x, y: y + 1, raster: raster) - luminance(x: x, y: y - 1, raster: raster)) / sqrt(2)
   }
-  private static func turn(_ points: [CGPoint]) -> Double {
+  private static func pathShape(_ points: [CGPoint], includingCorners: Bool = true) -> (turn: Double, cornerFraction: Double) {
     let points = resampled(points)
-    guard points.count > 2 else { return 0 }
-    var total = 0.0, count = 0.0
+    guard points.count > 2 else { return (0, 0) }
+    var total = 0.0, count = 0.0, corners = 0.0
+    let cornerThreshold = cos(Double.pi / 6)
     for index in 1..<(points.count - 1) {
       let a = points[index - 1], b = points[index], c = points[index + 1]
       let ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y
       let norm = hypot(ux, uy) * hypot(vx, vy)
-      if norm > 1e-12 { total += acos(min(1, max(-1, (ux * vx + uy * vy) / norm))) / .pi; count += 1 }
+      if norm > 1e-12 {
+        let cosine = (ux * vx + uy * vy) / norm
+        total += acos(min(1, max(-1, cosine))) / .pi; count += 1
+        if includingCorners && cosine < cornerThreshold { corners += 1 }
+      }
     }
-    return total / max(1, count)
-  }
-  private static func cornerFraction(_ points: [CGPoint]) -> Double {
-    let points = resampled(points)
-    guard points.count > 2 else { return 0 }
-    var count = 0.0
-    for index in 1..<(points.count - 1) {
-      let a = points[index - 1], b = points[index], c = points[index + 1]
-      let ux = b.x - a.x, uy = b.y - a.y, vx = c.x - b.x, vy = c.y - b.y
-      let norm = hypot(ux, uy) * hypot(vx, vy)
-      if norm > 1e-12, (ux * vx + uy * vy) / norm < cos(.pi / 6) { count += 1 }
-    }
-    return count / Double(points.count - 2)
+    return (total / max(1, count), corners / Double(points.count - 2))
   }
   /// Fixed arc-length sampling prevents a renderer's vertex budget from being
   /// mistaken for artistic curvature when a path is represented more densely.

@@ -15,17 +15,25 @@ package struct PortraitLineSelectionGeometry {
   package let page: CGRect
 
   package init(program: DrawingProgram, size: CGSize) {
-    let margin = 16.0 + (program.strokes.map { $0.style.nominalLineWidth }.max() ?? 0)
+    let margin = 16.0 + (program.strokes.lazy.map { $0.style.nominalLineWidth }.max() ?? 0)
     let scale = max(0.001, min(max(1, size.width - margin * 2) / program.fieldExtent.width,
       max(1, size.height - margin * 2) / program.fieldExtent.height))
     let width = program.fieldExtent.width * scale, height = program.fieldExtent.height * scale
     page = CGRect(x: (size.width-width)/2, y: (size.height-height)/2, width: width, height: height)
     let origin = page.origin
     lines = program.strokes.map { stroke in
-      let points = stroke.path.points.map { CGPoint(x: origin.x + $0.x * scale, y: origin.y + height - $0.y * scale) }
-      let xs = points.map(\.x), ys = points.map(\.y)
+      var points: [CGPoint] = []
+      points.reserveCapacity(stroke.path.points.count)
+      var minX = CGFloat.infinity, minY = CGFloat.infinity
+      var maxX = -CGFloat.infinity, maxY = -CGFloat.infinity
+      for point in stroke.path.points {
+        let transformed = CGPoint(x: origin.x + point.x * scale, y: origin.y + height - point.y * scale)
+        points.append(transformed)
+        minX = min(minX, transformed.x); minY = min(minY, transformed.y)
+        maxX = max(maxX, transformed.x); maxY = max(maxY, transformed.y)
+      }
       return Line(id: stroke.id, points: points,
-        bounds: CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!),
+        bounds: CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY),
         width: stroke.style.nominalLineWidth * scale)
     }
   }
@@ -48,11 +56,15 @@ package struct PortraitLineSelectionGeometry {
     let edges = Array(zip(polygon, Array(polygon.dropFirst()) + [polygon[0]]))
     let xs = polygon.map(\.x), ys = polygon.map(\.y)
     let bounds = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()!-xs.min()!, height: ys.max()!-ys.min()!).insetBy(dx: -0.01, dy: -0.01)
-    return Set(lines.filter { line in
-      guard !excluding.contains(line.id), line.bounds.insetBy(dx: -0.01, dy: -0.01).intersects(bounds) else { return false }
-      return line.points.contains(where: { Self.inside($0, edges) })
-        || zip(line.points, line.points.dropFirst()).contains { a,b in edges.contains { c,d in Self.intersects(a,b,c,d) } }
-    }.map(\.id))
+    var selected = Set<StrokeID>()
+    for line in lines where !excluding.contains(line.id) {
+      guard line.bounds.insetBy(dx: -0.01, dy: -0.01).intersects(bounds) else { continue }
+      if line.points.contains(where: { Self.inside($0, edges) })
+        || zip(line.points, line.points.dropFirst()).contains(where: { a,b in edges.contains { c,d in Self.intersects(a,b,c,d) } }) {
+        selected.insert(line.id)
+      }
+    }
+    return selected
   }
 
   private static func distance(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {

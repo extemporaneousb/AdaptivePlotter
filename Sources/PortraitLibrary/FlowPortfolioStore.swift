@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import PlotterModel
 import PortraitArtists
@@ -52,7 +51,7 @@ package actor FlowPortfolioStore {
     try await finishPendingGraphWrite(); try await finishPendingRetainedWrite(); try await loadRecords()
     trimTransientCaches()
   }
-  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil, selectionOwner: UUID? = nil, additionalAssets: [DrawingLibraryClosureAsset] = []) async throws {
+  func commit(_ next: FlowPortfolioSnapshot, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil, selectionOwner: UUID? = nil, additionalAssets: [DrawingLibraryClosureAsset] = []) async throws {
     guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else {
       throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.")
@@ -103,7 +102,7 @@ package actor FlowPortfolioStore {
     if selecting { next.selectedSourceID = source.id
       next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
     }
-    try await commit(next, operation: "sourceImported", subjectID: source.id)
+    try await commit(next)
     return source
   }
 
@@ -153,7 +152,7 @@ package actor FlowPortfolioStore {
     if selecting { next.selectedSourceID = source.id
       next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
     }
-    try await commit(next, operation: "existingPhotoAdopted", subjectID: source.id)
+    try await commit(next)
     return source
   }
 
@@ -165,7 +164,7 @@ package actor FlowPortfolioStore {
     next.currentRoundID = next.rounds.last(where: { $0.sourceID == id && (options == nil || $0.analysisOptions == options) })?.id
     next.currentCandidateID = next.choices.last(where: { $0.roundID == next.currentRoundID })?.candidateID
     next.currentPruneRevisionID = next.currentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
-    try await commit(next, operation: "sourceSelected", subjectID: id)
+    try await commit(next)
   }
 
   /// Browsing a historical round supplies no preference judgment.
@@ -175,7 +174,7 @@ package actor FlowPortfolioStore {
     var next = state; next.selectedSourceID = value.sourceID; next.currentRoundID = id
     next.currentCandidateID = next.choices.last(where: { $0.roundID == id })?.candidateID
     next.currentPruneRevisionID = next.currentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
-    try await commit(next, operation: "roundSelected", subjectID: id)
+    try await commit(next)
   }
 
   package func setSourceGroups(sourceID: UUID, subjectID: String?, sessionID: String?, excluded: Bool? = nil) async throws {
@@ -191,14 +190,14 @@ package actor FlowPortfolioStore {
     next.sources[index].subjectID = subject; next.sources[index].sessionID = session
     if let excluded { next.sources[index].excluded = excluded }
     guard let ref = next.sources[index].photo else { throw FlowPortfolioError.unavailable("Photo reference is unavailable.") }
-    try await commit(next, operation: "sourceGroupsDeclared", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(subjectID: .set(subject), sessionID: .set(session), excluded: excluded))])
+    try await commit(next, photoMetadata: [.init(reference: ref, patch: .init(subjectID: .set(subject), sessionID: .set(session), excluded: excluded))])
   }
 
   package func setSourceExcluded(sourceID: UUID, excluded: Bool) async throws {
     _ = try source(sourceID); var next = state
     next.sources[next.sources.firstIndex { $0.id == sourceID }!].excluded = excluded
     guard let ref = next.sources.first(where: { $0.id == sourceID })?.photo else { throw FlowPortfolioError.unavailable("Photo reference is unavailable.") }
-    try await commit(next, operation: "sourceCurationChanged", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(excluded: excluded))])
+    try await commit(next, photoMetadata: [.init(reference: ref, patch: .init(excluded: excluded))])
   }
 
   package func setAuthoringOptions(sourceID: UUID, options: PortraitAnalysisOptions) async throws {
@@ -208,7 +207,7 @@ package actor FlowPortfolioStore {
     next.sources[next.sources.firstIndex { $0.id == sourceID }!].authoringOptions = options
     // A changed region is a new input, never an implicit refinement of old pixels.
     next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
-    try await commit(next, operation: "sourceRegionSelected", subjectID: sourceID)
+    try await commit(next)
   }
 
   @discardableResult package func beginRound(sourceID: UUID, recipes: [FlowArtistRecipe],
@@ -235,7 +234,7 @@ package actor FlowPortfolioStore {
     var next = state; next.rounds.append(round); next.selectedSourceID = sourceID
     next.currentRoundID = round.id; next.currentCandidateID = parentCandidateID
     next.currentPruneRevisionID = parentCandidateID.flatMap { next.latestPrune(candidateID: $0)?.id }
-    try await commit(next, operation: "roundRequested", subjectID: round.id)
+    try await commit(next)
     return round
   }
 
@@ -269,7 +268,7 @@ package actor FlowPortfolioStore {
     if let input = production.artifacts.drawingInput { drawingInputs[result.id] = input }
     var next = state; next.candidates.append(result)
     next.rounds[next.rounds.firstIndex { $0.id == roundID }!].candidateIDs.append(result.id)
-    try await commit(next, operation: "candidateCompleted", subjectID: result.id, additionalAssets: preparedHistory.assets)
+    try await commit(next, additionalAssets: preparedHistory.assets)
     return result
   }
 
@@ -279,7 +278,7 @@ package actor FlowPortfolioStore {
     var next = state
     next.rounds[next.rounds.firstIndex { $0.id == roundID }!].failures.append(
       .init(slot: slot, message: message, recordedAt: Date()))
-    try await commit(next, operation: "candidateFailed", subjectID: roundID)
+    try await commit(next)
   }
 
   package func finishRound(_ id: UUID, cancelled: Bool = false, displayOrder: [UUID]? = nil,
@@ -300,14 +299,14 @@ package actor FlowPortfolioStore {
     next.rounds[index].displayedCandidateIDs = order
     next.rounds[index].recommendedCandidateID = recommendedCandidateID
     next.rounds[index].recommendedRemovedIndices = recommendedRemovedIndices
-    try await commit(next, operation: cancelled ? "roundCancelled" : "roundCompleted", subjectID: id)
+    try await commit(next)
   }
 
   package func markInterruptedRounds() async throws {
     guard state.rounds.contains(where: { $0.status == .generating }) else { return }
     var next = state
     for index in next.rounds.indices where next.rounds[index].status == .generating { next.rounds[index].status = .interrupted }
-    try await commit(next, operation: "pendingRoundsRecovered")
+    try await commit(next)
   }
 
   package func chooseCandidate(_ id: UUID, offeredItems frozenItems: [FlowPortfolioPresentationItem]? = nil) async throws {
@@ -434,19 +433,20 @@ package actor FlowPortfolioStore {
       parentRevisionID: prior?.id, action: action, affectedIndices: affected.sorted(), removedIndices: removed.sorted(),
       modelID: modelID, operationID: operationID, inheritedFromRevisionID: inheritedFromRevisionID,
       historicalRecord: nil, probabilities: probabilities, threshold: threshold, policy: policy, undoOperationIDs: undo, redoOperationIDs: redo)
-    if action != .modelProposal && action != .inheritedSelection {
+    let isHumanEdit = action != .modelProposal && action != .inheritedSelection
+    if isHumanEdit {
       _ = try await featureCapsule(candidateID: candidateID)
       _ = try await captureFeatures(candidateID: candidateID, id: revision.id, removedIndices: revision.removedIndices)
     }
     var next = state; next.pruneRevisions.append(revision)
-    if action != .modelProposal && action != .inheritedSelection {
+    if isHumanEdit {
       next.currentCandidateID = candidateID; next.selectedSourceID = value.sourceID
       next.currentRoundID = value.roundID; next.currentPruneRevisionID = id
     }
-    if action != .modelProposal && action != .inheritedSelection && removed.count < value.strokeCount {
+    if isHumanEdit && removed.count < value.strokeCount {
       let prepared = try await prepareDrawing(candidateID: candidateID, revision: revision, next: &next)
       try await commitPrepared(prepared, next: next)
-    } else { try await commit(next, operation: "prune." + action.rawValue, subjectID: revision.id) }
+    } else { try await commit(next) }
     return revision
   }
 
@@ -503,7 +503,7 @@ package actor FlowPortfolioStore {
     let presentation = FlowPortfolioPresentation(id: UUID(), createdAt: Date(), scope: scope,
       seed: seed, items: Array(items.prefix(count)))
     var next = state; next.presentations.append(presentation); next.currentPresentationID = presentation.id
-    try await commit(next, operation: "rankingPresented", subjectID: presentation.id)
+    try await commit(next)
     return presentation
   }
 
@@ -525,14 +525,14 @@ package actor FlowPortfolioStore {
     for index in stride(from: items.count - 1, through: 1, by: -1) { items.swapAt(index, Int(random.next() % UInt64(index + 1))) }
     let presentation = FlowPortfolioPresentation(id: UUID(), createdAt: Date(), scope: .round(roundID), seed: seed, items: items)
     var next = state; next.presentations.append(presentation); next.currentPresentationID = presentation.id
-    try await commit(next, operation: "currentPanelPresented", subjectID: presentation.id)
+    try await commit(next)
     return presentation
   }
 
   package func selectPresentation(_ id: UUID) async throws {
     guard state.presentations.contains(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Ranking presentation is unavailable.") }
     var next = state; next.currentPresentationID = id
-    try await commit(next, operation: "rankingSelected", subjectID: id)
+    try await commit(next)
   }
 
   @discardableResult package func recordRanking(presentationID: UUID, orderedGroups: [[UUID]],
@@ -554,14 +554,14 @@ package actor FlowPortfolioStore {
       if let revision = item.revisionID { _ = try await featureCapsule(candidateID: item.candidateID, revisionID: revision) }
     }
     var next = state; next.rankings.append(ranking); next.currentPresentationID = presentationID
-    try await commit(next, operation: "rankingRevised", subjectID: ranking.id)
+    try await commit(next)
     return ranking
   }
 
   package func setExcluded(candidateID: UUID, excluded: Bool) async throws {
     _ = try candidate(candidateID); var next = state
     next.candidates[next.candidates.firstIndex { $0.id == candidateID }!].excluded = excluded
-    try await commit(next, operation: "candidateCurationChanged", subjectID: candidateID)
+    try await commit(next)
   }
 
   @discardableResult package func installFit(checkpoint: Data?, report: Data, snapshotID: UUID) async throws -> FlowPortfolioFit {
@@ -593,7 +593,7 @@ package actor FlowPortfolioStore {
       checkpoint: try checkpoint.map { try storage.retain($0, mediaType: "application/json") },
       report: try storage.retain(report, mediaType: "application/json"))
     var next = state; next.fits.append(fit)
-    try await commit(next, operation: "fitInstalled", subjectID: fit.id)
+    try await commit(next)
     return fit
   }
 
@@ -605,7 +605,7 @@ package actor FlowPortfolioStore {
     var next = state
     next.activations.append(.init(id: UUID(), createdAt: Date(), previousFitID: state.activeFitID, fitID: fitID))
     next.activeFitID = fitID
-    try await commit(next, operation: fitID == nil ? "modelDeactivated" : "modelActivated", subjectID: fitID)
+    try await commit(next)
   }
 
   package func checkpointData(fitID: UUID) async throws -> Data {

@@ -59,7 +59,7 @@ package struct DrawingLibraryRecordBatch: Codable, Sendable {
 extension DrawingLibrary {
   public func record(_ key:DrawingLibraryRecordKey)throws->DrawingLibraryRecord? {
     guard let db=try commonReadDatabase(),try tableExists("domain_record",in:db) else { return nil }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       guard let raw=try db.scalar("SELECT payload FROM domain_record WHERE kind=? AND id=?",[key.kind,key.id.uuidString.lowercased()]) else { return nil }
       let value=try db.decode(DrawingLibraryRecord.self,raw)
       guard value.key==key else { throw DrawingLibraryError.invalidIdentity };return value
@@ -67,7 +67,7 @@ extension DrawingLibrary {
   }
   public func records(kind:String) throws -> [DrawingLibraryRecord] {
     guard let db=try commonReadDatabase(),try tableExists("domain_record",in:db) else { return [] }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       try db.rows("SELECT payload FROM domain_record WHERE kind=? ORDER BY id",[kind]).map { try db.decode(DrawingLibraryRecord.self,$0[0]) }
     }
   }
@@ -78,7 +78,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500, !kind.isEmpty else { throw DrawingLibraryError.invalidQuery }
     if let after, after.drawing != drawing || after.kind != kind { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       try assertSourceReference(.drawing(drawing), database: db)
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
@@ -96,7 +96,7 @@ extension DrawingLibrary {
   }
   public func asset(_ digest:ExchangeDigest,maximumBytes:Int=DrawingExchangeLimits.maximumProgramBytes)throws->Data {
     guard let db=try commonReadDatabase(),try tableExists("dx_object",in:db),let raw=try db.scalar("SELECT byte_length FROM dx_object WHERE digest=?",[digest.description]),let length=UInt64(raw),length<=UInt64(max(0,maximumBytes)) else { throw DrawingLibraryError.corruptAsset(digest) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       let path="objects/sha256/"+digest.description
       return try VerifiedExchangeFiles(catalogRoot:directoryURL,inventory:[.init(path:path,storagePath:path,digest:digest,byteLength:length)]).record(digest,maximumBytes:maximumBytes)
     }
@@ -237,7 +237,10 @@ extension LibraryExchangeCatalog {
     let recordCount: Int = batch.records.count + batch.removing.count
     let mutationCount: Int = (batch.photoMetadata?.count ?? 0) + (batch.drawingRetention?.count ?? 0)
     let totalCount: Int = recordCount + mutationCount
-    guard totalCount <= 10_000,Set(batch.records.map(\.key)).count==batch.records.count,Set(batch.removing).count==batch.removing.count,Set(batch.records.map(\.key)).isDisjoint(with:Set(batch.removing)) else { throw DrawingExchangeError.limit("Domain records") }
+    guard totalCount <= 10_000 else { throw DrawingExchangeError.limit("Domain records") }
+    let recordKeys = Set(batch.records.map(\.key)), removedKeys = Set(batch.removing)
+    guard recordKeys.count == batch.records.count,
+      removedKeys.count == batch.removing.count, recordKeys.isDisjoint(with: removedKeys) else { throw DrawingExchangeError.limit("Domain records") }
     var bytes=0
     for record in batch.records {
       guard !record.kind.isEmpty,record.kind.utf8.count<=256,record.payload.count<=ExchangeJSON.maximumRecordBytes,record.payload.count<=16*1024*1024-bytes,record.drawings.count+record.photos.count+record.inputs.count+record.assets.count<=10_000 else { throw DrawingExchangeError.limit("Domain record bytes") };bytes += record.payload.count

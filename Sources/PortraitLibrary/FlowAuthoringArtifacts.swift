@@ -1,7 +1,7 @@
 import Foundation
 import PortraitCore
-import DrawingLibrary
 import PortraitArtists
+import DrawingLibrary
 
 /// Domain records use the common library owner. Generated artifacts live only in
 /// this bounded authoring session until an explicit retention or feedback action.
@@ -12,8 +12,16 @@ final class FlowAuthoringArtifacts: @unchecked Sendable {
   package static let maximumCount = 128
   package static let maximumBytes = 256 * 1024 * 1024
   var count: Int { assets.count }
-  var byteCount: Int { assets.values.reduce(0) { $0 + $1.count } }
-  func keepUnpublished(_ hashes: Set<String>) { assets = assets.filter { hashes.contains($0.key) && !published.contains($0.key) } }
+  private(set) var byteCount = 0
+  func keepUnpublished(_ hashes: Set<String>) {
+    var retainedBytes = 0
+    assets = assets.filter { entry in
+      guard hashes.contains(entry.key), !published.contains(entry.key) else { return false }
+      retainedBytes += entry.value.count
+      return true
+    }
+    byteCount = retainedBytes
+  }
 
   init(library: DrawingLibrary) { self.library = library }
   func retain(_ bytes: Data, mediaType: String) throws -> FlowPortfolioBlob {
@@ -27,6 +35,7 @@ final class FlowAuthoringArtifacts: @unchecked Sendable {
     guard assets[digest] != nil || (assets.count < Self.maximumCount && bytes.count <= Self.maximumBytes - byteCount) else {
       throw FlowPortfolioError.unavailable("The active drawing panel exceeds the temporary artifact memory budget.")
     }
+    if assets[digest] == nil { byteCount += bytes.count }
     assets[digest] = bytes
     return .init(sha256: digest, byteCount: bytes.count, mediaType: mediaType)
   }
@@ -55,8 +64,10 @@ final class FlowAuthoringArtifacts: @unchecked Sendable {
     return bytes
   }
   func markPublished(_ blobs: [FlowPortfolioBlob]) {
-    published.formUnion(blobs.map(\.sha256))
-    for blob in blobs { assets.removeValue(forKey: blob.sha256) }
+    for blob in blobs {
+      published.insert(blob.sha256)
+      if let removed = assets.removeValue(forKey: blob.sha256) { byteCount -= removed.count }
+    }
   }
   func closureAssets(_ blobs: [FlowPortfolioBlob]) async throws -> [DrawingLibraryClosureAsset] {
     var result: [DrawingLibraryClosureAsset] = []

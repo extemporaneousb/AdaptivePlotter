@@ -187,7 +187,7 @@ struct LibraryExchangeCatalogTests {
     #expect(try catalog.publish(admitted).wasAlreadyPublished)
   }
 
-  @Test("One metadata update writes two rows at 1 and 10001 exact indexed references; explicit rebuild preserves authority")
+  @Test("One metadata update writes two rows at 1 and 10001 exact indexed references and preserves authority")
   func boundedMetadataMutation() throws {
     let root = try DX04Fixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let admitted = try DX04Fixture.admitted(parent: root)
@@ -205,15 +205,14 @@ struct LibraryExchangeCatalogTests {
       for _ in 0..<10_000 {
         let key = ["drawing", UUID().uuidString.lowercased(), UUID().uuidString.lowercased(), ref.digest.description]
         try db.execute("INSERT INTO dx_record(kind,namespace,identity,digest) VALUES(?,?,?,?)", key.map(Optional.some))
-        try db.execute("INSERT INTO dx_summary(kind,namespace,identity,digest) VALUES(?,?,?,?)", key.map(Optional.some))
       }
     }
     #expect(try updateDelta("Large") == 2)
-    let metadata = try catalog.metadata(ref)
     let immutable = try db.scalar("SELECT COUNT(*) FROM dx_record")
-    try catalog.rebuildDerivedRows()
+    #expect(try updateDelta("Final metadata") == 2)
     #expect(try db.scalar("SELECT COUNT(*) FROM dx_record") == immutable)
-    #expect(try catalog.metadata(ref) == metadata)
+    let metadata = try catalog.metadata(ref)
+    #expect(metadata?.title == "Final metadata")
     #expect(metadata?.tombstoned == true && metadata?.retentionReasons == ["chosen"])
   }
 
@@ -421,7 +420,6 @@ extension DrawingLibrary {
       for _ in 0..<10_000 {
         let key = ["drawing",UUID().uuidString.lowercased(),UUID().uuidString.lowercased(),ref.digest.description]
         try db.execute("INSERT INTO dx_record(kind,namespace,identity,digest) VALUES(?,?,?,?)", key.map(Optional.some))
-        try db.execute("INSERT INTO dx_summary(kind,namespace,identity,digest) VALUES(?,?,?,?)", key.map(Optional.some))
       }
     }
     refreshOwnership()

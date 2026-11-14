@@ -82,8 +82,9 @@ extension FlowPortfolioStore {
   private func rows<T: Codable>(_ type: T.Type, _ name: String) async throws -> [T] {
     let rows = try await storage.library.records(kind: kind(name))
     for row in rows { committedRecords.insert(row.key) }
+    let decoder = JSONDecoder()
     let values = try rows.map { row -> FlowLibraryEntity<T> in
-      let value = try JSONDecoder().decode(FlowLibraryEntity<T>.self, from: row.payload)
+      let value = try decoder.decode(FlowLibraryEntity<T>.self, from: row.payload)
       guard value.profile == kind(name), value.ordinal >= 0 else { throw FlowPortfolioError.invalid("Unsupported Library entity profile or order.") }
       return value
     }
@@ -101,8 +102,7 @@ extension FlowPortfolioStore {
     guard requestedPurpose == nil || requestedPurpose == header.purpose else { throw FlowPortfolioError.invalid("The Library purpose differs from this session.") }
     guard header.profile == "adaptiveplotter.flow-session/2" else { throw FlowPortfolioError.invalid("Unsupported Flow session.") }
     let feedbackBudget = FlowFeatureReadBudget(reusesEncodedStrokeBasis: reusingEncodedStrokeBasis)
-    var next = FlowPortfolioSnapshot.empty(purpose: header.purpose)
-    next = FlowPortfolioSnapshot(schemaVersion: 2, purpose: header.purpose, id: header.id,
+    let next = FlowPortfolioSnapshot(schemaVersion: 2, purpose: header.purpose, id: header.id,
       createdAt: header.createdAt, revision: header.revision,
       sources: try await rows(FlowPortfolioSource.self, "source"),
       rounds: try await rows(FlowPortfolioRound.self, "round"),
@@ -180,7 +180,8 @@ extension FlowPortfolioStore {
     try add(next.fits, previous: state.fits, "fit", assets: { [$0.report] + ($0.checkpoint.map { [$0] } ?? []) })
     try add(next.activations, previous: state.activations, "activation")
     for capsule in featureCapsules.values where !committedRecords.contains(.init(kind: kind("features"), id: capsule.id)) {
-      records.append(.init(kind: kind("features"), id: capsule.id, payload: try DrawingArtifactCoding.encoder().encode(FlowLibraryEntity(profile: kind("features"), ordinal: 0, value: FlowPortfolioFeatureLocator(id: capsule.id, candidateID: capsule.candidateID, asset: try capsule.asset))), assets: [try capsule.asset.object]))
+      let asset = try capsule.asset
+      records.append(.init(kind: kind("features"), id: capsule.id, payload: try DrawingArtifactCoding.encoder().encode(FlowLibraryEntity(profile: kind("features"), ordinal: 0, value: FlowPortfolioFeatureLocator(id: capsule.id, candidateID: capsule.candidateID, asset: asset))), assets: [asset.object]))
     }
     for preview in previewArtifacts.values where includingPreviews && !committedRecords.contains(.init(kind: kind("preview"), id: preview.id)) {
       records.append(.init(kind: kind("preview"), id: preview.id,

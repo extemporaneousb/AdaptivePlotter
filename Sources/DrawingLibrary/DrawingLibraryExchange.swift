@@ -7,7 +7,7 @@ extension DrawingLibrary {
   public func exportDrawing(_ ref:DrawingRef,to destination:URL)throws {
     _ = try drawing(ref)
     guard let db=try commonReadDatabase() else { throw DrawingLibraryError.missing(ref) }
-    try commonSnapshot(db) { db in
+    try db.readSnapshot { db in
       let selected = try selectedDrawingPublication(for: ref, database: db)
       let temp=FileManager.default.temporaryDirectory.appendingPathComponent("drawing-export-"+UUID().uuidString.lowercased(),isDirectory:true)
       try FileManager.default.createDirectory(at:temp,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])

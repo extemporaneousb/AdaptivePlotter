@@ -51,7 +51,7 @@ extension DrawingLibrary {
   /// Read-only: no root creation, writer acquisition or recovery side effects.
   public func feedback(_ reference: DrawingLibraryFeedbackRef) throws -> ValidatedExchangePackage {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Feedback publication unavailable") }
-    return try autoreleasepool { try commonSnapshot(db) { db in
+    return try autoreleasepool { try db.readSnapshot { db in
       guard let transaction = try db.scalar("SELECT id FROM dx_transaction WHERE index_digest=? AND package_digest=? ORDER BY id LIMIT 1", [reference.indexDigest.description, reference.packageDigest.description]) else { throw DrawingLibraryError.unavailable("Feedback publication unavailable") }
       let inventory = try db.rows("SELECT f.path,f.digest,o.byte_length FROM dx_tx_file f JOIN dx_object o ON o.digest=f.digest WHERE f.transaction_id=? ORDER BY f.path", [transaction]).map { row -> LibraryExchangeStorageEntry in
         guard let path = row[0], let digest = row[1], let length = row[2].flatMap(UInt64.init) else { throw DrawingLibraryError.invalidIdentity }

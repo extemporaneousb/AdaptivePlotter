@@ -59,19 +59,7 @@ package enum FlowPortfolioSupervision {
   }
 
   package static func plan(_ document: FlowPortfolioSnapshot) -> Plan {
-    var groups = Dictionary(uniqueKeysWithValues: document.sources.map { ($0.id, Set($0.groupKeys)) })
-    var changed = true
-    while changed {
-      changed = false
-      for source in document.sources {
-        var merged = groups[source.id] ?? []
-        for other in document.sources where !(groups[other.id] ?? []).isDisjoint(with: merged) {
-          merged.formUnion(groups[other.id] ?? [])
-        }
-        if merged != groups[source.id] { groups[source.id] = merged; changed = true }
-      }
-    }
-    let sourceGroups = groups.mapValues { $0.sorted().joined(separator: "|") }
+    let sourceGroups = FlowSourceConnectivity.groups(document.sources.map { ($0.id, $0.groupKeys) })
     let includedSources = Set(document.sources.filter { !$0.excluded }.map(\.id))
     let candidates = document.candidates.filter { !$0.excluded && includedSources.contains($0.sourceID) }
     let candidateIDs = Set(candidates.map(\.id))
@@ -275,7 +263,7 @@ extension FlowPortfolioStore {
       portfolioRevision: document.revision, purpose: document.purpose, document: view, contentSHA256: view.sha256)
     snapshot.manifest = manifestAsset; snapshot.publication = DrawingLibraryFeedbackRef(publication: task.package)
     var next = state; next.trainingSnapshots.append(snapshot)
-    try await commit(next, operation: "trainingSnapshotFrozen", subjectID: snapshotID, feedback: task)
+    try await commit(next, feedback: task)
     return snapshot
   }
   package func trainingDocument(snapshotID: UUID) async throws -> FlowPortfolioSnapshot {
@@ -380,24 +368,14 @@ enum FlowTrainingReader {
     }
     // Recompute connectivity from frozen declarations BEFORE exclusions. No
     // current Photo metadata, image decoding or source lookup occurs here.
-    var groups: [UUID: Set<String>] = [:]
+    let groups = FlowSourceConnectivity.groups(manifest.curation.map { source in
+      var keys = ["source:" + source.imageDigest]
+      if let subject = source.subjectID { keys.append("subject:" + subject) }
+      if let session = source.sessionID { keys.append("session:" + session) }
+      return (source.id, keys)
+    })
     for source in manifest.curation {
-      var keys: Set<String> = ["source:" + source.imageDigest]
-      if let subject = source.subjectID { keys.insert("subject:" + subject) }
-      if let session = source.sessionID { keys.insert("session:" + session) }
-      groups[source.id] = keys
-    }
-    var changed = true
-    while changed {
-      changed = false
-      for source in manifest.curation {
-        var connected = groups[source.id] ?? []
-        for other in manifest.curation where !(groups[other.id] ?? []).isDisjoint(with: connected) { connected.formUnion(groups[other.id] ?? []) }
-        if connected != groups[source.id] { groups[source.id] = connected; changed = true }
-      }
-    }
-    for source in manifest.curation {
-      guard FlowPortfolioValidation.validHash(source.imageDigest), source.group == groups[source.id]?.sorted().joined(separator: "|"),
+      guard FlowPortfolioValidation.validHash(source.imageDigest), source.group == groups[source.id],
         source.reason == (source.excluded ? "Operator excluded this source." : "Included by the current curation.") else { throw FlowPortfolioError.invalid("Frozen curation/connectivity proof.") }
     }
     let includedSources = Set(manifest.curation.filter { !$0.excluded }.map(\.id)), excludedCandidates = Set(manifest.excludedCandidateIDs)

@@ -49,7 +49,7 @@ extension FlowPortfolioStore {
       throw FlowPortfolioError.conflict("A newer navigation intent owns the photograph selection.")
     }
     var next = state; lease.adopted.apply(to: &next)
-    try await commit(next, operation: "sourcePresentationAdopted", subjectID: lease.adopted.source,
+    try await commit(next,
       selectionOwner: lease.id)
     await sourceAdoptionDidPersist?()
   }
@@ -60,7 +60,7 @@ extension FlowPortfolioStore {
     if selectionOwner == lease.id, FlowPortfolioSelection(state) == lease.previous { return true }
     guard selectionOwner == lease.id, FlowPortfolioSelection(state) == lease.adopted else { return false }
     var next = state; lease.previous.apply(to: &next)
-    try await commit(next, operation: "staleSourcePresentationRestored", selectionOwner: lease.id)
+    try await commit(next, selectionOwner: lease.id)
     return true
   }
 }

@@ -295,6 +295,6 @@ private extension FlowPortfolioStore {
   func markLegacyPrivateHistoryFixture(_ id: UUID) async throws {
     guard let index = state.candidates.firstIndex(where: { $0.id == id }) else { throw FlowPortfolioError.invalid("Missing legacy fixture") }
     var next = state; next.candidates[index].authoringClosureLocation = nil
-    try await commit(next, operation: "legacyPrivateHistoryFixtureInstalled")
+    try await commit(next)
   }
 }

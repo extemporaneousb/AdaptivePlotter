@@ -16,7 +16,7 @@ private extension FlowPortfolioStore {
     var next = state
     next.sources.insert(alias, at: 0); next.selectedSourceID = alias.id
     next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
-    try await commit(next, operation: "historical-source-alias-fixture", subjectID: alias.id)
+    try await commit(next)
     return alias
   }
 }
@@ -54,6 +54,19 @@ struct FlowAuthoringPhotoHistoryTests {
       let document = try #require(model.document)
       #expect(document.photoSourceIDs(for: alias.id) == [alias.id, original.id])
       #expect(document.photoSourceIDs(for: other.id) == [other.id])
+      let index = try #require(model.presentationIndex)
+      for candidate in document.candidates {
+        #expect(index.candidates[candidate.id] == candidate)
+        #expect(index.latestPrunes[candidate.id] == document.latestPrune(candidateID: candidate.id))
+        let family = document.photoSourceIDs(for: candidate.sourceID)
+        let ordinal = try #require(document.candidates.filter { family.contains($0.sourceID) }.firstIndex { $0.id == candidate.id }) + 1
+        #expect(model.drawingName(candidate) == "Drawing \(ordinal)")
+      }
+      for round in document.rounds {
+        let family = document.photoSourceIDs(for: round.sourceID)
+        let ordinal = try #require(document.rounds.filter { family.contains($0.sourceID) }.firstIndex { $0.id == round.id }) + 1
+        #expect(model.roundName(round) == "Set \(ordinal)")
+      }
       #expect(Set(model.branches(for: alias.id).map(\.id)) == [historicalRound.id, proxyRound.id])
       #expect(Set(model.branches(for: original.id).map(\.id)) == [historicalRound.id, proxyRound.id])
       let representative = try #require(model.representative(for: alias.id))

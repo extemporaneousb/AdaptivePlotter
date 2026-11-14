@@ -32,12 +32,19 @@ package enum LibraryExchangeCatalogSelection {
     }
     var bytes = [UInt8](repeating: 0, count: 4097)
     let count = Darwin.read(fd, &bytes, bytes.count)
-    guard count > 0, count <= 4096,
-      let object = try? ExchangeJSON.validate(Data(bytes.prefix(count)), maximumBytes: 4096),
-      Set(object.keys) == Set(["version", "catalog"]),
-      let value = try? JSONDecoder().decode(Marker.self, from: Data(bytes.prefix(count))),
-      value == Marker(version: 1, catalog: "drawing-library.sqlite"), database.lastPathComponent == value.catalog else {
+    guard count > 0, count <= 4096, database.lastPathComponent == "drawing-library.sqlite" else {
       throw DrawingLibraryDatabaseError.database("Unknown or corrupt exchange authority marker; explicit recovery required")
+    }
+    let data = Data(bytes.prefix(count))
+    // Normal writes use these exact bytes. Alternate valid JSON spellings still
+    // take the strict parser, including its duplicate-key and closed-key checks.
+    if data != markerBytes {
+      guard let object = try? ExchangeJSON.validate(data, maximumBytes: 4096),
+        Set(object.keys) == Set(["version", "catalog"]),
+        let value = try? JSONDecoder().decode(Marker.self, from: data),
+        value == Marker(version: 1, catalog: "drawing-library.sqlite") else {
+        throw DrawingLibraryDatabaseError.database("Unknown or corrupt exchange authority marker; explicit recovery required")
+      }
     }
     if !requireDatabase { return true }
     var catalog = stat()
@@ -158,11 +165,11 @@ package final class LibraryExchangeCatalog {
       return .init(transactionID: prior, indexDigest: digest, wasAlreadyPublished: true)
     }
     let records = try Self.references(admitted)
+    let included = Set(records)
     guard Set(metadata.map(\.reference)).count == metadata.count,
-      metadata.allSatisfy({ records.contains($0.reference) }) else {
+      metadata.allSatisfy({ included.contains($0.reference) }) else {
       throw LibraryExchangeCatalogError.invalidPublication("Metadata must explicitly target unique included exact references")
     }
-    let included=Set(records)
     if let commit=domainCommit {
       try validateDomainBatch(commit.batch,included:included,objects:Set(admitted.files.entries.values.map(\.digest)))
       for retained in commit.retained {
@@ -264,7 +271,7 @@ package final class LibraryExchangeCatalog {
   package func metadata(_ reference: LibraryExchangeReference) throws -> LibraryExchangeMetadata? {
     _ = try lookup(reference)
     guard let raw = try database.scalar("SELECT payload FROM dx_metadata WHERE kind=? AND namespace=? AND identity=?", reference.key.map(Optional.some)) else { return nil }
-    let value = try JSONDecoder().decode(LibraryExchangeMetadata.self, from: Data(raw.utf8))
+    let value = try database.decode(LibraryExchangeMetadata.self, raw)
     guard value.reference == reference else { throw LibraryExchangeCatalogError.invalidPublication("Mutable metadata contradicts its exact selector") }
     return value
   }
@@ -272,13 +279,6 @@ package final class LibraryExchangeCatalog {
     try database.assertSelectedFile()
     _ = try lookup(metadata.reference)
     try database.transaction { try writeMetadata(metadata); try database.bumpRevision() }
-  }
-  package func rebuildDerivedRows() throws {
-    try database.transaction { try rebuildDerivedRowsInsideTransaction() }
-  }
-  private func rebuildDerivedRowsInsideTransaction() throws {
-    try database.execute("DELETE FROM dx_summary")
-    try database.execute("INSERT INTO dx_summary(kind,namespace,identity,digest) SELECT kind,namespace,identity,digest FROM dx_record")
   }
   package func writeMetadata(_ value: LibraryExchangeMetadata) throws {
     let payload = String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
@@ -301,7 +301,7 @@ package final class LibraryExchangeCatalog {
       let index = row[0],let package = row[1],let rawIntent = row[2],rawIntent.utf8.count <= LibraryExchangeStorage.maximumPublicationIntentBytes else {
       throw LibraryExchangeCatalogError.invalidPublication("Publication identity missing")
     }
-    let intent = try JSONDecoder().decode(LibraryExchangePublication.self,from:Data(rawIntent.utf8))
+    let intent = try database.decode(LibraryExchangePublication.self, rawIntent)
     guard intent.version == 1,intent.transactionID == transaction,intent.indexDigest.description == index,intent.packageDigest.description == package else {
       throw LibraryExchangeCatalogError.invalidPublication("Publication identity contradicts frozen intent")
     }
@@ -380,7 +380,6 @@ package final class LibraryExchangeCatalog {
       for ref in intent.records {
         try database.execute("INSERT OR IGNORE INTO dx_record(kind,namespace,identity,digest) VALUES(?,?,?,?)", ref.key.map(Optional.some) + [ref.digest.description])
         try database.execute("INSERT OR IGNORE INTO dx_tx_record(transaction_id,kind,namespace,identity) VALUES(?,?,?,?)",[transaction] + ref.key.map(Optional.some))
-        try database.execute("INSERT OR IGNORE INTO dx_summary(kind,namespace,identity,digest) VALUES(?,?,?,?)",ref.key.map(Optional.some) + [ref.digest.description])
       }
       for link in intent.links {
         try database.execute("INSERT OR IGNORE INTO dx_link(source_kind,source_namespace,source_identity,target_kind,target_namespace,target_identity,relation) VALUES(?,?,?,?,?,?,?)",link.source.key.map(Optional.some) + link.target.key.map(Optional.some) + [link.relation])
@@ -522,6 +521,5 @@ package final class LibraryExchangeCatalog {
   CREATE TABLE IF NOT EXISTS dx_link(source_kind TEXT NOT NULL,source_namespace TEXT NOT NULL,source_identity TEXT NOT NULL,target_kind TEXT NOT NULL,target_namespace TEXT NOT NULL,target_identity TEXT NOT NULL,relation TEXT NOT NULL,PRIMARY KEY(source_kind,source_namespace,source_identity,target_kind,target_namespace,target_identity,relation),FOREIGN KEY(source_kind,source_namespace,source_identity) REFERENCES dx_record(kind,namespace,identity),FOREIGN KEY(target_kind,target_namespace,target_identity) REFERENCES dx_record(kind,namespace,identity));
   CREATE INDEX IF NOT EXISTS dx_link_target ON dx_link(target_kind,target_namespace,target_identity,relation,source_kind,source_namespace,source_identity);
   CREATE TABLE IF NOT EXISTS dx_metadata(kind TEXT NOT NULL,namespace TEXT NOT NULL,identity TEXT NOT NULL,digest TEXT NOT NULL,payload TEXT NOT NULL,tombstoned INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(kind,namespace,identity),FOREIGN KEY(kind,namespace,identity,digest) REFERENCES dx_record(kind,namespace,identity,digest));
-  CREATE TABLE IF NOT EXISTS dx_summary(kind TEXT NOT NULL,namespace TEXT NOT NULL,identity TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(kind,namespace,identity));
   """
 }

@@ -22,17 +22,17 @@ extension FlowAuthoringModel {
         && $0.modelID == activeCheckpoint?.id
     }
     func hasUsableMask(_ candidate: FlowPortfolioCandidate) -> Bool {
-      (document.latestPrune(candidateID: candidate.id)?.removedIndices.count ?? 0) < candidate.strokeCount
+      (presentationIndex?.latestPrunes[candidate.id]?.removedIndices.count ?? 0) < candidate.strokeCount
     }
     if activeCheckpoint?.ranker != nil {
       for round in rounds.reversed() {
         if let id = round.recommendedCandidateID, !unavailableRecommendationIDs.contains(id),
-          let candidate = document.candidates.first(where: { $0.id == id }), hasUsableMask(candidate) { return candidate }
+          let candidate = presentationIndex?.candidates[id], hasUsableMask(candidate) { return candidate }
       }
     }
     for round in rounds.reversed() {
       let ids = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
-      if let candidate = ids.lazy.compactMap({ id in document.candidates.first { $0.id == id } })
+      if let candidate = ids.lazy.compactMap({ id in self.presentationIndex?.candidates[id] })
         .first(where: { !unavailableRecommendationIDs.contains($0.id) && hasUsableMask($0) }) { return candidate }
     }
     return nil
@@ -40,11 +40,11 @@ extension FlowAuthoringModel {
   package func isPredictedFavorite(_ candidate: FlowPortfolioCandidate) -> Bool {
     guard let checkpoint = activeCheckpoint, checkpoint.ranker != nil,
       candidateUnavailableReason(candidate) == nil, candidate.sourceID == selectedSource?.id,
-      let round = document?.rounds.first(where: { $0.id == candidate.roundID }),
+      let round = presentationIndex?.rounds[candidate.roundID],
       round.status == .completed, round.modelID == checkpoint.id,
       round.analysisOptions == committedAnalysisOptions, round.recommendedCandidateID == candidate.id,
       let scoredMask = round.recommendedRemovedIndices, scoredMask.count < candidate.strokeCount,
-      scoredMask == (document?.latestPrune(candidateID: candidate.id)?.removedIndices ?? []) else { return false }
+      scoredMask == (presentationIndex?.latestPrunes[candidate.id]?.removedIndices ?? []) else { return false }
     if self.candidate?.id == candidate.id { return program != nil && candidateLoadError == nil }
     return previews[candidate.id] != nil
   }
@@ -105,35 +105,31 @@ extension FlowAuthoringModel {
   }
   package func drawingName(_ value: FlowPortfolioCandidate) -> String {
     if let name = value.title, !name.isEmpty { return name }
-    let sources = document?.photoSourceIDs(for: value.sourceID) ?? [value.sourceID]
-    let siblings = document?.candidates.filter { sources.contains($0.sourceID) } ?? []
-    return "Drawing \((siblings.firstIndex(where: { $0.id == value.id }) ?? 0) + 1)"
+    return "Drawing \(presentationIndex?.drawingNumbers[value.id] ?? 1)"
   }
   package func roundName(_ value: FlowPortfolioRound) -> String {
-    let sources = document?.photoSourceIDs(for: value.sourceID) ?? [value.sourceID]
-    let siblings = document?.rounds.filter { sources.contains($0.sourceID) } ?? []
-    return "Set \((siblings.firstIndex(where: { $0.id == value.id }) ?? 0) + 1)"
+    "Set \(presentationIndex?.roundNumbers[value.id] ?? 1)"
   }
   package var currentBranch: String {
     guard let round else { return "Start a broad set for this photo" }
-    if let id = round.parentCandidateID, let parent = document?.candidates.first(where: { $0.id == id }) {
+    if let id = round.parentCandidateID, let parent = presentationIndex?.candidates[id] {
       return roundName(round) + " · refined from " + drawingName(parent)
     }
     return roundName(round) + " · broad exploration"
   }
   package var branchAncestors: [FlowPortfolioCandidate] {
-    guard let document else { return [] }
+    guard let index = presentationIndex else { return [] }
     var next = round?.parentCandidateID, result: [FlowPortfolioCandidate] = [], seen = Set<UUID>()
     while let id = next, seen.insert(id).inserted,
-      let parent = document.candidates.first(where: { $0.id == id }) {
+      let parent = index.candidates[id] {
       result.append(parent); next = parent.parentCandidateID
     }
     return result.reversed()
   }
   package func branchDepth(_ round: FlowPortfolioRound) -> Int {
-    guard let document else { return 0 }
+    guard let index = presentationIndex else { return 0 }
     var next = round.parentCandidateID, seen = Set<UUID>()
-    while let id = next, seen.insert(id).inserted { next = document.candidates.first(where: { $0.id == id })?.parentCandidateID }
+    while let id = next, seen.insert(id).inserted { next = index.candidates[id]?.parentCandidateID }
     return seen.count
   }
 
@@ -141,7 +137,7 @@ extension FlowAuthoringModel {
     guard let document else { return [] }
     let sources = document.photoSourceIDs(for: sourceID)
     let rounds = document.rounds.filter { sources.contains($0.sourceID) }
-    let candidates = Dictionary(uniqueKeysWithValues: document.candidates.map { ($0.id, $0) })
+    let candidates = presentationIndex?.candidates ?? [:]
     var children: [UUID: [FlowPortfolioRound]] = [:], roots: [FlowPortfolioRound] = []
     let ids = Set(rounds.map(\.id))
     for round in rounds {
@@ -183,7 +179,7 @@ extension FlowAuthoringModel {
   package func representativeKey(_ source: FlowPortfolioSource) -> String {
     let prefix = (document?.id.uuidString ?? "") + ":" + source.id.uuidString
     guard let item = representative(for: source.id),
-      let candidate = document?.candidates.first(where: { $0.id == item.candidateID }) else { return prefix + source.image.sha256 }
+      let candidate = presentationIndex?.candidates[item.candidateID] else { return prefix + source.image.sha256 }
     return prefix + ":" + item.id.uuidString + ":" + candidate.programHash
   }
   package func representativeThumbnail(_ source: FlowPortfolioSource) async -> Data? {
@@ -201,13 +197,13 @@ extension FlowAuthoringModel {
     }
   }
   package func previewIdentity(candidate: FlowPortfolioCandidate, revisionID: UUID? = nil) -> String {
-    let revision = revisionID ?? document?.latestPrune(candidateID: candidate.id)?.id
-    let source = document?.sources.first { $0.id == candidate.sourceID }?.image.sha256 ?? "no-source"
+    let revision = revisionID ?? presentationIndex?.latestPrunes[candidate.id]?.id
+    let source = presentationIndex?.sources[candidate.sourceID]?.image.sha256 ?? "no-source"
     return (document?.id.uuidString ?? "") + ":" + source + ":" + candidate.id.uuidString
       + ":" + candidate.programHash + ":" + candidate.preview.sha256 + ":" + (revision?.uuidString ?? "root")
   }
   package func rankingPreviewIdentity(_ item: FlowPortfolioPresentationItem) -> String {
-    guard let candidate = document?.candidates.first(where: { $0.id == item.candidateID }) else { return item.id.uuidString }
+    guard let candidate = presentationIndex?.candidates[item.candidateID] else { return item.id.uuidString }
     // A ranking freezes its own exact mask; the current editor's latest mask
     // must never substitute for an offered root or older revision.
     return (document?.id.uuidString ?? "") + ":rank:" + item.id.uuidString + ":" + candidate.programHash
@@ -215,7 +211,7 @@ extension FlowAuthoringModel {
   }
   package func thumbnail(candidate: FlowPortfolioCandidate) async -> Data? {
     guard let store else { return nil }
-    let revision = document?.latestPrune(candidateID: candidate.id)
+    let revision = presentationIndex?.latestPrunes[candidate.id]
     let key = previewIdentity(candidate: candidate)
     return try? await FlowAuthoringThumbnailCache.shared.load(key: key) {
       let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,

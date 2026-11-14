@@ -4,28 +4,24 @@ import PortraitCore
 extension DrawingLibrary {
   package func commonReadDatabase() throws -> DrawingLibraryDatabase? {
     guard !closed else { throw DrawingLibraryError.closed }
+    if let readDatabase {
+      try readDatabase.validateReadSelection()
+      return readDatabase
+    }
     guard FileManager.default.fileExists(atPath: commonDatabaseURL.path) else {
       if LibraryExchangeCatalogSelection.markerPresent(root: directoryURL) { throw DrawingLibraryError.ownership("Selected catalog is missing") }
       return nil
     }
-    return try DrawingLibraryDatabase(url: commonDatabaseURL, readOnly: true)
-  }
-  package func commonSnapshot<T>(_ db: DrawingLibraryDatabase, _ operation: (DrawingLibraryDatabase) throws -> T) throws -> T {
-    try db.assertSelectedFile()
-    let before = try DrawingLibraryFileState(db.url), generation = try db.generation
-    try db.execute("BEGIN")
-    defer { try? db.execute("ROLLBACK") }
-    let value = try operation(db)
-    try db.assertSelectedFile()
-    guard try DrawingLibraryFileState(db.url) == before, try db.generation == generation else { throw DrawingLibraryError.staleSelection }
-    return value
+    let opened = try DrawingLibraryDatabase(url: commonDatabaseURL, readOnly: true)
+    readDatabase = opened
+    return opened
   }
   package func tableExists(_ table:String,in db:DrawingLibraryDatabase)throws->Bool {
     try db.scalar("SELECT name FROM sqlite_master WHERE type='table' AND name=?",[table]) != nil
   }
   public func drawing(_ ref: DrawingRef) throws -> Drawing {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.missing(ref) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       guard try tableExists("dx_record", in: db), let stored = try db.scalar("SELECT digest FROM dx_record WHERE kind='drawing' AND namespace=? AND identity=?", [ref.issuer.uuidString.lowercased(), ref.revision.uuidString.lowercased()]) else {
         throw DrawingLibraryError.missing(ref)
       }
@@ -128,7 +124,7 @@ extension DrawingLibrary {
     guard limit > 0, limit <= 500 else { throw DrawingLibraryError.invalidQuery }
     if let after, after.scope != scope { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase(), try tableExists("dx_drawing_summary",in:db) else { return .init(entries:[],next:nil) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
       var predicate = "WHERE COALESCE(m.tombstoned,0)=0", values: [String?] = []
@@ -168,7 +164,7 @@ extension DrawingLibrary {
       let page = Array(rows.prefix(limit))
       let entries = try page.map { row -> DrawingLibraryEntry in
         guard let issuer=row[0].flatMap(UUID.init(uuidString:)), let revision=row[1].flatMap(UUID.init(uuidString:)), let digest=row[2],let program=row[3],let count=row[5].flatMap(Int.init),let points=row[6].flatMap(Int.init) else { throw DrawingLibraryError.invalidIdentity }
-        let metadata = try row[7].map { try JSONDecoder().decode(LibraryExchangeMetadata.self,from:Data($0.utf8)) }
+        let metadata = try row[7].map { try db.decode(LibraryExchangeMetadata.self, $0) }
         let ref=DrawingRef(issuer:issuer,revision:revision,digest:try ExchangeDigest(digest))
         if let metadata,metadata.reference != .drawing(ref) { throw DrawingLibraryError.invalidIdentity }
         return .init(reference:ref,title:metadata?.title,createdAt:row[4].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)),programDigest:try ExchangeDigest(program),strokeCount:count,pointCount:points)

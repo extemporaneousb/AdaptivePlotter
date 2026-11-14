@@ -101,7 +101,7 @@ extension FlowPortfolioStore {
   }
   func commitPrepared(_ prepared: [DrawingLibraryPreparedRetention], next: FlowPortfolioSnapshot) async throws {
     if prepared.isEmpty {
-      if next != state { try await commit(next, operation: "retainedSelectionUpdated") }
+      if next != state { try await commit(next) }
       return
     }
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else { throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.") }

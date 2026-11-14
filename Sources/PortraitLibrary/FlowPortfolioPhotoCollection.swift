@@ -122,7 +122,7 @@ extension FlowPortfolioStore {
     if selecting { next.selectedSourceID = source.id
       next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
     }
-    try await commit(next, operation: "cameraPhotoCaptured", subjectID: source.id)
+    try await commit(next)
     return source
   }
 
@@ -162,7 +162,7 @@ extension FlowPortfolioStore {
       try attachPhoto(to: &source, data: bytes)
       next.sources.append(source); result.append(source)
     }
-    if next.sources.count != state.sources.count { try await commit(next, operation: "photoCollectionImported") }
+    if next.sources.count != state.sources.count { try await commit(next) }
     return result
   }
 
@@ -173,7 +173,7 @@ extension FlowPortfolioStore {
     }
     var next = state; next.sources[index].title = title
     guard let ref = next.sources[index].photo else { throw FlowPortfolioError.unavailable("Photo reference is unavailable.") }
-    try await commit(next, operation: "sourceRenamed", subjectID: sourceID, photoMetadata: [.init(reference: ref, patch: .init(title: .set(title)))])
+    try await commit(next, photoMetadata: [.init(reference: ref, patch: .init(title: .set(title)))])
   }
 
   package func renameCandidate(candidateID: UUID, title: String) async throws {
@@ -184,7 +184,7 @@ extension FlowPortfolioStore {
     let title: String? = value.isEmpty ? nil : value
     guard state.candidates[index].title != title else { return }
     var next = state; next.candidates[index].title = title
-    try await commit(next, operation: "candidateRenamed", subjectID: candidateID)
+    try await commit(next)
   }
 
   /// Navigation cannot create a choice or a training preference.
@@ -193,6 +193,6 @@ extension FlowPortfolioStore {
     guard let candidate = state.candidates.first(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Drawing is unavailable.") }
     var next = state; next.selectedSourceID = candidate.sourceID; next.currentRoundID = candidate.roundID
     next.currentCandidateID = id; next.currentPruneRevisionID = next.latestPrune(candidateID: id)?.id
-    if next != state { try await commit(next, operation: "candidateViewed", subjectID: id) }
+    if next != state { try await commit(next) }
   }
 }

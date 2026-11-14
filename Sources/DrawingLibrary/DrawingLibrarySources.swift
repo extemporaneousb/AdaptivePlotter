@@ -88,7 +88,7 @@ package struct DrawingLibraryRetentionMutation: Codable, Sendable {
 extension DrawingLibrary {
   public func photo(_ ref: PhotoRef) throws -> FrozenPhotoRecord {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Photo is not present") }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       try assertSourceReference(.photo(ref), database: db)
       for candidate in try publicationCandidates(.photo(ref), database: db) {
         let files = try publicationFiles(candidate, database: db)
@@ -103,7 +103,7 @@ extension DrawingLibrary {
   /// that this Photo selects a particular result delivery.
   public func exportPhoto(_ ref: PhotoRef, to destination: URL) throws {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Photo is not present") }
-    try commonSnapshot(db) { db in
+    try db.readSnapshot { db in
       try assertSourceReference(.photo(ref), database: db)
       guard let candidate = try publicationCandidates(.photo(ref), database: db).first else { throw DrawingLibraryError.unavailable("Photo publication is not present") }
       let files = try publicationFiles(candidate, database: db)
@@ -114,7 +114,7 @@ extension DrawingLibrary {
   }
   public func input(_ ref: ImageInputRef) throws -> FrozenImageInputRecord {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Input is not present") }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       try assertSourceReference(.input(ref), database: db)
       for candidate in try publicationCandidates(.input(ref), database: db) {
         let files = try publicationFiles(candidate, database: db)
@@ -132,13 +132,14 @@ extension DrawingLibrary {
   }
   public func photoMetadata(_ ref: PhotoRef) throws -> DrawingLibraryPhotoMetadata {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.unavailable("Photo is not present") }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       try assertSourceReference(.photo(ref), database: db)
       return try sourceMetadata(ref, database: db)
     }
   }
   package func sourceMetadata(_ ref: PhotoRef, database db: DrawingLibraryDatabase) throws -> DrawingLibraryPhotoMetadata {
-    guard let raw = try db.scalar("SELECT payload FROM dx_photo_metadata WHERE namespace=? AND identity=? AND digest=?", [LibraryExchangeReference.photo(ref).key[1], LibraryExchangeReference.photo(ref).key[2], ref.digest.description]) else { return .init() }
+    let key = LibraryExchangeReference.photo(ref).key
+    guard let raw = try db.scalar("SELECT payload FROM dx_photo_metadata WHERE namespace=? AND identity=? AND digest=?", [key[1], key[2], ref.digest.description]) else { return .init() }
     return try db.decode(DrawingLibraryPhotoMetadata.self, raw)
   }
   public func updatePhotoMetadata(_ ref: PhotoRef, patch: DrawingLibraryPhotoMetadataPatch, intent: DrawingLibraryCommitIntent = .init()) throws {
@@ -146,7 +147,7 @@ extension DrawingLibrary {
   }
   public func photoMetadataRevision() throws -> Int64 {
     guard let db = try commonReadDatabase() else { return 0 }
-    return try commonSnapshot(db) { db in Int64(try db.scalar("SELECT value FROM state WHERE key='photo_metadata_revision'") ?? "0") ?? 0 }
+    return try db.readSnapshot { db in Int64(try db.scalar("SELECT value FROM state WHERE key='photo_metadata_revision'") ?? "0") ?? 0 }
   }
   /// One bounded metadata read for the domain's live projection; no asset loads.
   public func photoMetadata(_ refs: [PhotoRef]) throws -> [PhotoRef: DrawingLibraryPhotoMetadata] {
@@ -155,10 +156,15 @@ extension DrawingLibrary {
       guard refs.isEmpty else { throw DrawingLibraryError.unavailable("Exact Photo metadata is not present") }
       return [:]
     }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       var result: [PhotoRef: DrawingLibraryPhotoMetadata] = [:]
-      let wanted = Set(refs)
-      let ordered = Array(wanted)
+      var wanted: [ExchangeIdentity: PhotoRef] = [:]
+      for ref in refs {
+        if let prior = wanted.updateValue(ref, forKey: ref.identity), prior != ref {
+          throw DrawingExchangeError.digestMismatch("Photo metadata reference")
+        }
+      }
+      let ordered = Array(wanted.values)
       for start in stride(from: 0, to: ordered.count, by: 200) {
         let chunk = ordered[start..<min(start + 200, ordered.count)]
         let predicate = Array(repeating: "(?,?)", count: chunk.count).joined(separator: ",")
@@ -168,7 +174,7 @@ extension DrawingLibrary {
         for row in rows {
           guard let issuer = row[0].flatMap(UUID.init(uuidString:)), let revision = row[1].flatMap(UUID.init(uuidString:)), let digest = row[2] else { throw DrawingLibraryError.invalidIdentity }
           let ref = PhotoRef(issuer: issuer, revision: revision, digest: try ExchangeDigest(digest))
-          guard wanted.contains(ref), !chunk.contains(where: { $0.issuer == issuer && $0.revision == revision && $0.digest != ref.digest }) else { throw DrawingExchangeError.digestMismatch("Photo metadata reference") }
+          guard wanted[ref.identity] == ref else { throw DrawingExchangeError.digestMismatch("Photo metadata reference") }
           found.insert(ref)
           result[ref] = try row[3].map { try db.decode(DrawingLibraryPhotoMetadata.self, $0) } ?? .init()
         }
@@ -179,7 +185,7 @@ extension DrawingLibrary {
   }
   public func retention(_ ref: DrawingRef) throws -> DrawingLibraryRetentionState {
     guard let db = try commonReadDatabase() else { throw DrawingLibraryError.missing(ref) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       try assertSourceReference(.drawing(ref), database: db)
       let value = try preparedMetadata(ref, database: db) ?? .init(reference: .drawing(ref))
       return .init(reference: ref, reasons: value.retentionReasons, tombstoned: value.tombstoned)
@@ -312,7 +318,7 @@ extension DrawingLibrary {
   public func photos(limit: Int = 50, after: DrawingLibraryPhotoCursor? = nil) throws -> DrawingLibraryPhotoPage {
     guard (1...500).contains(limit) else { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
       var predicate = "s.kind='photo'", values: [String?] = []
@@ -336,7 +342,7 @@ extension DrawingLibrary {
     guard (1...500).contains(limit) else { throw DrawingLibraryError.invalidQuery }
     if let after, after.photo != photo { throw DrawingLibraryError.invalidQuery }
     guard let db = try commonReadDatabase() else { return .init(entries: [], next: nil) }
-    return try commonSnapshot(db) { db in
+    return try db.readSnapshot { db in
       let generation = try db.generation
       if let after, after.generation != generation { throw DrawingLibraryError.staleSelection }
       try assertSourceReference(.photo(photo), database: db)

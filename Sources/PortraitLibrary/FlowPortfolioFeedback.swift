@@ -377,6 +377,7 @@ package struct FlowFeatureReadStatistics: Codable, Equatable, Sendable {
   package var decodedCapsules = 0
   package var decodedStrokeMatrices = 0
   package var reusedEncodedStrokeMatrices = 0
+  package var metadataStrokeBytesSkipped: UInt64 = 0
   package var admittedBytes: UInt64 = 0
   package var admittedElements = 0
 }
@@ -641,8 +642,13 @@ extension FlowFeedbackReader {
         verifiedBase = base
         if let rootDigest = budget.rootStrokeJSONDigests[root.object],
           ExchangeDigest.hash(bytes.subdata(in: strokeRange)) == rootDigest {
-          value = try JSONDecoder().decode(FlowFeatureMetadata.self, from: bytes).capsule(strokes: base.strokes)
+          // The exact range is already syntax/type checked by the root's
+          // full decode. Validate every remaining byte without parsing the
+          // same large numeric matrix again for each retained mask.
+          let metadata = FlowFeatureJSON.replacingVerifiedStrokeRange(strokeRange, in: bytes)
+          value = try JSONDecoder().decode(FlowFeatureMetadata.self, from: metadata).capsule(strokes: base.strokes)
           budget.statistics.reusedEncodedStrokeMatrices += 1
+          budget.statistics.metadataStrokeBytesSkipped += UInt64(strokeRange.count)
         } else {
           value = try JSONDecoder().decode(FlowPortfolioFeatureCapsule.self, from: bytes)
           budget.statistics.decodedStrokeMatrices += 1
@@ -727,8 +733,9 @@ extension FlowFeedbackReader {
 }
 
 /// A mask's numerical stroke basis is already present in its verified root. The
-/// metadata decoder still parses the complete JSON document, but only skips
-/// materializing that matrix after its exact JSON bytes match the validated root.
+/// metadata decoder parses all remaining JSON after the exact matrix bytes match
+/// the fully decoded and validated root. The original carrier remains the digest,
+/// integrity and admission authority; the compact view is never retained.
 private struct FlowFeatureMetadata: Decodable {
   let profile: String
   let id: UUID
@@ -755,6 +762,18 @@ private struct FlowFeatureMetadata: Decodable {
 /// unusual top-level key spelling, duplicate key, malformed container or trailing
 /// content declines this optimization and takes the original full decoder path.
 private enum FlowFeatureJSON {
+  /// Call only after this complete value range matches the validated root's
+  /// matrix digest. Replacing its value preserves every surrounding delimiter,
+  /// key and metadata byte for the ordinary JSONDecoder syntax/type checks.
+  static func replacingVerifiedStrokeRange(_ range: Range<Int>, in bytes: Data) -> Data {
+    var result = Data()
+    result.reserveCapacity(bytes.count - range.count + 2)
+    result.append(bytes[..<range.lowerBound])
+    result.append(contentsOf: [0x5b, 0x5d])
+    result.append(bytes[range.upperBound...])
+    return result
+  }
+
   static func members(_ data: Data) -> [String: Range<Int>]? {
     data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> [String: Range<Int>]? in
       var offset = 0

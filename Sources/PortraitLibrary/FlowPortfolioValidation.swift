@@ -46,6 +46,7 @@ enum FlowPortfolioValidation {
           && provenance.manifest.mediaType == "application/json", "Photo import provenance is invalid.")
       }
     }
+    let candidatesByRound = Dictionary(grouping: state.candidates, by: \.roundID)
     for round in state.rounds {
       try require(sources[round.sourceID] != nil && (1...24).contains(round.recipes.count), "Round has a missing source or invalid recipes.")
       if let parent = round.parentCandidateID {
@@ -70,7 +71,7 @@ enum FlowPortfolioValidation {
             "Broad exploration must reset its neighborhood.")
         }
       }
-      let owned = state.candidates.filter { $0.roundID == round.id }
+      let owned = candidatesByRound[round.id] ?? []
       try require(Set(round.candidateIDs) == Set(owned.map(\.id)) && round.candidateIDs.count == owned.count,
         "Round's candidate list differs from its committed results.")
       let slots = owned.map(\.slot) + round.failures.map(\.slot)

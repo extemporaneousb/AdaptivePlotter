@@ -3,9 +3,6 @@ import PortraitArtists
 import PortraitLibrary
 import PortraitCore
 
-/// UI coverage projects the same resolver used to freeze training inputs.
-package typealias FlowAuthoringSupervision = FlowPortfolioSupervision
-
 package struct FlowAuthoringPhotoProgress: Equatable, Sendable {
   package var candidateCount = 0
   package var supervisedCandidateCount = 0
@@ -55,7 +52,7 @@ package struct FlowAuthoringTrainingProgress: Equatable, Sendable {
 
   package init(document: FlowPortfolioSnapshot, fittedDocument: FlowPortfolioSnapshot? = nil,
     activeDocument: FlowPortfolioSnapshot? = nil) {
-    let plan = FlowAuthoringSupervision.plan(document)
+    let plan = FlowPortfolioSupervision.plan(document)
     var firstSourceByPhoto: [PhotoRef: UUID] = [:], photoKeys: [UUID: UUID] = [:]
     for source in document.sources {
       if let photo = source.photo {
@@ -72,7 +69,8 @@ package struct FlowAuthoringTrainingProgress: Equatable, Sendable {
     var itemSources: [String: UUID] = [:]
     var roots: [String: UUID] = [:]
     var masks: [String: [Int]] = [:]
-    let latestEdits = Dictionary(grouping: document.pruneRevisions, by: \.candidateID).compactMapValues(\.last)
+    var latestEdits: [UUID: FlowPortfolioPruneRevision] = [:]
+    for revision in document.pruneRevisions { latestEdits[revision.candidateID] = revision }
     for entry in plan.entries {
       let c = entry.candidate
       values[photoKey(c.sourceID), default: .init()].supervisedCandidateCount += 1
@@ -131,29 +129,30 @@ package struct FlowAuthoringTrainingProgress: Equatable, Sendable {
     let active = document.fits.first(where: { $0.id == document.activeFitID }).flatMap { snapshots[$0.snapshotID] }
     latestFitAttemptRevision = attempt?.portfolioRevision
     latestFitRevision = latest?.portfolioRevision; activeFitRevision = active?.portfolioRevision
-    func comparison(_ frozen: FlowPortfolioSnapshot?, metadata: FlowPortfolioTrainingSnapshot?) -> FlowAuthoringSupervision.Plan? {
-      guard let metadata else { return FlowAuthoringSupervision.plan(.empty(purpose: document.purpose)) }
+    func comparison(_ frozen: FlowPortfolioSnapshot?, metadata: FlowPortfolioTrainingSnapshot?) -> FlowPortfolioSupervision.Plan? {
+      guard let metadata else { return FlowPortfolioSupervision.plan(.empty(purpose: document.purpose)) }
       guard let frozen, frozen.id == document.id, frozen.revision == metadata.portfolioRevision else { return nil }
-      return FlowAuthoringSupervision.plan(frozen)
+      return FlowPortfolioSupervision.plan(frozen)
     }
     let fittedPlan = comparison(fittedDocument, metadata: latest)
-    let activePlan = comparison(activeDocument, metadata: active)
-    let signature = FlowAuthoringSupervision.Signature(plan)
-    hasTrainingChanges = fittedPlan.map { signature != FlowAuthoringSupervision.Signature($0) }
-    activeHasTrainingChanges = activePlan.map { signature != FlowAuthoringSupervision.Signature($0) }
+    let activePlan = active == latest && activeDocument == fittedDocument
+      ? fittedPlan : comparison(activeDocument, metadata: active)
+    let signature = FlowPortfolioSupervision.Signature(plan)
+    hasTrainingChanges = fittedPlan.map { signature != FlowPortfolioSupervision.Signature($0) }
+    activeHasTrainingChanges = activePlan.map { signature != FlowPortfolioSupervision.Signature($0) }
     func differences<K: Hashable, V: Equatable>(_ current: [K: V], _ prior: [K: V]) -> Int {
       Set(current.keys).union(prior.keys).filter { current[$0] != prior[$0] }.count
     }
-    func choices(_ value: FlowAuthoringSupervision.Plan) -> [String: [[String]]] {
+    func choices(_ value: FlowPortfolioSupervision.Plan) -> [String: [[String]]] {
       Dictionary(uniqueKeysWithValues: value.rankings.filter { $0.provenance == .choice }.map { ($0.id, $0.tiers) })
     }
-    func explicit(_ value: FlowAuthoringSupervision.Plan) -> [UUID: [[String]]] {
+    func explicit(_ value: FlowPortfolioSupervision.Plan) -> [UUID: [[String]]] {
       let rankings = Dictionary(uniqueKeysWithValues: value.rankings.map { ($0.id, $0.tiers) })
       return Dictionary(uniqueKeysWithValues: value.explicitRankings.compactMap { record in
         rankings[record.id.uuidString].map { (record.presentationID, $0) }
       })
     }
-    func labels(_ value: FlowAuthoringSupervision.Plan) -> [UUID: FlowAuthoringSupervision.Labels] {
+    func labels(_ value: FlowPortfolioSupervision.Plan) -> [UUID: FlowPortfolioSupervision.Labels] {
       Dictionary(uniqueKeysWithValues: value.entries.filter { !$0.labels.isEmpty }.map { ($0.candidate.id, $0.labels) })
     }
     pendingChoiceCount = fittedPlan.map { differences(choices(plan), choices($0)) } ?? 0
@@ -181,11 +180,11 @@ package struct FlowAuthoringTrainingProgress: Equatable, Sendable {
 /// Immutable event IDs cover the store's append-only feedback. Only grouping,
 /// exclusion and fit selection are mutable semantic inputs. Titles, navigation
 /// and the display revision deliberately do not trigger supervision regrouping.
-package struct FlowAuthoringTrainingProgressKey: Equatable {
-  private struct Source: Equatable {
+package struct FlowAuthoringTrainingProgressKey: Equatable, Sendable {
+  private struct Source: Equatable, Sendable {
     let id: UUID; let image: String; let photo: PhotoRef?; let subject: String?; let session: String?; let excluded: Bool
   }
-  private struct Candidate: Equatable {
+  private struct Candidate: Equatable, Sendable {
     let id: UUID; let source: UUID; let program: String; let raster: String; let strokes: Int; let excluded: Bool
   }
   private let portfolio: UUID

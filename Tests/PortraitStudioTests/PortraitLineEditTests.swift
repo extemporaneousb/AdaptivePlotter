@@ -130,6 +130,15 @@ struct PortraitLineEditTests {
     #expect(await editor.save() == false)
     editor.showsOriginal = true; let mask = editor.removed; editor.restore([ids[0]]); #expect(editor.removed == mask)
     await sketches.shutdown(); await library.closeLibrary()
+    let reopened = DrawingLibrary(directoryURL: directory)
+    #expect(try await reopened.drawing(ref).program == child.program)
+    #expect(try await reopened.drawing(parent).program == base.program)
+    let reopenedSketches = PortraitSketchCollection(library: reopened)
+    let reopenedEditor = PortraitLineEditModel(base: try await reopened.drawing(ref), sketches: reopenedSketches)
+    await reopenedEditor.load()
+    #expect(reopenedEditor.canEdit && reopenedEditor.removed.isEmpty)
+    #expect(reopenedEditor.remainingCount == base.program.strokes.count - 1)
+    await reopenedSketches.shutdown(); await reopened.closeLibrary()
   }
 
   @Test("Actual Flow output keeps renderer receipt and every surviving point under Drawing edits")

@@ -49,7 +49,8 @@ extension FlowPortfolioStore {
     }
   }
   func admitTemporaryArtifacts(_ values: [Data]) throws {
-    if !storage.canRetain(values) { evictOptionalHistory() }
+    if storage.canRetain(values) { return }
+    evictOptionalHistory()
     guard storage.canRetain(values) else {
       throw FlowPortfolioError.unavailable("The active drawing panel exceeds the temporary artifact memory budget.")
     }

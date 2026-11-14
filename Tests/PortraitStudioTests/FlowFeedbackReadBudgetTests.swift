@@ -118,6 +118,7 @@ struct FlowFeedbackReadBudgetTests {
     #expect(try DrawingArtifactCoding.encoder().encode(a) == DrawingArtifactCoding.encoder().encode(b))
     #expect(fast.statistics.reusedEncodedStrokeMatrices == 1 && fast.statistics.decodedStrokeMatrices == 1)
     #expect(full.statistics.reusedEncodedStrokeMatrices == 0 && full.statistics.decodedStrokeMatrices == 2)
+    #expect(fast.statistics.metadataStrokeBytesSkipped > 0 && full.statistics.metadataStrokeBytesSkipped == 0)
     let baseElements = edited.strokes.reduce(0) { $0 + $1.count }
     let categoryLimit = baseElements + FlowArtistFeatures.drawingCount * 2
     let categories = FlowFeatureReadBudget(maximumElements: categoryLimit)
@@ -158,8 +159,9 @@ struct FlowFeedbackReadBudgetTests {
     #expect(throws: (any Error).self) { try budget.admit(conflicting) }
   }
 
-  @Test("Whitespace, escaped keys and duplicate members decline reuse without changing decoder semantics",
-    arguments: ["pretty", "reordered", "escaped-key", "duplicate-strokes", "trailing"])
+  @Test("Encoded reuse preserves full-decoder metadata and syntax acceptance",
+    arguments: ["pretty", "reordered", "escaped-key", "duplicate-strokes", "trailing",
+      "invalid-metadata", "invalid-number", "unknown-invalid", "duplicate-profile", "extra-field"])
   func encodedStrokeFallback(change: String) async throws {
     let root = DrawingExchangeFeedbackFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let fixture = try await DrawingExchangeFeedbackFixture.make(directory: root, candidateCount: 1)
@@ -188,8 +190,22 @@ struct FlowFeedbackReadBudgetTests {
     case "duplicate-strokes":
       let values = try DrawingArtifactCoding.encoder().encode(feature.strokes)
       changed = Data(canonical.dropLast()); changed.append(Data(",\"strokes\":".utf8)); changed.append(values); changed.append(125)
+    case "invalid-metadata":
+      let text = try #require(String(data: canonical, encoding: .utf8))
+      changed = Data(text.replacingOccurrences(of: "\"profile\":\"adaptiveplotter.flow-features/3\"", with: "\"profile\":null").utf8)
+    case "invalid-number":
+      let text = try #require(String(data: canonical, encoding: .utf8))
+      changed = Data(text.replacingOccurrences(of: "\"drawing\":[", with: "\"drawing\":[1e,").utf8)
+    case "unknown-invalid":
+      changed = Data(canonical.dropLast()); changed.append(Data(",\"unused\":NaN}".utf8))
+    case "duplicate-profile":
+      changed = Data(canonical.dropLast()); changed.append(Data(",\"profile\":\"unsupported\"}".utf8))
+    case "extra-field":
+      changed = Data(canonical.dropLast())
+      changed.append(Data(#","unused":{"quoted":"\"strokes\":null","array":[1,2]}}"#.utf8))
     default: changed = canonical; changed.append(Data(" false".utf8))
     }
+    #expect(changed != canonical)
     let asset = try ExchangeAsset(bytes: changed, mediaType: "application/json", encoding: "utf8-json")
     var files = try payloadFiles(package)
     files["data/objects/sha256/" + asset.object.description] = changed
@@ -209,8 +225,12 @@ struct FlowFeedbackReadBudgetTests {
     case (.failure, .failure): break
     default: Issue.record("Optimized and full decoder acceptance differ for \(change)")
     }
-    #expect(fast.statistics.reusedEncodedStrokeMatrices == 0)
-    if change == "trailing" { #expect(throws: (any Error).self) { try a.get() } }
+    #expect(fast.statistics.reusedEncodedStrokeMatrices == (change == "extra-field" ? 1 : 0))
+    if ["trailing", "invalid-metadata", "invalid-number", "unknown-invalid"].contains(change) {
+      #expect(throws: (any Error).self) { try a.get() }
+      #expect(throws: (any Error).self) { try b.get() }
+    }
+    if change == "extra-field" { #expect(try a.get().id == feature.id) }
     await fixture.library.closeLibrary()
   }
 

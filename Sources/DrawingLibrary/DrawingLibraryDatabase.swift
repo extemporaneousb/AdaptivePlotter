@@ -8,9 +8,17 @@ package final class DrawingLibraryDatabase {
   private let catalogPath: String
   private var db: OpaquePointer?
   private var openedIdentity: (device: dev_t, inode: ino_t)?
+  private var validatedProfileState: DrawingLibraryFileState?
+  private var validatedDataVersion: String?
   package let writerLease: DrawingLibraryWriterLease?
   private var guardedTransaction = false
+  // Idle statements only. Checked-out statements are removed until reset, so a
+  // nested query can never rebind or reset a statement that is still stepping.
+  private var statements: [String: OpaquePointer] = [:]
+  private static let statementLimit = 64
+  package var cachedStatementCount: Int { statements.count }
   package private(set) var selectedFileValidationCount = 0
+  private let decoder = JSONDecoder()
   private let encoder: JSONEncoder = {
     let value = JSONEncoder()
     value.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -40,6 +48,7 @@ package final class DrawingLibraryDatabase {
     do {
       let flags = (readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) | SQLITE_OPEN_FULLMUTEX
       guard sqlite3_open_v2(catalogPath, &db, flags, nil) == SQLITE_OK else { throw failure() }
+      DrawingLibraryDiagnostics.shared.record("sqlConnections")
       var opened = stat()
       guard lstat(catalogPath, &opened) == 0, opened.st_mode & S_IFMT == S_IFREG, opened.st_nlink == 1 else { throw DrawingLibraryDatabaseError.database("Opened catalog path changed") }
       openedIdentity = (opened.st_dev, opened.st_ino)
@@ -49,24 +58,50 @@ package final class DrawingLibraryDatabase {
       guard try scalar("PRAGMA foreign_keys") == "1" else { throw DrawingLibraryDatabaseError.database("foreign key enforcement unavailable") }
       let existingVersion = try scalar("PRAGMA user_version")
       guard existingVersion == "0" || existingVersion == "12" else { throw DrawingLibraryDatabaseError.database("unsupported schema") }
-      if existingVersion == "12" {
-        guard try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dx_source_summary','dx_photo_metadata','dx_result_attempt')") == "3" else {
-          throw DrawingLibraryDatabaseError.database("unsupported schema: required source metadata tables are missing")
-        }
-      }
       if !readOnly {
         try execute("PRAGMA journal_mode=DELETE")
         try execute("PRAGMA synchronous=FULL")
         if existingVersion == "0" { try execute(Self.schema) }
       }
-      guard let version = try scalar("PRAGMA user_version"), version == "12" else {
-        throw DrawingLibraryDatabaseError.database("unsupported schema")
-      }
-      guard try scalar("SELECT value FROM state WHERE key='profile'") == "adaptiveplotter.drawing-library/1" else { throw DrawingLibraryDatabaseError.database("Unsupported Library profile") }
-    } catch { sqlite3_close(db); db = nil; writerLease?.releaseDatabase(); throw error }
+      let dataVersion = try scalar("PRAGMA data_version")
+      try validateProfile()
+      validatedProfileState = try DrawingLibraryFileState(url)
+      validatedDataVersion = dataVersion
+    } catch { closeConnection(); throw error }
   }
   // Close SQLite before releasing the lifetime lease, including failed init.
-  deinit { sqlite3_close(db); writerLease?.releaseDatabase() }
+  deinit { closeConnection() }
+
+  private func closeConnection() {
+    for statement in statements.values { sqlite3_finalize(statement) }
+    statements.removeAll()
+    sqlite3_close(db)
+    db = nil
+    writerLease?.releaseDatabase()
+  }
+
+  private func validateProfile() throws {
+    guard try scalar("PRAGMA user_version") == "12" else { throw DrawingLibraryDatabaseError.database("unsupported schema") }
+    guard try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dx_source_summary','dx_photo_metadata','dx_result_attempt')") == "3" else {
+      throw DrawingLibraryDatabaseError.database("unsupported schema: required source metadata tables are missing")
+    }
+    guard try scalar("SELECT value FROM state WHERE key='profile'") == "adaptiveplotter.drawing-library/1" else {
+      throw DrawingLibraryDatabaseError.database("Unsupported Library profile")
+    }
+  }
+
+  package func validateReadSelection() throws {
+    try assertSelectedFile()
+    let current = try DrawingLibraryFileState(url)
+    // WAL commits can change schema/profile without touching the main file.
+    // This connection-local value advances for commits by other connections.
+    let dataVersion = try scalar("PRAGMA data_version")
+    if current != validatedProfileState || dataVersion != validatedDataVersion {
+      try validateProfile()
+      validatedProfileState = current
+      validatedDataVersion = dataVersion
+    }
+  }
 
   private func failure() -> DrawingLibraryDatabaseError {
     guard let db else { return .database("connection unavailable") }
@@ -114,47 +149,82 @@ package final class DrawingLibraryDatabase {
       guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw failure() }
       return
     }
-    let stmt = try prepare(sql, values)
-    defer { sqlite3_finalize(stmt) }
-    guard sqlite3_step(stmt) == SQLITE_DONE else { throw failure() }
+    try withStatement(sql, values) { stmt in
+      guard sqlite3_step(stmt) == SQLITE_DONE else { throw failure() }
+    }
   }
-  private func prepare(_ sql: String, _ values: [String?]) throws -> OpaquePointer {
+  private func withStatement<T>(_ sql: String, _ values: [String?], _ operation: (OpaquePointer) throws -> T) throws -> T {
     DrawingLibraryDiagnostics.shared.record("sqlStatements")
-    var stmt: OpaquePointer?
-    guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { throw failure() }
+    let stmt: OpaquePointer
+    if let cached = statements.removeValue(forKey: sql) {
+      stmt = cached
+      DrawingLibraryDiagnostics.shared.record("sqlStatementCacheHits")
+    } else {
+      var prepared: OpaquePointer?
+      guard sqlite3_prepare_v2(db, sql, -1, &prepared, nil) == SQLITE_OK, let prepared else { throw failure() }
+      stmt = prepared
+      DrawingLibraryDiagnostics.shared.record("sqlPrepares")
+    }
+    // Statement metrics describe this execution, not the lifetime of the cache.
+    sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_VM_STEP, 1)
+    sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_FULLSCAN_STEP, 1)
+    defer {
+      sqlite3_reset(stmt)
+      sqlite3_clear_bindings(stmt)
+      if statements[sql] == nil, statements.count < Self.statementLimit { statements[sql] = stmt }
+      else { sqlite3_finalize(stmt) }
+    }
     let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     for (index, value) in values.enumerated() {
       let code = value.map { sqlite3_bind_text(stmt, Int32(index + 1), $0, -1, transient) }
         ?? sqlite3_bind_null(stmt, Int32(index + 1))
-      guard code == SQLITE_OK else { let error = failure(); sqlite3_finalize(stmt); throw error }
+      guard code == SQLITE_OK else { throw failure() }
     }
-    return stmt
+    return try operation(stmt)
+  }
+  private func textColumn(_ stmt: OpaquePointer, _ index: Int32) -> String? {
+    sqlite3_column_type(stmt, index) == SQLITE_NULL ? nil : String(cString: sqlite3_column_text(stmt, index))
   }
   package func rows(_ sql: String, _ values: [String?] = [], work: ((Int, Int) -> Void)? = nil) throws -> [[String?]] {
-    let stmt = try prepare(sql, values)
-    defer {
-      if let work {
-        work(Int(sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_VM_STEP, 0)),
+    try withStatement(sql, values) { stmt in
+      defer {
+        work?(Int(sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_VM_STEP, 0)),
           Int(sqlite3_stmt_status(stmt, SQLITE_STMTSTATUS_FULLSCAN_STEP, 0)))
       }
-      sqlite3_finalize(stmt)
-    }
-    var result: [[String?]] = []
-    while true {
-      let code = sqlite3_step(stmt)
-      if code == SQLITE_DONE { return result }
-      guard code == SQLITE_ROW else { throw failure() }
-      result.append((0..<sqlite3_column_count(stmt)).map { index in
-        sqlite3_column_type(stmt, index) == SQLITE_NULL ? nil
-          : String(cString: sqlite3_column_text(stmt, index))
-      })
+      var result: [[String?]] = []
+      while true {
+        let code = sqlite3_step(stmt)
+        if code == SQLITE_DONE { return result }
+        guard code == SQLITE_ROW else { throw failure() }
+        result.append((0..<sqlite3_column_count(stmt)).map { textColumn(stmt, $0) })
+      }
     }
   }
-  package func scalar(_ sql: String, _ values: [String?] = []) throws -> String? { try rows(sql, values).first?.first ?? nil }
+  package func scalar(_ sql: String, _ values: [String?] = []) throws -> String? {
+    try withStatement(sql, values) { stmt in
+      let code = sqlite3_step(stmt)
+      if code == SQLITE_DONE { return nil }
+      guard code == SQLITE_ROW else { throw failure() }
+      return textColumn(stmt, 0)
+    }
+  }
   package func encode<T: Encodable>(_ value: T) throws -> String { String(decoding: try encoder.encode(value), as: UTF8.self) }
   package func decode<T: Decodable>(_ type: T.Type, _ value: String?) throws -> T {
     guard let value else { throw DrawingLibraryDatabaseError.database("required payload missing") }
-    return try JSONDecoder().decode(type, from: Data(value.utf8))
+    return try decoder.decode(type, from: Data(value.utf8))
+  }
+  /// A cached reader must release its actual SQLite snapshot even if the
+  /// selected pathname or marker becomes invalid while the operation runs.
+  package func readSnapshot<T>(_ operation: (DrawingLibraryDatabase) throws -> T) throws -> T {
+    guard isOutsideTransaction else { throw DrawingLibraryDatabaseError.database("Nested catalog snapshots are unsupported") }
+    try assertSelectedFile()
+    let before = try DrawingLibraryFileState(url), revision = try generation
+    try execute("BEGIN")
+    defer { try? executeOnConnection("ROLLBACK") }
+    let value = try operation(self)
+    try assertSelectedFile()
+    guard try DrawingLibraryFileState(url) == before, try generation == revision else { throw DrawingLibraryError.staleSelection }
+    return value
   }
   /// A synchronous, nonescaping operation owns one connection and lease. Its
   /// trusted statements must not COMMIT/END the transaction themselves.

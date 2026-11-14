@@ -7,16 +7,6 @@ import PortraitCore
 import PortraitLibrary
 import DrawingLibrary
 
-/// A physical authoring declaration, independent of preview geometry units.
-package struct FlowAuthoringContext: Equatable, Sendable {
-  package let strokeStyle: StrokeStyle
-  package let nominalPenWidthMM: Double?
-  package init(strokeStyle: StrokeStyle, nominalPenWidthMM: Double?) {
-    self.strokeStyle = strokeStyle
-    self.nominalPenWidthMM = nominalPenWidthMM
-  }
-}
-
 @Observable @MainActor
 package final class FlowAuthoringModel {
   package enum Stage: String, CaseIterable { case explore = "Explore", prune = "Prune", rank = "Rank", fit = "Fit & deploy" }
@@ -24,7 +14,15 @@ package final class FlowAuthoringModel {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/PortraitStudio/DrawingLibrary", isDirectory: true)
   }
   package private(set) var directory: URL
-  package private(set) var document: FlowPortfolioSnapshot?
+  package private(set) var document: FlowPortfolioSnapshot? { didSet { cachedPresentationIndex = nil } }
+  @ObservationIgnored private var cachedPresentationIndex: FlowAuthoringPresentationIndex?
+  package var presentationIndex: FlowAuthoringPresentationIndex? {
+    guard let document else { return nil }
+    if let cachedPresentationIndex { return cachedPresentationIndex }
+    let index = FlowAuthoringPresentationIndex(document)
+    cachedPresentationIndex = index
+    return index
+  }
   package private(set) var sourceData: Data?
   package private(set) var program: DrawingProgram?
   package private(set) var candidateLoadError: String?
@@ -63,7 +61,7 @@ package final class FlowAuthoringModel {
   package var showsPhoto = false
   package private(set) var presentation: FlowPortfolioPresentation?
   package private(set) var ranks: [UUID: Int] = [:]
-  package private(set) var reportSummary: String?
+  package var reportSummary: String? { fitReport?.summary }
   package private(set) var fitReport: FlowArtistFitReport?
   package private(set) var activeModelIssue: String?
   package private(set) var activeCheckpoint: FlowArtistCheckpoint?
@@ -134,19 +132,21 @@ package final class FlowAuthoringModel {
       penProfileID: PenProfileID(UUID(uuidString: "00000000-0000-0000-0000-000000000001")!)))
     renderOverride = render; fitOverride = fit; self.metadataJoinHook = metadataJoinHook
   }
-  package var selectedSource: FlowPortfolioSource? { document?.sources.first { $0.id == document?.selectedSourceID } }
-  package var round: FlowPortfolioRound? { document?.rounds.first { $0.id == document?.currentRoundID } }
-  package var candidate: FlowPortfolioCandidate? { document?.candidates.first { $0.id == document?.currentCandidateID } }
-  package var prune: FlowPortfolioPruneRevision? { candidate.flatMap { document?.latestPrune(candidateID: $0.id) } }
+  package var selectedSource: FlowPortfolioSource? { document?.selectedSourceID.flatMap { presentationIndex?.sources[$0] } }
+  package var round: FlowPortfolioRound? { document?.currentRoundID.flatMap { presentationIndex?.rounds[$0] } }
+  package var candidate: FlowPortfolioCandidate? { document?.currentCandidateID.flatMap { presentationIndex?.candidates[$0] } }
+  package var prune: FlowPortfolioPruneRevision? { candidate.flatMap { presentationIndex?.latestPrunes[$0.id] } }
   package var removedIndices: Set<Int> { Set(prune?.removedIndices ?? []) }
   package var removedIDs: Set<StrokeID> {
     guard let program else { return [] }
-    return Set(program.strokes.enumerated().filter { removedIndices.contains($0.offset) }.map { $0.element.id })
+    return Set((prune?.removedIndices ?? []).compactMap { index in
+      program.strokes.indices.contains(index) ? program.strokes[index].id : nil
+    })
   }
   package var roundCandidates: [FlowPortfolioCandidate] {
-    guard let round, let document else { return [] }
+    guard let round, let index = presentationIndex else { return [] }
     let ids = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
-    return ids.compactMap { id in document.candidates.first { $0.id == id } }
+    return ids.compactMap { index.candidates[$0] }
   }
   package var autosaveStatus: String {
     if needsRecovery, error == nil { return "Autosave recovery is required for an admitted write." }
@@ -410,7 +410,7 @@ package final class FlowAuthoringModel {
   }
   package var canEdit: Bool { editingUnavailableReason == nil }
   package func returnToEditing() { showsOriginal = false; showsPhoto = false; selection = [] }
-  package func beginPruning() { returnToEditing(); stage = .prune }
+  package func beginPruning() { stage = .prune }
   package func retryCandidateLoad() async {
     guard !isBusy, !needsRecovery else { return }
     loadedProgramID = nil
@@ -550,7 +550,7 @@ package final class FlowAuthoringModel {
   package func updateStrokeStyle(_ style: StrokeStyle, nominalPenWidthMM: Double? = nil) {
     guard !closed, !closing else { return }
     strokeStyle = style
-    self.nominalPenWidthMM = FlowAuthoringContext(strokeStyle: style, nominalPenWidthMM: nominalPenWidthMM).nominalPenWidthMM
+    self.nominalPenWidthMM = nominalPenWidthMM
   }
 
   package func generate(refining: Bool, recommendation: Bool = false, broadAnchor: UUID? = nil) async {
@@ -863,7 +863,7 @@ package final class FlowAuthoringModel {
         self.fitting = nil
       }
       guard let report = retainedReport else { return }
-      self.reportSummary = report.summary; self.fitReport = report
+      self.fitReport = report
       let encoder = DrawingArtifactCoding.encoder()
       _ = try await store.installFit(checkpoint: try report.checkpoint.map { try encoder.encode($0) },
         report: encoder.encode(report), snapshotID: frozen.id)
@@ -886,7 +886,7 @@ package final class FlowAuthoringModel {
     guard let store else { return }
     await perform("Loading fit report…", autosave: false) {
       let report = try JSONDecoder().decode(FlowArtistFitReport.self, from: await store.fitReportData(fitID: fitID))
-      self.reportSummary = report.summary; self.fitReport = report
+      self.fitReport = report
     }
   }
   package func retainedDrawing() async throws -> Drawing {
@@ -1056,13 +1056,22 @@ package final class FlowAuthoringModel {
       else if let activeFit { active = try await store.trainingDocument(snapshotID: activeFit.snapshotID); try assertCurrent() }
       else { active = nil }
     }
-    let summaryKey = FlowAuthoringTrainingProgressKey(snapshot)
-    let summary: FlowAuthoringTrainingProgress
-    if trainingProgressKey == summaryKey, let progress = trainingProgress { summary = progress.atRevision(snapshot.revision) }
-    else {
-      trainingSummaryBuildCount += 1
-      summary = FlowAuthoringTrainingProgress(document: snapshot, fittedDocument: fitted, activeDocument: active)
+    // Large histories are projected off the main actor. Publish only after the
+    // same navigation/close barrier as the exact source and program reads.
+    let priorKey = trainingProgressKey, priorSummary = trainingProgress
+    let frozenFitted = fitted, frozenActive = active
+    let preparation = Task.detached(priority: .userInitiated) {
+      let index = FlowAuthoringPresentationIndex(snapshot)
+      let key = FlowAuthoringTrainingProgressKey(snapshot)
+      if priorKey == key, let priorSummary {
+        return (index, key, priorSummary.atRevision(snapshot.revision), false)
+      }
+      return (index, key, FlowAuthoringTrainingProgress(document: snapshot,
+        fittedDocument: frozenFitted, activeDocument: frozenActive), true)
     }
+    let (index, summaryKey, summary, builtSummary) = await preparation.value
+    try assertCurrent()
+    if builtSummary { trainingSummaryBuildCount += 1 }
     var pixels = sourceData, sourceHash = loadedSourceHash
     if let source {
       if sourceHash != source.image.sha256 {
@@ -1103,8 +1112,8 @@ package final class FlowAuthoringModel {
     let unavailable = try await store.candidateUnavailableReasons(Array(availabilityIDs)); try assertCurrent()
     var nextPreviews = previews.filter { visibleIDs.contains($0.key) }
     var nextKeys = previewKeys.filter { visibleIDs.contains($0.key) }
-    for candidate in snapshot.candidates where visibleIDs.contains(candidate.id) {
-      let revision = snapshot.latestPrune(candidateID: candidate.id)
+    for candidate in ids.compactMap({ index.candidates[$0] }) {
+      let revision = index.latestPrunes[candidate.id]
       let key = candidate.programHash + ":" + (revision?.id.uuidString ?? candidate.preview.sha256)
       guard nextKeys[candidate.id] != key else { continue }
       let item = FlowPortfolioPresentationItem(id: revision?.id ?? candidate.id, candidateID: candidate.id,
@@ -1116,7 +1125,7 @@ package final class FlowAuthoringModel {
     // photo/close completion cannot pair old pixels, checkpoint or geometry with
     // a newer visible identity.
     try assertCurrent()
-    document = snapshot; sourceData = pixels; loadedSourceHash = sourceHash
+    document = snapshot; cachedPresentationIndex = index; sourceData = pixels; loadedSourceHash = sourceHash
     program = selectedProgram; loadedProgramID = programID; candidateLoadError = selectedProgramError
     fittedDocument = fitted; activeTrainingDocument = active
     fittedSnapshot = nextFittedSnapshot; activeSnapshot = nextActiveSnapshot
