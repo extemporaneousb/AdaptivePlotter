@@ -1835,9 +1835,11 @@ inputs, retained Drawing revisions, recipes, round outcomes, choices, immutable
 pruning revisions, ranking features/previews, judgments, exclusions, frozen training
 snapshots, reports, checkpoints and activation history use that owner. Each
 operator mutation commits incrementally; no explicit Save is required for curation.
-Generated geometry remains in bounded temporary storage until selection, committed
-pruning or explicit Plot handoff. Rank retains enough features and preview bytes
-for its judgments without retaining every unselected program. Missing content,
+New generated candidates save exact private durable authoring closures before
+completion publication, independent of retained gallery Drawings and preference
+judgments. Selection, committed pruning or explicit Plot handoff retain immutable
+Drawings in the common Library. Rank retains exact features and previews for its
+judgments without promoting every unselected program into the gallery. Missing content,
 corruption or persistence failure is reported; uncertain mutations reconcile before
 retry. One writer owns a library. There is no separate portfolio head/delta writer.
 
@@ -1866,11 +1868,17 @@ Broad and local rounds use native Flow Edge parameters. Clicking a produced tile
 records exactly one weak direction choice against its frozen offered set, opens a
 child page immediately and progressively contracts the effective neighborhood to a
 nonzero floor. Broad sample resets depth and radius; Back and branch-history
-navigation generate no drawings or feedback. Bounded temporary storage keeps the
-current and one previous same-source/options panel, evicting optional history under
-the existing artifact limits. Retained drawings remain available. Expired unchosen
-tiles keep their historical preview when present, state their unavailable reason,
-and refuse edit/refinement before a choice or save-recovery intent can be created.
+navigation generate no drawings or feedback. A count/byte-bounded RAM hot tier
+rehydrates exact candidate Drawing/producer/units/links, complete prepared input,
+raster and preview from a private immutable disk spool across multi-level branches,
+source/region navigation and cold reopen. The spool is bounded to 512 entries,
+2 GiB total logical file bytes and 64 MiB per closure, including staging and
+complete orphans; it refuses new admission rather than silently evicting promised
+history. An exact-size refusal after round admission settles the round through the
+existing generation owner, without creating an uncertain-save recovery loop.
+Actual I/O failure retains normal persistence recovery. Private history adds no
+gallery Drawing or human judgment. Legacy missing material remains visibly
+unavailable and cannot cast a choice or open a nonfunctional editor.
 Automatic suggestion entry is neutral
 and may display a transient starting anchor without inventing a refinement parent.
 Available completed tiles and history can replace active generation; stale workers

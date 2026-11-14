@@ -99,6 +99,9 @@ enum FlowPortfolioValidation {
         && candidate.modelID == round.modelID && (1...DrawingArtifactLimits.maximumStrokes).contains(candidate.strokeCount),
         "Candidate differs from its immutable generation request.")
       try require(FlowPortfolioValidation.validHash(candidate.programHash), "Candidate program identity is invalid.")
+      if let closure = candidate.authoringClosure {
+        try require(validHash(closure.sha256) && (1...128 * 1024).contains(closure.byteCount) && closure.mediaType == "application/json", "Authoring history manifest reference is invalid.")
+      }
       if let title = candidate.title { try require(!title.isEmpty && title.utf8.count <= 1024, "Drawing name is invalid.") }
     }
     for choice in state.choices {

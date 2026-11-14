@@ -11,8 +11,12 @@ import Testing
 private extension DrawingLibrary {
   func removeAdoptedSourceAfterCommit(_ url: URL) throws {
     let catalog = try commonCatalog()
+    var armed = true
     catalog.injectFault = { boundary in
-      if boundary == .afterSQLCommit { try FileManager.default.removeItem(at: url) }
+      if armed, boundary == .afterSQLCommit {
+        armed = false
+        try FileManager.default.removeItem(at: url)
+      }
     }
   }
   func clearAdoptionFault() { cachedExchangeCatalog?.injectFault = nil }

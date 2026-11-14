@@ -5,6 +5,13 @@ import DrawingLibrary
 
 package struct FlowAuthoringSidebar: View {
   @Bindable var model: FlowAuthoringModel
+  package var photoSelected: (PhotoRef) -> Void = { _ in }
+  package init(model: FlowAuthoringModel, photoSelected: @escaping (PhotoRef) -> Void = { _ in }) {
+    self.model = model; self.photoSelected = photoSelected
+  }
+  package func openPhoto(_ reference: PhotoRef) async {
+    if await model.selectPhoto(reference, preservingPreviousPhotoOnFailure: true) == nil, model.currentPhotoRef == reference { photoSelected(reference) }
+  }
   @State private var expandedRounds = Set<UUID>()
   @State private var renaming: RenameTarget?
   @State private var photos: [DrawingLibraryPhotoEntry] = []
@@ -29,7 +36,9 @@ package struct FlowAuthoringSidebar: View {
         LazyVStack(alignment: .leading, spacing: 6) {
           Text("Photos").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
           ForEach(photos, id: \.reference) { photo in
-            Button { Task { await model.selectPhoto(photo.reference) } } label: {
+            Button { Task {
+              await openPhoto(photo.reference)
+            } } label: {
               HStack(spacing: 8) {
                 if let library = model.drawingLibrary {
                   DrawingLibraryThumbnail(library: library, source: .photo(photo.reference)).frame(width: 42, height: 48)

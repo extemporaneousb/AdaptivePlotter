@@ -32,10 +32,12 @@ struct FlowAuthoringTrainingProgressTests {
     #expect(progress.feedbackPhotoCount == 1 && progress.generatedDrawingCount == 4)
     #expect(progress.photo(source.id).candidateCount == 4)
     // Move beyond the current/previous panel window without adding geometry or feedback.
-    // No extraction should touch an unused generated raster, even if it is unreadable.
+    // Deliberately damage only this unused private test closure after hot eviction.
+    // Fitting must still ignore unreadable unlabelled material.
     let nextRound = try await store.beginRound(sourceID: source.id, recipes: [.standard])
     try await store.finishRound(nextRound.id, cancelled: true)
-    await #expect(throws: FlowPortfolioError.self) { try await store.candidateProgram(unused[0].id) }
+    try FileManager.default.removeItem(at: root.appendingPathComponent("flow-authoring-history-v1/" + unused[0].id.uuidString.lowercased()))
+    await #expect(throws: (any Error).self) { try await store.candidateProgram(unused[0].id) }
     let dataset = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
     #expect(!dataset.examples.contains { $0.id == unused[0].id.uuidString })
     #expect(dataset.examples.count == progress.exampleCount)

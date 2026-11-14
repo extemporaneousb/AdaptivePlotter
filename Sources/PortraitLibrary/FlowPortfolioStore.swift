@@ -9,6 +9,7 @@ import DrawingLibrary
 package actor FlowPortfolioStore {
   package nonisolated let library: DrawingLibrary
   let storage: FlowAuthoringArtifacts
+  let history: FlowAuthoringHistory
   var state: FlowPortfolioSnapshot
   var committedRecords = Set<DrawingLibraryRecordKey>()
   var inFlightCandidates: [UUID: Int] = [:]
@@ -24,6 +25,8 @@ package actor FlowPortfolioStore {
   var photoMetadataProjectionRevision: Int64?
   var photoMetadataProjectionRefs = Set<PhotoRef>()
   var photoMetadataProjectionValues: [PhotoRef: DrawingLibraryPhotoMetadata] = [:]
+  var selectionOwner = UUID()
+  package var sourceAdoptionDidPersist: (@Sendable () async -> Void)?
   var writeAdmissionActive = false
   var pendingGraphWrite: FlowPendingGraphWrite?
   var pendingRetainedWrite: FlowPendingRetainedWrite?
@@ -35,10 +38,11 @@ package actor FlowPortfolioStore {
   let requestedPurpose: FlowPortfolioPurpose?
   package nonisolated let directory: URL
 
-  package init(directory: URL, purpose: FlowPortfolioPurpose? = nil, library: DrawingLibrary? = nil) {
+  package init(directory: URL, purpose: FlowPortfolioPurpose? = nil, library: DrawingLibrary? = nil, historyPolicy: FlowAuthoringHistoryPolicy = .init()) {
     let owner = library ?? DrawingLibrary(directoryURL: directory)
     self.library = owner
     storage = FlowAuthoringArtifacts(library: owner)
+    history = FlowAuthoringHistory(directory: owner.directoryURL, policy: historyPolicy)
     self.directory = owner.directoryURL; requestedPurpose = purpose
     state = .empty(purpose: purpose ?? .artist)
   }
@@ -47,12 +51,30 @@ package actor FlowPortfolioStore {
     try await finishPendingGraphWrite(); try await finishPendingRetainedWrite(); try await loadRecords()
     trimTransientCaches()
   }
-  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil) async throws {
+  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil, selectionOwner: UUID? = nil) async throws {
     guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
-    var next = next; next.revision = state.revision + 1
-    try FlowPortfolioValidation.validate(next)
-    state = try await publishRecords(next, photoMetadata: photoMetadata, feedbackOverride: feedback)
-    trimTransientCaches()
+    guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else {
+      throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.")
+    }
+    let priorOwner = self.selectionOwner
+    let priorSelection = FlowPortfolioSelection(state)
+    let admittedOwner = (priorSelection != FlowPortfolioSelection(next) || selectionOwner != nil)
+      ? (selectionOwner ?? UUID()) : priorOwner
+    self.selectionOwner = admittedOwner
+    do {
+      var next = next; next.revision = state.revision + 1
+      try FlowPortfolioValidation.validate(next)
+      state = try await publishRecords(next, photoMetadata: photoMetadata, feedbackOverride: feedback)
+      trimTransientCaches()
+    } catch {
+      // An exact pending publication owns this token through reconciliation.
+      // A failure before admission has no such owner and must remain retryable.
+      if pendingGraphWrite == nil, pendingRetainedWrite == nil,
+        self.selectionOwner == admittedOwner, FlowPortfolioSelection(state) == priorSelection {
+        self.selectionOwner = priorOwner
+      }
+      throw error
+    }
   }
 
   static func validatedSourceAsset(_ bytes: Data) throws -> PortraitDrawingImages.Encoded {
@@ -65,7 +87,7 @@ package actor FlowPortfolioStore {
     }
   }
 
-  @discardableResult package func addSource(data: Data, title: String, mediaType: String = "image/png") async throws -> FlowPortfolioSource {
+  @discardableResult package func addSource(data: Data, title: String, mediaType: String = "image/png", selecting: Bool = true) async throws -> FlowPortfolioSource {
     try requireArtifactMutationAdmission()
     defer { trimTransientCaches() }
     let asset = try Self.validatedSourceAsset(data)
@@ -76,18 +98,21 @@ package actor FlowPortfolioStore {
     var source = FlowPortfolioSource(id: UUID(), createdAt: Date(), title: title,
       image: blob, subjectID: nil, sessionID: nil)
     try attachPhoto(to: &source, data: data)
-    var next = state; next.sources.append(source); next.selectedSourceID = source.id
-    next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    var next = state; next.sources.append(source)
+    if selecting { next.selectedSourceID = source.id
+      next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    }
     try await commit(next, operation: "sourceImported", subjectID: source.id)
     return source
   }
 
   /// Adopt the existing occurrence; publication and live Photo metadata retain
   /// their original authority. This is not an import or a new Photo revision.
-  @discardableResult package func adoptExistingPhoto(_ reference: PhotoRef) async throws -> FlowPortfolioSource {
+  @discardableResult package func adoptExistingPhoto(_ reference: PhotoRef, selecting: Bool = true) async throws -> FlowPortfolioSource {
+    if selecting { selectionOwner = UUID() }
     try requireArtifactMutationAdmission()
     if let existing = state.sources.first(where: { $0.photo == reference }) {
-      try await selectSource(existing.id)
+      if selecting { try await selectSource(existing.id) }
       return existing
     }
     let photo = try await storage.library.photo(reference)
@@ -103,7 +128,7 @@ package actor FlowPortfolioStore {
     // Actor reentrancy during exact loading must not create a second navigation
     // occurrence for an already-adopted Photo.
     if let existing = state.sources.first(where: { $0.photo == reference }) {
-      try await selectSource(existing.id)
+      if selecting { try await selectSource(existing.id) }
       return existing
     }
     let blob = FlowPortfolioBlob(sha256: photo.record.original.object.description,
@@ -123,13 +148,16 @@ package actor FlowPortfolioStore {
     source.photo = reference; source.excluded = metadata.excluded
     sourcePhotoRecords[source.id] = photo; publishedPhotoIDs.insert(source.id)
     storage.markPublished([blob])
-    var next = state; next.sources.append(source); next.selectedSourceID = source.id
-    next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    var next = state; next.sources.append(source)
+    if selecting { next.selectedSourceID = source.id
+      next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    }
     try await commit(next, operation: "existingPhotoAdopted", subjectID: source.id)
     return source
   }
 
   package func selectSource(_ id: UUID) async throws {
+    selectionOwner = UUID()
     _ = try source(id)
     var next = state; next.selectedSourceID = id
     let options = next.sources.first(where: { $0.id == id })?.authoringOptions
@@ -141,6 +169,7 @@ package actor FlowPortfolioStore {
 
   /// Browsing a historical round supplies no preference judgment.
   package func selectRound(_ id: UUID) async throws {
+    selectionOwner = UUID()
     let value = try round(id)
     var next = state; next.selectedSourceID = value.sourceID; next.currentRoundID = id
     next.currentCandidateID = next.choices.last(where: { $0.roundID == id })?.candidateID
@@ -172,6 +201,7 @@ package actor FlowPortfolioStore {
   }
 
   package func setAuthoringOptions(sourceID: UUID, options: PortraitAnalysisOptions) async throws {
+    selectionOwner = UUID()
     _ = try source(sourceID)
     var next = state
     next.sources[next.sources.firstIndex { $0.id == sourceID }!].authoringOptions = options
@@ -197,6 +227,8 @@ package actor FlowPortfolioStore {
         throw FlowPortfolioError.invalid("The refinement parent belongs to a different source region.")
       }
     }
+    let outstanding = state.rounds.filter { $0.status == .generating }.reduce(0) { $0 + $1.recipes.count - $1.candidateIDs.count - $1.failures.count }
+    try history.requireRoundCapacity(recipes.count + outstanding)
     let round = FlowPortfolioRound(id: UUID(), createdAt: Date(), sourceID: sourceID,
       parentCandidateID: parentCandidateID, recipes: recipes, analysisOptions: analysisOptions, seed: seed, modelID: modelID,
       status: .generating, candidateIDs: [], displayedCandidateIDs: [], recommendedCandidateID: nil, failures: [], explorationDepth: explorationDepth,
@@ -223,12 +255,14 @@ package actor FlowPortfolioStore {
     guard previewAsset.mediaType == "image/png" else { throw FlowPortfolioError.invalid("Candidate preview must be PNG.") }
     let rasterBytes = try encode(raster)
     try admitTemporaryArtifacts([rasterBytes, previewPNG])
-    let result = FlowPortfolioCandidate(id: UUID(), createdAt: Date(), sourceID: round.sourceID,
+    var result = FlowPortfolioCandidate(id: UUID(), createdAt: Date(), sourceID: round.sourceID,
       roundID: roundID, slot: slot, parentCandidateID: round.parentCandidateID, recipe: round.recipes[slot],
       modelID: round.modelID,
       raster: try storage.retain(rasterBytes, mediaType: "application/json"),
       preview: try storage.retain(previewPNG, mediaType: "image/png"),
       programHash: program.contentHash.description, strokeCount: program.strokes.count)
+    result.authoringClosure = try history.write(candidate: result, source: source(round.sourceID), round: round,
+      drawing: production.drawing, input: production.artifacts.drawingInput, raster: rasterBytes, preview: previewPNG, issuer: state.id)
     temporaryDrawings[result.id] = production.drawing
     if let input = production.artifacts.drawingInput { drawingInputs[result.id] = input }
     var next = state; next.candidates.append(result)
@@ -275,6 +309,7 @@ package actor FlowPortfolioStore {
   }
 
   package func chooseCandidate(_ id: UUID, offeredItems frozenItems: [FlowPortfolioPresentationItem]? = nil) async throws {
+    selectionOwner = UUID()
     let value = try candidate(id), round = try round(value.roundID)
     let declared = round.displayedCandidateIDs.isEmpty ? round.candidateIDs : round.displayedCandidateIDs
     let pinned = frozenItems?.map(\.candidateID) ?? declared
@@ -581,22 +616,41 @@ package actor FlowPortfolioStore {
     return try await storage.read(fit.report)
   }
   package func sourceData(_ id: UUID) async throws -> Data { try await storage.read(source(id).image) }
-  package func candidateProgram(_ id: UUID) async throws -> DrawingProgram {
+  package func candidateProgram(_ id: UUID) async throws -> DrawingProgram { try await candidateDrawing(id).program }
+  /// Exact read only: a private history closure is not promoted into the gallery.
+  package func candidateDrawing(_ id: UUID) async throws -> Drawing {
     let value = try candidate(id)
-    if let reference = value.drawing { return try await storage.library.drawing(reference).program }
-    if let drawing = temporaryDrawings[id] { return drawing.program }
-    if let drawing = try await historicalDrawing(id) { return drawing.program }
-    throw FlowPortfolioError.unavailable("This generated drawing was temporary and has no retained geometry.")
+    if let reference = value.drawing { return try await storage.library.drawing(reference) }
+    pinCandidate(id); defer { unpinCandidate(id) }
+    try await restoreHistoryCandidate(id)
+    if let drawing = temporaryDrawings[id] { return drawing }
+    if let drawing = try await historicalDrawing(id) { return drawing }
+    throw FlowPortfolioError.unavailable("This legacy drawing has no retained geometry or authoring history closure.")
+  }
+  package func candidateInput(_ id: UUID) async throws -> FrozenImageInputRecord? {
+    pinCandidate(id); defer { unpinCandidate(id) }
+    let drawing = try await candidateDrawing(id)
+    if let input = drawingInputs[id] { return input }
+    if case .present(let reference) = drawing.input { return try await library.input(reference) }
+    return nil
   }
   package func candidateRaster(_ id: UUID) async throws -> PortraitRaster {
     if let historical = try await historicalCandidate(id) {
       return try JSONDecoder().decode(PortraitRaster.self, from: await historicalBytes(historical.raster))
     }
-    return try JSONDecoder().decode(PortraitRaster.self, from: await storage.read(candidate(id).raster))
+    let value = try candidate(id)
+    if !storage.isAvailable(value.raster), value.authoringClosure != nil {
+      return try JSONDecoder().decode(PortraitRaster.self, from: history.bytes(candidate: value, source: source(value.sourceID), round: round(value.roundID), preview: false))
+    }
+    return try JSONDecoder().decode(PortraitRaster.self, from: await storage.read(value.raster))
   }
   package func candidatePreview(_ id: UUID) async throws -> Data {
     if let historical = try await historicalCandidate(id) { return try await historicalBytes(historical.preview) }
-    return try await storage.read(candidate(id).preview)
+    let value = try candidate(id)
+    if !storage.isAvailable(value.preview), value.authoringClosure != nil {
+      return try history.bytes(candidate: value, source: source(value.sourceID), round: round(value.roundID), preview: true)
+    }
+    return try await storage.read(value.preview)
   }
 
   private func source(_ id: UUID) throws -> FlowPortfolioSource {

@@ -84,6 +84,8 @@ package struct FlowPortfolioCandidate: Codable, Identifiable, Equatable, Sendabl
   package var excluded = false
   package var title: String? = nil
   package var drawing: DrawingRef? = nil
+  /// Hash of the private immutable authoring closure manifest; absent in legacy rows.
+  package var authoringClosure: FlowPortfolioBlob? = nil
 }
 package struct FlowPortfolioChoice: Codable, Identifiable, Equatable, Sendable {
   package let id: UUID

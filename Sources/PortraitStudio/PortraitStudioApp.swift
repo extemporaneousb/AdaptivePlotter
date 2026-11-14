@@ -62,7 +62,7 @@ struct PortraitStudioAuthoringWindow: View {
   }
   private var destinationBinding: Binding<PortraitStudioDestination> {
     Binding(get: { destination }, set: { next in
-      routeEpoch &+= 1; savedDestination = next.rawValue
+      authoring.invalidatePhotoAcquisition(); routeEpoch &+= 1; savedDestination = next.rawValue
       route.wrappedValue.workspace = next == .photos ? .library : .drawingStudio
       if next != .photos, (next == .booth || route.wrappedValue.drawing == nil), let ref = route.wrappedValue.photo,
         authoring.currentPhotoRef != ref {
@@ -77,7 +77,7 @@ struct PortraitStudioAuthoringWindow: View {
   private let routeOverride: Binding<DrawingLibraryRoute>?
   private var route: Binding<DrawingLibraryRoute> {
     Binding(get: { routeOverride?.wrappedValue ?? .restored(savedRoute) }, set: { next in
-      routeEpoch &+= 1
+      authoring.invalidatePhotoAcquisition(); routeEpoch &+= 1
       if let routeOverride { routeOverride.wrappedValue = next } else { savedRoute = next.encoded }
     })
   }
@@ -174,24 +174,17 @@ struct PortraitStudioAuthoringWindow: View {
   }
   private func importPhotos(multiple: Bool) async {
     guard !authoring.isBusy, !authoring.needsRecovery else { return }
-    let urls = await FlowAuthoringFiles.openPhotos(multiple: multiple)
-    var failures: [String] = []
-    for url in urls {
-      if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-        await authoring.importPhotoCollection(url)
-      } else {
-        do {
-          let bytes = try await Task.detached { try FlowAuthoringFiles.readImage(url) }.value
-          await authoring.addPhoto(data: bytes, title: url.deletingPathExtension().lastPathComponent,
-            mediaType: url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg")
-        } catch { failures.append(url.lastPathComponent + ": " + error.localizedDescription) }
-      }
-      if let error = authoring.error { failures.append(url.lastPathComponent + ": " + error) }
+    let epoch = routeEpoch, opening = route.wrappedValue, openingDestination = destination
+    let current: @MainActor () -> Bool = {
+      routeEpoch == epoch && route.wrappedValue == opening && destination == openingDestination && authoring.acceptsChanges
     }
-    guard !urls.isEmpty else { return }
-    if let ref = authoring.currentPhotoRef { route.wrappedValue.selectPhoto(ref) }
-    destinationBinding.wrappedValue = .booth
-    libraryError = failures.isEmpty ? nil : failures.joined(separator: "\n")
+    let result = await FlowPhotoAcquisition.importPhotos(model: authoring, multiple: multiple, isStillCurrent: current)
+    guard current(), result.presentationIsCurrent() else { return }
+    if let reference = result.adopted {
+      route.wrappedValue.selectPhoto(reference)
+      destinationBinding.wrappedValue = .booth
+    }
+    libraryError = result.failures.isEmpty ? nil : result.failures.joined(separator: "\n")
   }
   private func exportSelected() async {
     guard canSendToPlotter, let url = await FlowAuthoringFiles.exportDrawing() else { return }
@@ -209,7 +202,9 @@ struct PortraitStudioAuthoringWindow: View {
       if destination == .booth {
         PortraitStudioBooth(model: authoring, camera: acquisition,
           showsSource: route.wrappedValue.photo != nil && authoring.currentPhotoRef == route.wrappedValue.photo,
-          showsCaptureLight: showsCaptureLight, photoSelected: { ref in
+          showsCaptureLight: showsCaptureLight, presentationIsCurrent: {
+            destination == .booth
+          }, photoSelected: { ref in
           if destination == .booth { route.wrappedValue.selectPhoto(ref) }
         }) {
           route.wrappedValue.drawing = nil; destinationBinding.wrappedValue = .drawing

@@ -1,4 +1,5 @@
 import PortraitArtists
+import PortraitCore
 import PlotterModel
 import PlotterRuntime
 import SwiftUI
@@ -6,10 +7,11 @@ import SwiftUI
 /// User-opened acquisition surface. The existing camera owner remains the only
 /// session owner; rendering and portfolio navigation never start a camera.
 package struct FlowAuthoringCameraPanel: View {
+  @Bindable var model: FlowAuthoringModel
   @Bindable var camera: PortraitStudioModel
   let strokeStyle: PlotterModel.StrokeStyle
   let selectCamera: () async -> String?
-  let captured: (PortraitPhoto) async -> Void
+  var photoSelected: (PhotoRef) -> Void = { _ in }
   @Environment(\.dismiss) private var dismiss
   @State private var busy = false
   @State private var issue: String?
@@ -47,13 +49,14 @@ package struct FlowAuthoringCameraPanel: View {
         Button(camera.isCapturing ? "Cancel Capture" : "Capture Photo") {
           if camera.isCapturing { Task { await camera.cancelRendering() }; return }
           captureTask = Task {
+            let intent = model.beginPhotoAcquisition()
             busy = true; issue = nil
             defer { busy = false; captureTask = nil }
             if let error = await selectCamera() { issue = error; return }
             guard camera.cameraIsRunning else { issue = "Choose a camera and use Restart Camera to start its preview."; return }
             if let photo = await camera.captureForPortfolio(strokeStyle: strokeStyle) {
-              await captured(photo)
-              dismiss()
+              let result = await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt), intent: intent)
+              if result.presentationIsCurrent(), let reference = result.adopted { photoSelected(reference); dismiss() }
             } else { issue = camera.cameraStatus }
           }
         }.buttonStyle(.borderedProminent)
@@ -64,6 +67,7 @@ package struct FlowAuthoringCameraPanel: View {
       .interactiveDismissDisabled(busy || camera.isCapturing)
       .task { await camera.discover(excluding: nil) }
       .onDisappear {
+        model.invalidatePhotoAcquisition()
         captureTask?.cancel()
         Task { await camera.cancelRendering(); await camera.stopCamera() }
       }

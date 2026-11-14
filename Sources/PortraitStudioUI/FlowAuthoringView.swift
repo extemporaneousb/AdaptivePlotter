@@ -64,7 +64,7 @@ package struct FlowAuthoringView: View {
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("flowAuthoring.workspace")
     .task { await model.open() }
-    .onChange(of: model.currentPhotoRef) { _, ref in roundHistory = []; photoSelected(ref) }
+    .onChange(of: model.currentPhotoRef) { _, _ in roundHistory = [] }
     .onChange(of: model.round?.id) { old, new in
       if restoringHistory { restoringHistory = false }
       else if let old, let new, old != new { roundHistory.append(old) }
@@ -73,9 +73,7 @@ package struct FlowAuthoringView: View {
       if reason != nil { showingCamera = false; FlowAuthoringFiles.cancelPanel() }
     }
     .sheet(isPresented: $showingCamera) {
-      FlowAuthoringCameraPanel(camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera) { photo in
-        await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt))
-      }
+      FlowAuthoringCameraPanel(model: model, camera: camera, strokeStyle: model.strokeStyle, selectCamera: selectCamera, photoSelected: { photoSelected($0) })
     }
     .overlay(alignment: .bottom) {
       if let message { HStack { Text(message); Button("Dismiss") { self.message = nil } }.padding().background(.regularMaterial) }
@@ -107,7 +105,7 @@ package struct FlowAuthoringView: View {
     }.disabled(model.isBusy || model.needsRecovery).controlSize(.regular)
   }
 
-  private var portfolioSidebar: some View { FlowAuthoringSidebar(model: model) }
+  private var portfolioSidebar: some View { FlowAuthoringSidebar(model: model, photoSelected: { photoSelected($0) }) }
 
   private var stageBar: some View {
     HStack {

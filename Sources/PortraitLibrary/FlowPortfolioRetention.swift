@@ -55,6 +55,7 @@ extension FlowPortfolioStore {
       } else { next.candidates[index].drawing = existing }
       return []
     }
+    try await restoreHistoryCandidate(candidateID)
     if candidate.drawing == nil, temporaryDrawings[candidateID] == nil,
       let historical = try await historicalDrawing(candidateID) {
       let photo = try await sourcePhoto(candidate.sourceID)
@@ -105,6 +106,7 @@ extension FlowPortfolioStore {
     }
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else { throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.") }
     guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
+    if FlowPortfolioSelection(next) != FlowPortfolioSelection(state) { selectionOwner = UUID() }
     writeAdmissionActive = true; defer { writeAdmissionActive = false; trimTransientCaches() }
     var next = next; next.revision = state.revision + 1
     try FlowPortfolioValidation.validate(next)

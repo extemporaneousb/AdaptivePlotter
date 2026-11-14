@@ -12,6 +12,7 @@ package struct PortraitStudioBooth: View {
   package var showsSource = true
   package var showsCaptureLight = true
   package var openDrawing: () -> Void
+  package var presentationIsCurrent: @MainActor () -> Bool
   package var photoSelected: (PhotoRef) -> Void
   @State private var image: NSImage?
   @State private var draft: PortraitNormalizedRegion?
@@ -21,7 +22,8 @@ package struct PortraitStudioBooth: View {
   @State private var selectionOnly = false
   @State private var live = false
   @State private var cameraTask: Task<Void, Never>?
-  package init(model: FlowAuthoringModel, camera: PortraitStudioModel, showsSource: Bool = true, showsCaptureLight: Bool = true, photoSelected: @escaping (PhotoRef) -> Void = { _ in }, openDrawing: @escaping () -> Void) {
+  package init(model: FlowAuthoringModel, camera: PortraitStudioModel, showsSource: Bool = true, showsCaptureLight: Bool = true, presentationIsCurrent: @escaping @MainActor () -> Bool = { true }, photoSelected: @escaping (PhotoRef) -> Void = { _ in }, openDrawing: @escaping () -> Void) {
+    self.presentationIsCurrent = presentationIsCurrent
     self.model = model; self.camera = camera; self.openDrawing = openDrawing; self.photoSelected = photoSelected; self.showsSource = showsSource; self.showsCaptureLight = showsCaptureLight
   }
   package var body: some View {
@@ -123,10 +125,11 @@ package struct PortraitStudioBooth: View {
         Button(camera.isCapturing ? "Cancel capture" : "Capture photo") {
           if camera.isCapturing { Task { await camera.cancelRendering() }; return }
           cameraTask = Task {
-            if let photo = await camera.captureForPortfolio(strokeStyle: model.strokeStyle) {
-              guard !Task.isCancelled else { return }
-              await model.addCapturedPhoto(photo, title: model.nextPhotoTitle(capturedAt: photo.capturedAt))
-              if let ref = model.currentPhotoRef, model.error == nil { photoSelected(ref) }
+            let result = await FlowPhotoAcquisition.capture(model: model, isStillCurrent: presentationIsCurrent) {
+              await camera.captureForPortfolio(strokeStyle: model.strokeStyle)
+            }
+            if result.presentationIsCurrent(), let reference = result.adopted {
+              photoSelected(reference)
               await model.ensureRecommendation()
             }
           }
@@ -136,6 +139,7 @@ package struct PortraitStudioBooth: View {
     }.task { await camera.discover(excluding: nil) }
   }
   private func stopCamera() {
+    model.invalidatePhotoAcquisition()
     cameraTask?.cancel(); cameraTask = nil
     Task { await camera.cancelRendering(); await camera.stopCamera() }
   }

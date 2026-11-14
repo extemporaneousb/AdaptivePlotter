@@ -109,7 +109,7 @@ struct FlowAuthoringExplorationTests {
     #expect(await model.shutdown())
   }
 
-  @Test("Cold preview-only siblings refuse before feedback and remain outside enabled offered choices")
+  @Test("Genuinely missing private history refuses before feedback and leaves only available offered choices")
   func expiredHistoryRefusal() async throws {
     let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let first = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: FlowAuthoringFixture.render)
@@ -118,7 +118,15 @@ struct FlowAuthoringExplorationTests {
     let candidates = first.roundCandidates, selected = candidates[0], expired = candidates[1]
     await first.selectCandidate(selected.id)
     let choices = first.document?.choices.count, rounds = first.document?.rounds.count
+    let unretained = try #require(first.document).candidates.filter { $0.drawing == nil }
+    #expect(Set(unretained.map(\.id)) == Set(candidates.dropFirst().map(\.id)))
     #expect(await first.shutdown())
+    // Cold reopening normally rehydrates exact siblings. Remove only their
+    // unretained private closures to exercise a genuinely unavailable history.
+    for candidate in unretained {
+      try FileManager.default.removeItem(at: privateHistoryEntry(root, candidate: candidate.id))
+    }
+    #expect(FileManager.default.fileExists(atPath: privateHistoryEntry(root, candidate: selected.id).path))
     let model = FlowAuthoringModel(directory: root, render: FlowAuthoringFixture.render)
     await model.open()
     #expect(model.previews[expired.id] != nil && model.candidateUnavailableReason(expired) != nil)
@@ -337,7 +345,7 @@ struct FlowAuthoringExplorationTests {
     #expect(await model.shutdown())
   }
 
-  @Test("Same-ID candidate load can retry without pairing previous geometry with new identity")
+  @Test("Same-ID candidate load retries a restored exact private closure without stale geometry")
   func retryMissingCandidate() async throws {
     let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
     let model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: FlowAuthoringFixture.render)
@@ -346,34 +354,60 @@ struct FlowAuthoringExplorationTests {
     let first = try #require(model.roundCandidates.first), store = try #require(model.store)
     await model.browseCandidate(first.id)
     let exact = try await store.candidateProgram(first.id)
-    // These test-only mutations simulate a missing temporary asset and its later recovery.
-    let drawing = try #require(await store.takeTemporaryForRetry(first.id))
+    let closure = privateHistoryEntry(root, candidate: first.id)
+    let held = root.appendingPathComponent("held-private-" + first.id.uuidString.lowercased(), isDirectory: true)
+    try FileManager.default.moveItem(at: closure, to: held)
+    defer {
+      if FileManager.default.fileExists(atPath: held.path) { try? FileManager.default.moveItem(at: held, to: closure) }
+    }
+    // RAM eviction alone must rehydrate from disk. With both exact tiers held
+    // away, this is an actual unavailable load for the same candidate identity.
+    _ = try #require(await store.takeTemporaryForRetry(first.id))
     await model.browseCandidate(first.id)
     await model.retryCandidateLoad()
     #expect(model.candidate?.id == first.id && model.program == nil && model.candidateLoadError != nil)
     #expect(!model.canEdit && !model.canSendToPlotter && !model.needsRecovery)
-    await store.restoreTemporaryForRetry(first.id, drawing: drawing)
+    try FileManager.default.moveItem(at: held, to: closure)
     await model.retryCandidateLoad()
-    #expect(model.program == exact && model.candidateLoadError == nil && model.canEdit)
+    #expect(model.candidate?.id == first.id && model.program == exact && model.candidateLoadError == nil)
+    #expect(model.canEdit && model.canSendToPlotter && model.candidateUnavailableReason(first) == nil)
     #expect(await model.shutdown())
   }
 
-  @Test("Automatic baseline recommendation is bounded, neutral and regenerates evicted temporary work")
+  @Test("Automatic baseline recommendation reuses exact neutral cold history without another render")
   func boundedRecommendation() async throws {
     let root = DrawingEditFixture.root(); defer { try? FileManager.default.removeItem(at: root) }
-    let model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: FlowAuthoringFixture.render)
+    let renders = ExplorationRenderCounter()
+    let render: @Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult = { data, recipe, style in
+      await renders.record()
+      return try await FlowAuthoringFixture.render(data, recipe, style)
+    }
+    let model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: render)
     await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(8), title: "Fixture")
     await model.ensureRecommendation()
-    #expect(model.recommendationCandidate != nil && !model.isRecommendationPredictedFavorite)
+    let recommendation = try #require(model.recommendationCandidate), round = try #require(model.round)
+    let program = try #require(model.program), preview = try #require(model.previews[recommendation.id])
+    #expect(!model.isRecommendationPredictedFavorite)
     #expect(model.roundCandidates.count == 1 && model.document?.rounds.count == 1)
     #expect(model.document?.choices.isEmpty == true && model.canSendToPlotter)
+    #expect(await renders.calls == 1)
+    let library = try #require(model.drawingLibrary)
+    #expect(try await library.drawings().entries.isEmpty)
     await model.ensureRecommendation()
     #expect(model.document?.rounds.count == 1)
+    #expect(await renders.calls == 1)
     #expect(await model.shutdown())
-    let reopened = FlowAuthoringModel(directory: root, render: FlowAuthoringFixture.render)
+    let reopened = FlowAuthoringModel(directory: root, render: render)
     await reopened.open(); await reopened.ensureRecommendation()
-    #expect(reopened.document?.rounds.count == 2 && reopened.recommendationCandidate != nil)
-    #expect(reopened.document?.choices.isEmpty == true && reopened.error == nil && !reopened.needsRecovery)
+    #expect(reopened.document?.rounds.count == 1 && reopened.round?.id == round.id)
+    #expect(reopened.recommendationCandidate?.id == recommendation.id && reopened.program == program)
+    #expect(reopened.previews[recommendation.id] == preview && reopened.canSendToPlotter)
+    #expect(await renders.calls == 1)
+    #expect(reopened.document?.choices.isEmpty == true && reopened.document?.pruneRevisions.isEmpty == true)
+    #expect(reopened.document?.rankings.isEmpty == true && reopened.document?.presentations.isEmpty == true)
+    #expect(reopened.error == nil && !reopened.needsRecovery)
+    let reopenedLibrary = try #require(reopened.drawingLibrary)
+    #expect(try await reopenedLibrary.drawings().entries.isEmpty)
     #expect(await reopened.shutdown())
   }
 
@@ -441,7 +475,6 @@ struct FlowAuthoringExplorationTests {
 
 extension FlowPortfolioStore {
   fileprivate func takeTemporaryForRetry(_ id: UUID) -> Drawing? { temporaryDrawings.removeValue(forKey: id) }
-  fileprivate func restoreTemporaryForRetry(_ id: UUID, drawing: Drawing) { temporaryDrawings[id] = drawing }
 }
 
 private actor ExplorationRenderGate {
@@ -460,4 +493,13 @@ private actor ExplorationRenderGate {
     await withCheckedContinuation { pauseWaiter = $0 }
   }
   func release() { releaseWaiter?.resume(); releaseWaiter = nil; paused = false }
+}
+
+private func privateHistoryEntry(_ root: URL, candidate: UUID) -> URL {
+  root.appendingPathComponent("flow-authoring-history-v1", isDirectory: true)
+    .appendingPathComponent(candidate.uuidString.lowercased(), isDirectory: true)
+}
+private actor ExplorationRenderCounter {
+  private(set) var calls = 0
+  func record() { calls += 1 }
 }

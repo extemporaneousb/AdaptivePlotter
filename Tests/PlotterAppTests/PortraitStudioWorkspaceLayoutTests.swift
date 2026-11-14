@@ -102,8 +102,9 @@ struct PortraitStudioWorkspaceLayoutTests {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }
     let owner = PortraitStudioModel(library: DrawingFirstTestStorage.library())
-    let host = NSHostingController(rootView: FlowAuthoringCameraPanel(camera: owner,
-      strokeStyle: try portraitTestStyle(), selectCamera: { nil }, captured: { _ in })
+    let host = NSHostingController(rootView: FlowAuthoringCameraPanel(
+      model: FlowAuthoringModel(directory: directory, purpose: .validationFixture), camera: owner,
+      strokeStyle: try portraitTestStyle(), selectCamera: { nil }, photoSelected: { _ in })
       .frame(width: 640, height: 600).background(Color(nsColor: .windowBackgroundColor)))
     let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 640, height: 600),
       styleMask: [.borderless], backing: .buffered, defer: false)

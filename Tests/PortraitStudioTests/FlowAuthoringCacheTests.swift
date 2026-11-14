@@ -15,7 +15,7 @@ struct FlowAuthoringCacheTests {
       production: StudioDrawingFixture.production(program: program, raster: FlowPortfolioTests.raster), previewPNG: PortraitDrawingPreview.png(program))
     try await store.finishRound(round.id); return candidate
   }
-  @Test("The previous panel stays authorable; older unchosen geometry expires without durable retention")
+  @Test("The hot panel window evicts RAM while exact older history remains usable without gallery retention")
   func expiry() async throws {
     let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
     let store = try await StudioDrawingFixture.store(directory: directory)
@@ -24,11 +24,10 @@ struct FlowAuthoringCacheTests {
     let previous = try await generate(store, source: source.id)
     #expect(try await store.candidateProgram(old.id).strokes.count == 4)
     let current = try await generate(store, source: source.id)
-    await #expect(throws: FlowPortfolioError.self) { try await store.candidateProgram(old.id) }
-    await #expect(throws: FlowPortfolioError.self) { try await store.retainedDrawing(candidateID: old.id) }
+    #expect(try await store.candidateProgram(old.id).strokes.count == 4)
     #expect(try await store.candidateProgram(current.id).strokes.count == 4)
     #expect(try await store.candidateProgram(previous.id).strokes.count == 4)
-    #expect(try await store.candidateUnavailableReason(old.id) != nil)
+    #expect(try await store.candidateUnavailableReason(old.id) == nil)
     #expect(try await store.candidateUnavailableReason(previous.id) == nil)
     #expect(try await store.library.drawings().entries.isEmpty)
     var stats = await store.transientCacheStatistics()
@@ -63,12 +62,12 @@ struct FlowAuthoringCacheTests {
     #expect(await store.transientCacheStatistics().temporaryDrawingCount == 2)
     #expect(try await store.candidateProgram(first.id) == program)
     #expect(try await store.candidateProgram(second.id) == program)
-    for candidate in previous { #expect(try await store.candidateUnavailableReason(candidate.id) != nil) }
+    for candidate in previous { #expect(try await store.candidateUnavailableReason(candidate.id) == nil) }
     #expect(try await store.library.drawings().entries.isEmpty)
     await store.closeLibrary()
   }
 
-  @Test("Source and crop changes drop optional session geometry without retaining or judging it")
+  @Test("Source and crop changes drop optional RAM while disk history survives without gallery retention or judgment")
   func sourceAndRegionInvalidation() async throws {
     let directory = root(); defer { try? FileManager.default.removeItem(at: directory) }
     let store = try await StudioDrawingFixture.store(directory: directory)
@@ -77,11 +76,11 @@ struct FlowAuthoringCacheTests {
     try await store.setAuthoringOptions(sourceID: source.id,
       options: .init(manualRegion: .init(x: 0.1, y: 0.1, width: 0.8, height: 0.8)))
     #expect(await store.transientCacheStatistics().temporaryDrawingCount == 0)
-    #expect(try await store.candidateUnavailableReason(first.id) != nil)
-    #expect(try await store.candidateUnavailableReason(second.id) != nil)
+    #expect(try await store.candidateUnavailableReason(first.id) == nil)
+    #expect(try await store.candidateUnavailableReason(second.id) == nil)
     let afterCrop = try await generate(store, source: source.id)
     _ = try await store.addSource(data: FlowPortfolioTests.photo, title: "Another source")
-    #expect(try await store.candidateUnavailableReason(afterCrop.id) != nil)
+    #expect(try await store.candidateUnavailableReason(afterCrop.id) == nil)
     let state = await store.snapshot()
     #expect(state.choices.isEmpty && state.pruneRevisions.isEmpty)
     #expect(try await store.library.drawings().entries.isEmpty)

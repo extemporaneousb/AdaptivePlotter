@@ -100,7 +100,7 @@ package struct FlowPhotoCollection: Sendable {
 extension FlowPortfolioStore {
   /// The photo identity makes an uncertain autosave retry idempotent. Separate
   /// capture identities remain separate observations even when pixels match.
-  @discardableResult package func addCapturedSource(photo: PortraitPhoto, title: String) async throws -> FlowPortfolioSource {
+  @discardableResult package func addCapturedSource(photo: PortraitPhoto, title: String, selecting: Bool = true) async throws -> FlowPortfolioSource {
     try requireArtifactMutationAdmission()
     defer { trimTransientCaches() }
     let provenance = FlowPortfolioCaptureProvenance(photo: photo)
@@ -118,8 +118,10 @@ extension FlowPortfolioStore {
       image: try storage.retain(photo.data, mediaType: asset.mediaType), subjectID: nil,
       sessionID: "capture:" + photo.captureSessionID.uuidString, captureProvenance: provenance)
     try attachPhoto(to: &source, data: photo.data, capturedPhoto: photo)
-    var next = state; next.sources.append(source); next.selectedSourceID = source.id
-    next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    var next = state; next.sources.append(source)
+    if selecting { next.selectedSourceID = source.id
+      next.currentRoundID = nil; next.currentCandidateID = nil; next.currentPruneRevisionID = nil
+    }
     try await commit(next, operation: "cameraPhotoCaptured", subjectID: source.id)
     return source
   }
@@ -187,6 +189,7 @@ extension FlowPortfolioStore {
 
   /// Navigation cannot create a choice or a training preference.
   package func selectCandidate(_ id: UUID) async throws {
+    selectionOwner = UUID()
     guard let candidate = state.candidates.first(where: { $0.id == id }) else { throw FlowPortfolioError.unavailable("Drawing is unavailable.") }
     var next = state; next.selectedSourceID = candidate.sourceID; next.currentRoundID = candidate.roundID
     next.currentCandidateID = id; next.currentPruneRevisionID = next.latestPrune(candidateID: id)?.id

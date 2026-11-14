@@ -29,8 +29,11 @@ extension FlowPortfolioStore {
   private func temporaryBytes(_ drawing: Drawing, input: FrozenImageInputRecord?) -> Int {
     let geometry = drawing.cachedSummary.pointCount * 16 + drawing.cachedSummary.strokeCount * 128 + drawing.producer.originalJSON.count
     guard let input else { return geometry }
+    // Both owners retain assets. Count both lists conservatively even where
+    // their Data shares storage; cold admission need not preserve that sharing.
     return geometry + input.record.originalJSON.count + input.photo.record.originalJSON.count
       + input.assets.reduce(0) { $0 + $1.bytes.count }
+      + input.photo.assets.reduce(0) { $0 + $1.bytes.count }
   }
   func admitTemporaryDrawing(_ drawing: Drawing, input: FrozenImageInputRecord?) throws {
     trimTransientCaches()
@@ -62,6 +65,12 @@ extension FlowPortfolioStore {
     }
     let programAvailable = value.drawing != nil || temporaryDrawings[id] != nil
     if programAvailable && storage.isAvailable(value.raster) { return nil }
+    if value.authoringClosure != nil {
+      guard let source = state.sources.first(where: { $0.id == value.sourceID }),
+        let round = state.rounds.first(where: { $0.id == value.roundID }) else { return "History source or round is unavailable." }
+      do { try history.availability(candidate: value, source: source, round: round); return nil }
+      catch { return "History unavailable: " + error.localizedDescription }
+    }
     if try await historicalCandidate(id) != nil { return nil }
     return programAvailable
       ? "Preview only: the temporary source raster has expired. Start a broad sample to make new drawings."

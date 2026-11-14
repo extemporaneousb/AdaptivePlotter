@@ -72,7 +72,11 @@ package final class FlowAuthoringModel {
   package private(set) var checkpointDecodeCount = 0
   package private(set) var trainingSummaryBuildCount = 0
   @ObservationIgnored private let library: DrawingLibrary?
+  @ObservationIgnored private let historyPolicy: FlowAuthoringHistoryPolicy
   @ObservationIgnored package private(set) var store: FlowPortfolioStore?
+  /// Optional offscreen acceptance barrier after real durable/read boundaries.
+  @ObservationIgnored package var publicationDidPublish: (@MainActor (UUID?) -> Void)?
+  @ObservationIgnored package var publicationBarrier: (@MainActor (FlowAuthoringPublicationBoundary) async -> Void)?
   @ObservationIgnored private let renderer = FlowAuthoringRenderer()
   @ObservationIgnored private var work: Task<Void, Never>?
   @ObservationIgnored private var recoveryWork: Task<Void, Never>?
@@ -90,8 +94,8 @@ package final class FlowAuthoringModel {
   @ObservationIgnored private var cancelRequested = false
   @ObservationIgnored private var closed = false
   @ObservationIgnored private var closing = false
-  @ObservationIgnored private var failedIntent: (status: String, baseline: Int, replayPartial: Bool, operation: @MainActor () async throws -> Void)?
-  @ObservationIgnored private var blockedIntents: [(String, Bool, Bool, @MainActor () async throws -> Void)] = []
+  @ObservationIgnored private var failedIntent: (status: String, baseline: Int, replayPartial: Bool, isStillCurrent: @MainActor () -> Bool, reconcile: (@MainActor () async throws -> Void)?, clearsRegionOnRecovery: Bool, operation: @MainActor () async throws -> Void)?
+  @ObservationIgnored private var blockedIntents: [(String, Bool, Bool, @MainActor () -> Bool, (@MainActor () async throws -> Void)?, Bool, @MainActor () async throws -> Void)] = []
   @ObservationIgnored private var loadedSourceHash: String?
   @ObservationIgnored private var nameDebounce: Task<Void, Never>?
   @ObservationIgnored private var nameFlush: Task<Void, Never>?
@@ -122,7 +126,8 @@ package final class FlowAuthoringModel {
     strokeStyle: StrokeStyle? = nil, nominalPenWidthMM: Double? = nil, purpose: FlowPortfolioPurpose? = nil,
     render: (@Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult)? = nil,
     fit: (@Sendable ([FlowArtistExample], [FlowArtistRanking]) async throws -> FlowArtistFitReport)? = nil,
-    metadataJoinHook: (@MainActor () async -> Void)? = nil) {
+    metadataJoinHook: (@MainActor () async -> Void)? = nil, historyPolicy: FlowAuthoringHistoryPolicy = .init()) {
+    self.historyPolicy = historyPolicy
     self.directory = library?.directoryURL ?? directory; self.library = library; self.purpose = purpose
     self.nominalPenWidthMM = nominalPenWidthMM
     self.strokeStyle = strokeStyle ?? (try! StrokeStyle(nominalLineWidth: 0.4,
@@ -144,6 +149,7 @@ package final class FlowAuthoringModel {
     return ids.compactMap { id in document.candidates.first { $0.id == id } }
   }
   package var autosaveStatus: String {
+    if needsRecovery, error == nil { return "Autosave recovery is required for an admitted write." }
     if let error { return (needsRecovery ? "Not saved: " : "Action unavailable: ") + error }
     if isBusy { return progress }
     if pendingMetadataCount > 0 { return "Saving names…" }
@@ -154,7 +160,7 @@ package final class FlowAuthoringModel {
     guard store == nil, !isBusy, !closed else { return }
     await perform("Opening portfolio…", autosave: false) {
       let location = self.directory, purpose = self.purpose
-      self.store = FlowPortfolioStore(directory: location, purpose: purpose, library: self.library)
+      self.store = FlowPortfolioStore(directory: location, purpose: purpose, library: self.library, historyPolicy: self.historyPolicy)
       try await self.store?.loadRecords()
       try await self.store?.markInterruptedRounds()
       try await self.refresh()
@@ -162,57 +168,177 @@ package final class FlowAuthoringModel {
     }
   }
 
+  /// Presentation authority is frozen before acquisition starts. Retention never
+  /// depends on this lease; moving away and back cannot revive it.
+  @MainActor package struct PhotoAcquisitionIntent {
+    fileprivate let revision: UInt64
+    fileprivate let navigation: UInt64
+    fileprivate let generation: UInt64
+    fileprivate let source: PhotoRef?
+    fileprivate let routeIsCurrent: @MainActor () -> Bool
+  }
+  @ObservationIgnored private var acquisitionRevision: UInt64 = 0
+  package func beginPhotoAcquisition(isStillCurrent: @escaping @MainActor () -> Bool = { true }) -> PhotoAcquisitionIntent {
+    acquisitionRevision &+= 1
+    return PhotoAcquisitionIntent(revision: acquisitionRevision, navigation: photoSelectionRevision,
+      generation: generationRevision, source: currentPhotoRef, routeIsCurrent: isStillCurrent)
+  }
+  package func acquisitionIsCurrent(_ intent: PhotoAcquisitionIntent) -> Bool {
+    acceptsChanges && intent.revision == acquisitionRevision && intent.navigation == photoSelectionRevision
+      && intent.generation == generationRevision && intent.source == currentPhotoRef && intent.routeIsCurrent()
+  }
+  package func photoAcquisitionOwnsPresentation(_ intent: PhotoAcquisitionIntent) -> Bool {
+    acceptsChanges && intent.revision == acquisitionRevision && intent.routeIsCurrent()
+  }
+  package func invalidatePhotoAcquisition() { acquisitionRevision &+= 1 }
+
+  /// Each operation reports its own exact retained references and failures. A
+  /// failed file cannot accidentally reveal a previously selected photograph.
   package func addPhoto(data: Data, title: String, mediaType: String = "image/png") async {
-    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
-    guard let store else { return }
-    await perform("Retaining photo…") {
-      _ = try await store.addSource(data: data, title: title, mediaType: mediaType)
-      try await self.refresh(); self.stage = .explore
+    _ = await addPhoto(data: data, title: title, mediaType: mediaType, intent: beginPhotoAcquisition())
+  }
+  @discardableResult package func addPhoto(data: Data, title: String, mediaType: String = "image/png",
+    intent: PhotoAcquisitionIntent, adopting: Bool = true) async -> FlowPhotoAcquisitionResult {
+    return await retainPhoto(intent: intent, adopting: adopting) { store in
+      [try await store.addSource(data: data, title: title, mediaType: mediaType, selecting: false)]
     }
   }
   package func addCapturedPhoto(_ photo: PortraitPhoto, title: String) async {
-    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
-    guard let store else { return }
-    await perform("Retaining captured photo…") {
-      _ = try await store.addCapturedSource(photo: photo, title: title)
-      try await self.refresh(); self.stage = .explore
+    _ = await addCapturedPhoto(photo, title: title, intent: beginPhotoAcquisition())
+  }
+  @discardableResult package func addCapturedPhoto(_ photo: PortraitPhoto, title: String,
+    intent: PhotoAcquisitionIntent) async -> FlowPhotoAcquisitionResult {
+    return await retainPhoto(intent: intent) { store in
+      [try await store.addCapturedSource(photo: photo, title: title, selecting: false)]
     }
   }
-
   package func importPhotoCollection(_ directory: URL) async {
-    invalidateGeneration(); regionPreviewPending = false; returnToEditing(); photoSelectionRevision &+= 1
-    guard let store else { return }
-    await perform("Importing photo set…") {
-      let collection: FlowPhotoCollection
-      do {
-        collection = try await Task.detached {
-          let scoped = directory.startAccessingSecurityScopedResource()
-          defer { if scoped { directory.stopAccessingSecurityScopedResource() } }
-          return try FlowPhotoCollection.load(directory: directory)
-        }.value
-      } catch is CancellationError { throw CancellationError() }
-      catch { throw FlowPortfolioError.invalid("The photo set could not be admitted: " + error.localizedDescription) }
-      _ = try await store.importPhotoCollection(collection)
-      try await self.refresh()
+    _ = await importPhotoCollection(directory, intent: beginPhotoAcquisition())
+  }
+  @discardableResult package func importPhotoCollection(_ directory: URL,
+    intent: PhotoAcquisitionIntent, adopting: Bool = true,
+    load: @escaping @Sendable (URL) async throws -> FlowPhotoCollection = { try await FlowPhotoAcquisition.loadCollection($0) }) async -> FlowPhotoAcquisitionResult {
+    do {
+      let collection = try await load(directory)
+      return await retainPhoto(intent: intent, adopting: adopting) { store in
+        try await store.importPhotoCollection(collection)
+      }
+    } catch {
+      if acquisitionIsCurrent(intent) { self.error = error.localizedDescription }
+      return .init(failures: [error.localizedDescription], presentationIsCurrent: { self.photoAcquisitionOwnsPresentation(intent) })
     }
+  }
+  private func retainPhoto(intent: PhotoAcquisitionIntent, adopting: Bool = true,
+    operation: @escaping @MainActor (FlowPortfolioStore) async throws -> [FlowPortfolioSource]) async -> FlowPhotoAcquisitionResult {
+    guard let store, acceptsChanges else { return .init() }
+    var result = FlowPhotoAcquisitionResult(presentationIsCurrent: { self.photoAcquisitionOwnsPresentation(intent) })
+    let adoption = PhotoAdoptionState()
+    await perform("Retaining photo…", isStillCurrent: { self.photoAcquisitionOwnsPresentation(intent) }, reconcile: {
+      if let lease = adoption.lease { _ = try await store.restoreSelectionIfUnchanged(lease) }
+    }, clearsRegionOnRecovery: false) {
+      do {
+        result.photos = try await operation(store).compactMap(\.photo)
+        if adopting, let reference = result.photos.last {
+          result.adopted = try await self.adoptAcquiredPhoto(reference, intent: intent, state: adoption)
+        }
+      } catch {
+        result.failures.append(error.localizedDescription)
+        throw error
+      }
+    }
+    if result.adopted == nil { adoption.presentationAllowed = false }
+    return result
+  }
+  private final class PhotoAdoptionState {
+    var lease: FlowPortfolioSourceAdoption?
+    var presentationAllowed = true
+  }
+  package func adoptRetainedPhoto(_ reference: PhotoRef, intent: PhotoAcquisitionIntent) async -> FlowPhotoAcquisitionResult {
+    var result = FlowPhotoAcquisitionResult(presentationIsCurrent: { self.photoAcquisitionOwnsPresentation(intent) })
+    let adoption = PhotoAdoptionState()
+    await perform("Opening imported photo…", isStillCurrent: { self.photoAcquisitionOwnsPresentation(intent) }, reconcile: {
+      if let store = self.store, let lease = adoption.lease { _ = try await store.restoreSelectionIfUnchanged(lease) }
+    }, clearsRegionOnRecovery: false) {
+      do { result.adopted = try await self.adoptAcquiredPhoto(reference, intent: intent, state: adoption) }
+      catch { result.failures.append(error.localizedDescription); throw error }
+    }
+    if result.adopted == nil { adoption.presentationAllowed = false }
+    return result
+  }
+  private func adoptAcquiredPhoto(_ reference: PhotoRef, intent: PhotoAcquisitionIntent,
+    state: PhotoAdoptionState, clearingFailedPhoto: Bool = false) async throws -> PhotoRef? {
+    guard state.presentationAllowed, acquisitionIsCurrent(intent), let store else { return nil }
+    let sources = await store.snapshot().sources
+    guard state.presentationAllowed, acquisitionIsCurrent(intent), let source = sources.first(where: { $0.photo == reference }) else { return nil }
+    if state.lease == nil { state.lease = try await store.prepareSourceAdoption(source.id) }
+    guard state.presentationAllowed, acquisitionIsCurrent(intent), let lease = state.lease else { return nil }
+    try await store.selectSourceForPresentation(lease)
+    guard state.presentationAllowed, acquisitionIsCurrent(intent) else {
+      _ = try await store.restoreSelectionIfUnchanged(lease); state.lease = nil; return nil
+    }
+    // Loading is atomic. An unpublished acquisition cannot clear the prior
+    // region draft, selection or render/navigation identity on read failure.
+    let revision = photoSelectionRevision, acquisition = acquisitionRevision
+    let current: @MainActor () -> Bool = {
+      state.presentationAllowed && self.acceptsChanges && self.photoSelectionRevision == revision
+        && self.acquisitionRevision == acquisition && intent.routeIsCurrent()
+    }
+    do { try await refresh(photoRevision: revision, atomicPresentation: true, isStillCurrent: current) }
+    catch {
+      if current(), clearingFailedPhoto {
+        // An explicit caller may already own the requested Photo route. Publish
+        // only its admitted failed identity, never the preceding pixels.
+        let failedSnapshot = await store.snapshot()
+        guard current(), failedSnapshot.selectedSourceID == source.id else {
+          _ = try await store.restoreSelectionIfUnchanged(lease); state.lease = nil
+          throw CancellationError()
+        }
+        document = failedSnapshot; sourceData = nil; loadedSourceHash = nil
+        program = nil; loadedProgramID = nil; candidateLoadError = nil
+        previews = [:]; previewKeys = [:]; state.lease = nil
+        throw FlowPortfolioError.invalid(error.localizedDescription)
+      }
+      // Capture/import/sidebar do not own a new route until complete load.
+      // Failed or revoked adoption restores only navigation; the Photo remains
+      // retained. A throwing compensation keeps its lease for recovery.
+      _ = try await store.restoreSelectionIfUnchanged(lease); state.lease = nil
+      if current() { throw FlowPortfolioError.invalid(error.localizedDescription) }
+      throw CancellationError()
+    }
+    guard current() else {
+      _ = try await store.restoreSelectionIfUnchanged(lease); state.lease = nil; return nil
+    }
+    state.lease = nil
+    invalidateGeneration(includingAcquisition: false); regionPreviewPending = false; returnToEditing()
+    photoSelectionRevision &+= 1; stage = .explore
+    return reference
   }
 
   @ObservationIgnored private var photoSelectionRevision: UInt64 = 0
   package var currentPhotoRef: PhotoRef? { selectedSource?.photo }
   package var drawingLibrary: DrawingLibrary? { library ?? store?.library }
-  @discardableResult package func selectPhoto(_ reference: PhotoRef, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
+  @discardableResult package func selectPhoto(_ reference: PhotoRef, preservingPreviousPhotoOnFailure: Bool = false, isStillCurrent: @escaping @MainActor () -> Bool = { true }) async -> String? {
     guard let store, !closed, !closing, !needsRecovery else { return "Recover or reopen Flow Edge before opening this Photo." }
-    invalidateGeneration(); regionPreviewPending = false; returnToEditing()
-    photoSelectionRevision &+= 1; let revision = photoSelectionRevision
-    await perform("Opening photo…", autosave: false) {
-      guard revision == self.photoSelectionRevision, !self.closing, !self.closed, isStillCurrent() else { return }
-      _ = try await store.adoptExistingPhoto(reference)
-      guard revision == self.photoSelectionRevision, !self.closing, !self.closed, isStillCurrent() else { return }
-      try await self.refresh(photoRevision: revision, isStillCurrent: isStillCurrent)
-      guard revision == self.photoSelectionRevision, isStillCurrent() else { return }
-      self.stage = .explore
+    invalidateGeneration()
+    if !preservingPreviousPhotoOnFailure { regionPreviewPending = false; returnToEditing() }
+    photoSelectionRevision &+= 1
+    // Freeze after this action's own invalidation. The window's route binding
+    // revokes this same token for tabs, retained drawings and leave-and-return.
+    let intent = beginPhotoAcquisition(isStillCurrent: isStillCurrent)
+    let adoption = PhotoAdoptionState()
+    var adopted: PhotoRef?
+    await perform("Opening photo…", isStillCurrent: { self.photoAcquisitionOwnsPresentation(intent) }, reconcile: {
+      if let lease = adoption.lease {
+        _ = try await store.restoreSelectionIfUnchanged(lease)
+      }
+    }, clearsRegionOnRecovery: !preservingPreviousPhotoOnFailure) {
+      guard self.acquisitionIsCurrent(intent) else { return }
+      _ = try await store.adoptExistingPhoto(reference, selecting: false)
+      guard self.acquisitionIsCurrent(intent) else { return }
+      adopted = try await self.adoptAcquiredPhoto(reference, intent: intent, state: adoption, clearingFailedPhoto: !preservingPreviousPhotoOnFailure)
     }
-    guard revision == photoSelectionRevision, isStillCurrent(), !closed, !closing else { return "The Photo selection changed before opening completed." }
+    if preservingPreviousPhotoOnFailure, adopted == nil { adoption.presentationAllowed = false }
+    guard photoAcquisitionOwnsPresentation(intent) else { return "The Photo selection changed before opening completed." }
     if let error { return error }
     guard currentPhotoRef == reference, sourceData != nil else { return "The exact Photo could not be opened for authoring." }
     return nil
@@ -444,7 +570,8 @@ package final class FlowAuthoringModel {
       && document?.rounds.first(where: { $0.id == candidate?.roundID })?.analysisOptions == options) else { return }
     let broadPreview = broadAnchor.flatMap { previews[$0] }
     invalidateGeneration()
-    let request = generationRevision
+    let request = generationRevision, navigation = photoSelectionRevision
+    let terminalRevision = terminalPublicationRevision
     generationActive = true
     pendingBroadAnchorID = broadAnchor; pendingBroadAnchorPreview = broadPreview
     defer {
@@ -461,7 +588,12 @@ package final class FlowAuthoringModel {
     returnToEditing()
     let pen = strokeStyle, nominalWidth = nominalPenWidthMM, panelCount = recommendation ? (checkpoint?.ranker == nil ? 1 : 3) : min(9, max(3, count))
     if refining && parent == nil { return }
-    await perform(refining ? "Preparing refinement…" : "Preparing broad exploration…") {
+    let terminalCurrent: @MainActor () -> Bool = {
+      self.acceptsChanges && self.photoSelectionRevision == navigation
+        && self.terminalPublicationRevision == terminalRevision && self.selectedSource?.id == source.id
+        && self.committedAnalysisOptions == options
+    }
+    await perform(refining ? "Preparing refinement…" : "Preparing broad exploration…", isStillCurrent: terminalCurrent) {
       guard request == self.generationRevision, self.selectedSource?.id == source.id,
         self.committedAnalysisOptions == options, !self.closing else { throw CancellationError() }
       self.cancelRequested = false
@@ -489,9 +621,16 @@ package final class FlowAuthoringModel {
       let round = try await store.beginRound(sourceID: source.id, recipes: recipes,
         parentCandidateID: parent?.id, modelID: checkpoint?.id, seed: seed, analysisOptions: options,
         explorationDepth: depth, refinementRadius: radius, explorationPolicy: "contracting-neighborhood-v1")
-      self.stage = .explore; try await self.refresh()
+      guard terminalCurrent() else {
+        try await store.finishRound(round.id, cancelled: true); return
+      }
+      await self.publicationBarrier?(.roundBegan(round.id))
+      if terminalCurrent() { self.stage = .explore }
+      do { try await self.refresh(photoRevision: navigation, isStillCurrent: terminalCurrent) }
+      catch is CancellationError { /* Finish the admitted round below. */ }
       var scores: [(UUID, Double, [Int])] = []
       var cancelled = false
+      var historyRefusal: String?
       for (slot, recipe) in recipes.enumerated() {
         if Task.isCancelled || self.cancelRequested || request != self.generationRevision { cancelled = true; break }
         self.progress = "Drawing \(slot + 1) of \(recipes.count)…"
@@ -568,8 +707,17 @@ package final class FlowAuthoringModel {
         if request != self.generationRevision || self.cancelRequested { cancelled = true; break }
         // Storage failures are not renderer failures. Stop without overwriting a
         // completed slot; recovery marks any unfinished round interrupted.
-        let saved = try await store.completeCandidate(roundID: round.id, slot: slot,
-          production: production, previewPNG: preview)
+        let saved: FlowPortfolioCandidate
+        do {
+          saved = try await store.completeCandidate(roundID: round.id, slot: slot,
+            production: production, previewPNG: preview)
+        } catch let refusal as FlowAuthoringHistoryAdmissionError {
+          // A finite-history refusal is local admission, not failed autosave.
+          // Settle the exact slot and round through the normal terminal path.
+          try await store.failCandidate(roundID: round.id, slot: slot, message: refusal.reason)
+          historyRefusal = refusal.reason; cancelled = true; break
+        }
+        await self.publicationBarrier?(.candidateAdmitted(saved.id))
         if isExactAnchor, let inheritedRevision {
           _ = try await store.applyPrune(candidateID: saved.id, action: .inheritedSelection,
             indices: removed.sorted(), inheritedFromRevisionID: inheritedRevision.id)
@@ -579,14 +727,23 @@ package final class FlowAuthoringModel {
             threshold: 0.65, policy: "threshold-keep-one-v1")
         }
         scores.append((saved.id, score, removed.sorted()))
-        if request == self.generationRevision { try await self.refresh() }
+        if request == self.generationRevision {
+          do { try await self.refresh(photoRevision: navigation, isStillCurrent: terminalCurrent) }
+          catch is CancellationError { /* Navigation still requires durable settlement. */ }
+        }
       }
+      cancelled = cancelled || self.cancelRequested || request != self.generationRevision
       let ordered = checkpoint?.ranker == nil ? scores.map(\.0) : scores.sorted { $0.1 > $1.1 }.map(\.0)
       let winner = checkpoint?.ranker == nil ? nil : ordered.first
       let scoredMask = winner.flatMap { id in scores.first(where: { $0.0 == id })?.2 }
       try await store.finishRound(round.id, cancelled: cancelled, displayOrder: ordered,
         recommendedCandidateID: winner, recommendedRemovedIndices: scoredMask)
-      if request == self.generationRevision { try await self.refresh() }
+      if terminalCurrent(), self.round?.id == round.id {
+        await self.publicationBarrier?(.terminalRefresh(round.id))
+        try await self.refresh(photoRevision: navigation, isStillCurrent: { terminalCurrent() && self.round?.id == round.id })
+      }
+      guard terminalCurrent(), self.round?.id == round.id else { return }
+      if let historyRefusal { self.error = historyRefusal; self.progress = historyRefusal; return }
       self.progress = cancelled ? "Generation cancelled; completed previews remain in this session." : "Choose a drawing to retain and refine or prune."
     }
   }
@@ -749,12 +906,20 @@ package final class FlowAuthoringModel {
     try await store.exportDrawing(drawing, to: url)
   }
 
-  private func invalidateGeneration() {
+  @ObservationIgnored private var terminalPublicationRevision: UInt64 = 0
+  private func invalidateGeneration(includingAcquisition: Bool = true) {
+    if includingAcquisition { invalidatePhotoAcquisition() }
+    terminalPublicationRevision &+= 1
     generationRevision &+= 1; cancelRequested = true; rendering?.cancel(); proposing?.cancel()
     generationActive = false; pendingExplorationParentID = nil
     pendingBroadAnchorID = nil; pendingBroadAnchorPreview = nil
   }
-  package func cancel() { invalidateGeneration(); fitting?.cancel() }
+  package func cancel() {
+    // Renderer cancellation revokes expensive work, while the same navigation
+    // still owns publication of its durable terminal round.
+    let terminal = terminalPublicationRevision
+    invalidateGeneration(); terminalPublicationRevision = terminal; fitting?.cancel()
+  }
   package var acceptsChanges: Bool { !closed && !closing }
   package func closeMutationAdmission() { closing = true }
 
@@ -775,10 +940,10 @@ package final class FlowAuthoringModel {
   }
   package func clearError() { error = nil }
 
-  private func perform(_ status: String, replayAfterPartialCommit: Bool = false, autosave: Bool = true, alreadyAdmitted: Bool = false, replayingRecovery: Bool = false, operation: @escaping @MainActor () async throws -> Void) async {
+  private func perform(_ status: String, replayAfterPartialCommit: Bool = false, autosave: Bool = true, alreadyAdmitted: Bool = false, replayingRecovery: Bool = false, isStillCurrent: @escaping @MainActor () -> Bool = { true }, reconcile: (@MainActor () async throws -> Void)? = nil, clearsRegionOnRecovery: Bool = true, operation: @escaping @MainActor () async throws -> Void) async {
     guard !closed, !closing || alreadyAdmitted else { return }
     if recoveryWork != nil && !replayingRecovery {
-      blockedIntents.append((status, replayAfterPartialCommit, autosave, operation))
+      blockedIntents.append((status, replayAfterPartialCommit, autosave, isStillCurrent, reconcile, clearsRegionOnRecovery, operation))
       return
     }
     // Freeze input at admission and chain durable mutations in exact arrival order.
@@ -788,20 +953,22 @@ package final class FlowAuthoringModel {
     let task = Task { @MainActor in
       await predecessor?.value
       if self.needsRecovery {
-        self.blockedIntents.append((status, replayAfterPartialCommit, autosave, operation)); return
+        self.blockedIntents.append((status, replayAfterPartialCommit, autosave, isStillCurrent, reconcile, clearsRegionOnRecovery, operation)); return
       }
-      self.progress = status; self.error = nil
-      let baseline = self.document?.revision ?? -1
+      if isStillCurrent() { self.progress = status; self.error = nil }
+      // Selection-neutral retention need not refresh the visible document.
+      // Recovery compares against the actual serialized store head.
+      let baseline = await self.store?.snapshot().revision ?? self.document?.revision ?? -1
       do { try await operation() }
-      catch is CancellationError { self.progress = "Cancelled; committed work is retained." }
+      catch is CancellationError { if isStillCurrent() { self.progress = "Cancelled; committed work is retained." } }
       catch {
-        self.error = error.localizedDescription
+        if isStillCurrent() { self.error = error.localizedDescription }
         var rejected = false
         if case FlowPortfolioError.invalid = error { rejected = true }
         // Raw command/image validation is classified by the domain before
         // mutation. Core admission failures can instead originate in storage.
         if autosave && !rejected {
-          self.failedIntent = (status, baseline, replayAfterPartialCommit, operation); self.needsRecovery = true
+          self.failedIntent = (status, baseline, replayAfterPartialCommit, isStillCurrent, reconcile, clearsRegionOnRecovery, operation); self.needsRecovery = true
         }
       }
     }
@@ -816,20 +983,24 @@ package final class FlowAuthoringModel {
     let task = Task { @MainActor in
       do {
         try await self.store?.reloadCommittedState()
+        try await failure.reconcile?()
         let durableRevision = await self.store?.snapshot().revision ?? -1
         if durableRevision == failure.baseline || failure.replayPartial { try await failure.operation() }
         else {
           try await self.store?.markInterruptedRounds()
-          try await self.refresh()
-          try await self.restoreRanking()
-          self.progress = "Recovered committed work; an incomplete generation is retained as interrupted."
+          if failure.isStillCurrent() { try await self.refresh(isStillCurrent: failure.isStillCurrent); try await self.restoreRanking() }
+          if failure.isStillCurrent() { self.progress = "Recovered committed work; an incomplete generation is retained as interrupted." }
         }
-        self.failedIntent = nil; self.needsRecovery = false; self.error = nil; self.regionPreviewPending = false
+        self.failedIntent = nil; self.needsRecovery = false
+        if failure.isStillCurrent() {
+          self.error = nil
+          if failure.clearsRegionOnRecovery { self.regionPreviewPending = false }
+        }
         while !self.needsRecovery && !self.blockedIntents.isEmpty {
           let pending = self.blockedIntents; self.blockedIntents = []
-          for (status, replay, autosave, operation) in pending {
+          for (status, replay, autosave, current, reconcile, clearsRegion, operation) in pending {
             await self.perform(status, replayAfterPartialCommit: replay, autosave: autosave,
-              alreadyAdmitted: true, replayingRecovery: true, operation: operation)
+              alreadyAdmitted: true, replayingRecovery: true, isStillCurrent: current, reconcile: reconcile, clearsRegionOnRecovery: clearsRegion, operation: operation)
           }
         }
       } catch { self.error = error.localizedDescription }
@@ -839,7 +1010,7 @@ package final class FlowAuthoringModel {
     recoveryWork = nil
     if work == nil { isBusy = false }
   }
-  private func refresh(photoRevision: UInt64? = nil, isStillCurrent: @MainActor () -> Bool = { true }) async throws {
+  private func refresh(photoRevision: UInt64? = nil, atomicPresentation: Bool = false, isStillCurrent: @MainActor () -> Bool = { true }) async throws {
     guard let store else { return }
     func assertCurrent() throws {
       guard !closed, isStillCurrent() else { throw CancellationError() }
@@ -849,19 +1020,23 @@ package final class FlowAuthoringModel {
         guard !closing, photoRevision == photoSelectionRevision else { throw CancellationError() }
       }
     }
+    try assertCurrent()
     try await store.refreshPhotoMetadata(); try assertCurrent()
     let snapshot = await store.snapshot(); try assertCurrent()
+    await publicationBarrier?(.snapshotRead(snapshot.currentRoundID)); try assertCurrent()
     let source = snapshot.sources.first { $0.id == snapshot.selectedSourceID }
     let candidate = snapshot.candidates.first { $0.id == snapshot.currentCandidateID }
     if source?.image.sha256 != loadedSourceHash {
       // Preserve the DX10 failed-open contract: the admitted new identity may
       // remain unavailable, but it must never keep the preceding Photo's pixels
       // or program if its subsequent exact asset read fails.
-      document = snapshot; sourceData = nil; loadedSourceHash = nil
-      program = nil; loadedProgramID = nil
+      if !atomicPresentation {
+        document = snapshot; sourceData = nil; loadedSourceHash = nil
+        program = nil; loadedProgramID = nil
+      }
     }
     if candidate?.id != loadedProgramID {
-      document = snapshot; program = nil; loadedProgramID = nil; candidateLoadError = nil
+      if !atomicPresentation { document = snapshot; program = nil; loadedProgramID = nil; candidateLoadError = nil }
     }
     let lastFit = snapshot.fits.last(where: \.hasCheckpoint)
     let activeFit = snapshot.fits.first { $0.id == snapshot.activeFitID }
@@ -894,19 +1069,20 @@ package final class FlowAuthoringModel {
         pixels = try await store.sourceData(source.id); try assertCurrent(); sourceHash = source.image.sha256
       }
     } else { pixels = nil; sourceHash = nil }
-    var selectedProgram = program, programID = loadedProgramID
+    var selectedProgram = program, programID = loadedProgramID, selectedProgramError = candidateLoadError
     if let candidate {
       if programID != candidate.id {
         do {
           selectedProgram = try await store.candidateProgram(candidate.id); try assertCurrent()
-          programID = candidate.id; candidateLoadError = nil
+          programID = candidate.id; selectedProgramError = nil
         } catch is CancellationError { throw CancellationError() }
         catch {
           try assertCurrent(); selectedProgram = nil; programID = nil
-          candidateLoadError = "Drawing unavailable: " + error.localizedDescription
+          selectedProgramError = "Drawing unavailable: " + error.localizedDescription
         }
       }
-    } else { selectedProgram = nil; programID = nil }
+      await publicationBarrier?(.candidateRead(candidate.id)); try assertCurrent()
+    } else { selectedProgram = nil; programID = nil; selectedProgramError = nil }
     var checkpoint = activeCheckpoint, issue = activeModelIssue
     let nextCheckpointKey = activeFit.map { CheckpointKey(portfolio: snapshot.id, fit: $0, snapshot: nextActiveSnapshot) }
     if let fitID = snapshot.activeFitID {
@@ -941,12 +1117,13 @@ package final class FlowAuthoringModel {
     // a newer visible identity.
     try assertCurrent()
     document = snapshot; sourceData = pixels; loadedSourceHash = sourceHash
-    program = selectedProgram; loadedProgramID = programID
+    program = selectedProgram; loadedProgramID = programID; candidateLoadError = selectedProgramError
     fittedDocument = fitted; activeTrainingDocument = active
     fittedSnapshot = nextFittedSnapshot; activeSnapshot = nextActiveSnapshot
     trainingProgress = summary; trainingProgressKey = summaryKey
     activeCheckpoint = checkpoint; activeModelIssue = issue; checkpointKey = nextCheckpointKey
     previews = nextPreviews; previewKeys = nextKeys; candidateUnavailableReasons = unavailable
+    publicationDidPublish?(snapshot.currentRoundID)
   }
 
   private func restoreRanking() async throws {

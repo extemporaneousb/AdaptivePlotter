@@ -94,6 +94,7 @@ extension FlowPortfolioStore {
   /// decoder. It changes no admission or validation rules and is never persisted.
   package func loadRecords(reusingEncodedStrokeBasis: Bool = true) async throws {
     try await storage.library.open()
+    try history.open()
     let sessions = try await rows(FlowPortfolioSession.self, "session")
     guard sessions.count <= 1 else { throw FlowPortfolioError.invalid("Multiple Flow sessions in one Library.") }
     guard let header = sessions.first else { return }

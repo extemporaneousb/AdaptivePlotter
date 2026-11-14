@@ -8,7 +8,7 @@ import Testing
 
 @Suite("Current Drawing authoring graph", .serialized)
 struct FlowPortfolioTests {
-  @Test("Equal generated geometry stays temporary; choice and edits retain exact refs and survive copied Library reopen")
+  @Test("Private generated history stays outside gallery; choice and edits retain exact refs and survive copied Library reopen")
   func portableRound() async throws {
     let root = temporary(), moved = temporary(), receiver = temporary(), zip = temporary().appendingPathExtension("zip")
     defer { for url in [root, moved, receiver, zip] { try? FileManager.default.removeItem(at: url) } }
@@ -40,7 +40,7 @@ struct FlowPortfolioTests {
     #expect(await reopened.snapshot() == expected)
     #expect(try await reopened.sourceData(source.id) == Self.photo)
     #expect(try await reopened.retainedDrawing(candidateID: a.id, revisionID: edit.id).reference == child.reference)
-    await #expect(throws: FlowPortfolioError.self) { try await reopened.candidateProgram(b.id) }
+    #expect(try await reopened.candidateProgram(b.id) == program)
     #expect(try await reopened.presentationPreview(try #require(shown.items.first { $0.candidateID == b.id })) == rankedPreview)
     let target = DrawingLibrary(directoryURL: receiver); try await target.open()
     #expect(try await target.importDrawings(from: zip).contains(try #require(child.reference)))

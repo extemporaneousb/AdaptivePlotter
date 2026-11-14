@@ -162,9 +162,11 @@ process/log/XML/refusal artifacts and scope are in
    A seeded, bounded panel spans native Flow Edge settings and named geometry
    families. Source context and an activated preference model can guide a bounded
    portion of the panel; generation still performs the requested number of full
-   renders. Completed candidate metadata is saved. Unselected geometry, rasters and
-   previews stay temporary and bounded; **Choose**, pruning or explicit Plot handoff
-   retains the exact Drawing revision and dependencies. Rank captures durable exact
+   renders. Each completed candidate saves an exact private authoring closure of
+   its Drawing, producer, units, prepared input, raster and preview before completion
+   is published. This does not add a gallery Drawing or an artistic judgment.
+   **Choose**, pruning or explicit Plot handoff retains the exact Drawing revision
+   and dependencies in the gallery. Rank captures durable exact
    feature capsules and previews for its presentations.
    Failed, duplicate and cancelled slots remain recorded; a failed slot does not
    silently become another source or a successful drawing.
@@ -174,12 +176,16 @@ process/log/XML/refusal artifacts and scope are in
    remain the unchanged anchor while nearby results appear. The first neighborhood
    has radius 0.06; each deeper choice contracts it by 0.85 to a floor of 0.015.
    **Broad sample** starts a fresh wide root; **Back** and branch history restore
-   saved sets without rendering or recording preference. The current panel and one
-   previous panel for the same photo/region keep temporary geometry within the
-   existing count/byte budget. Older unchosen drawings may be **Preview only**:
-   the tile states why its geometry is unavailable and cannot cast a choice or open
-   a nonfunctional editor. Retained drawings remain available; Broad sample can
-   always start a new set from the exact original source. Completed tiles and history
+   saved sets without rendering or recording preference. New branches and unchosen
+   siblings remain exactly usable through multiple levels, photo/region switches
+   and reopening while their private disk closures remain within the history bound.
+   The RAM hot tier remains count/byte limited and rehydrates verified material
+   without rendering. The private disk spool permits at most 512 entries, 2 GiB
+   of logical file bytes in total and 64 MiB per exact closure, including staging
+   and complete orphan entries. It never silently evicts an older promised branch
+   to admit new work: quota refusal stops new generation locally and preserves
+   existing history. Legacy pre-spool drawings with genuinely missing artifacts
+   may remain **Preview only**, with the reason and unavailable actions explicit. Completed tiles and history
    remain navigable during generation; replacing a request cancels stale publication.
    **Edit drawing** opens line editing separately from the tile's direction choice.
    Refinement preserves earlier rounds and supplies no strong rating or explicit
@@ -410,6 +416,7 @@ The concrete `DrawingLibrary` actor owns the selected directory:
 ```text
 drawing-library.sqlite   strict local schema 10, profile adaptiveplotter.drawing-library/1
 objects/sha256/<digest>   immutable content-addressed records and assets
+flow-authoring-history-v1/ private bounded exact candidate closure spool
 ```
 
 SQLite owns transactional catalog and authoring metadata. Sources, prepared inputs,
@@ -421,11 +428,16 @@ opening an empty replacement library. Pending mutations reconcile through the sa
 owner before retrying an uncertain commit. No separate portfolio head or delta
 publisher remains.
 
-Generated geometry is temporary and bounded. Selection, committed pruning and
-explicit Plot handoff retain exact immutable revisions; pruning creates a child
-reference and preserves its required parent. Rank may keep durable features and
-preview bytes for unselected alternatives without keeping their full geometry.
-Reopening does not silently regenerate evicted geometry. Copy the entire closed
+New generated candidates have hash-anchored immutable private history closures,
+with a bounded RAM hot tier. This history is separate from retained gallery Drawings
+and learning judgments. Photo/region navigation and reopening do not delete or
+regenerate within-bound alternatives. The single store writer publishes each
+complete closure atomically before its candidate metadata, accounts staging and
+complete orphans against quota, and refuses new admission when full. Missing or
+corrupt material fails visibly; legacy missing closures are not invented.
+Selection, committed pruning and explicit Plot handoff retain exact immutable
+revisions in the common Library; pruning creates a child reference and preserves
+its required parent. Rank retains exact features and previews for its judgments. Copy the entire closed
 library directory for a backup; the SQLite file alone does not include its assets.
 The offline converter reads the historical authoring files from their original directories.
 
