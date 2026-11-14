@@ -36,7 +36,18 @@ struct FlowAuthoringTrainingProgressTests {
     // Fitting must still ignore unreadable unlabelled material.
     let nextRound = try await store.beginRound(sourceID: source.id, recipes: [.standard])
     try await store.finishRound(nextRound.id, cancelled: true)
-    try FileManager.default.removeItem(at: root.appendingPathComponent("flow-authoring-history-v1/" + unused[0].id.uuidString.lowercased()))
+    let unusedManifest = try #require(unused[0].authoringClosure)
+    #expect(candidates.allSatisfy { $0.authoringClosure?.sha256 != unusedManifest.sha256 })
+    let manifestURL: URL
+    if let location = unused[0].authoringClosureLocation {
+      try #require(location.storage == "library-assets/1")
+      manifestURL = root.appendingPathComponent("objects/sha256/" + unusedManifest.sha256)
+    } else {
+      manifestURL = root.appendingPathComponent("flow-authoring-history-v1/" + unused[0].id.uuidString.lowercased() + "/manifest.json")
+    }
+    // Remove the unused identity-bound manifest only. Source/input parts may
+    // be shared with labelled candidates and remain untouched.
+    try FileManager.default.removeItem(at: manifestURL)
     await #expect(throws: (any Error).self) { try await store.candidateProgram(unused[0].id) }
     let dataset = try await DrawingExchangeFeedbackFixture.freezeInputs(store)
     #expect(!dataset.examples.contains { $0.id == unused[0].id.uuidString })

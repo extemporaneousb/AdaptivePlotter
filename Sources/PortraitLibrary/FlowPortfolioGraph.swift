@@ -147,7 +147,11 @@ extension FlowPortfolioStore {
     records.append(.init(kind: kind("session"), id: next.id, payload: try DrawingArtifactCoding.encoder().encode(FlowLibraryEntity(profile: kind("session"), ordinal: 0, value: FlowPortfolioSession(next)))))
     try add(next.sources, previous: state.sources, "source", photos: { $0.photo.map { [$0] } ?? [] }, assets: { [$0.image] + ($0.importProvenance.map { [$0.manifest] } ?? []) })
     try add(next.rounds, previous: state.rounds, "round")
-    try add(next.candidates, previous: state.candidates, "candidate", refs: { $0.drawing.map { [$0] } ?? [] })
+    try add(next.candidates, previous: state.candidates, "candidate", refs: { $0.drawing.map { [$0] } ?? [] },
+      assets: { value in
+        guard let location = value.authoringClosureLocation, let manifest = value.authoringClosure else { return [] }
+        return [manifest] + location.parts
+      })
     func feedbackNavigation<T: Codable & Equatable & Identifiable>(_ values: [T], previous: [T], _ name: String,
       pointer: (T) -> FlowPortfolioFeedbackReference?, drawing: (T) -> DrawingRef? = { _ in nil }) throws where T.ID == UUID {
       let prior = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
@@ -185,17 +189,22 @@ extension FlowPortfolioStore {
     }
     return records
   }
-  func publishRecords(_ next: FlowPortfolioSnapshot, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedbackOverride: FlowPreparedFeedback? = nil) async throws -> FlowPortfolioSnapshot {
+  func publishRecords(_ next: FlowPortfolioSnapshot, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedbackOverride: FlowPreparedFeedback? = nil, additionalAssets: [DrawingLibraryClosureAsset] = []) async throws -> FlowPortfolioSnapshot {
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else { throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.") }
     writeAdmissionActive = true; defer { writeAdmissionActive = false }
     var next = next
     let feedback: FlowPreparedFeedback?
     if let feedbackOverride { feedback = feedbackOverride } else { feedback = try await prepareFeedback(next: &next) }
+    guard additionalAssets.isEmpty || feedback == nil else {
+      throw FlowPortfolioError.invalid("Generated history publication cannot create or replace artistic feedback.")
+    }
     let records = try graphRecords(next)
     let photos = sourcePhotoRecords.filter { !publishedPhotoIDs.contains($0.key) }.map { DrawingLibraryRetainedClosure(photo: $0.value) }
     let closure = DrawingLibraryRetainedClosure(assets: photos.flatMap(\.assets), records: photos.flatMap(\.records))
     let publishedBlobs = durableAssets(next)
-    let assets = try await storage.closureAssets(publishedBlobs) + featureClosureAssets()
+    let reusable = try await storage.library.existingVerifiedAssets(additionalAssets.map(\.descriptor))
+    let newHistoryAssets = additionalAssets.filter { !reusable.contains($0.descriptor.asset.object) }
+    let assets = try await storage.closureAssets(publishedBlobs) + featureClosureAssets() + newHistoryAssets
     let oldIDs = Set(state.sources.map(\.id))
     let initial = next.sources.filter { !oldIDs.contains($0.id) && newPhotoMetadataSources.contains($0.id) }.compactMap { source -> DrawingLibraryPhotoMetadataUpdate? in
       guard let ref = source.photo else { return nil }

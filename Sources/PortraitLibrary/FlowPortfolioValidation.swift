@@ -102,6 +102,15 @@ enum FlowPortfolioValidation {
       if let closure = candidate.authoringClosure {
         try require(validHash(closure.sha256) && (1...128 * 1024).contains(closure.byteCount) && closure.mediaType == "application/json", "Authoring history manifest reference is invalid.")
       }
+      if let location = candidate.authoringClosureLocation {
+        try require(candidate.authoringClosure != nil && location.storage == "library-assets/1"
+          && (1...32).contains(location.parts.count), "Authoring history storage marker is invalid.")
+        try require(Set(location.parts.map(\.sha256)).count == location.parts.count
+          && location.parts.allSatisfy { validHash($0.sha256) && (1...64 * 1024 * 1024).contains($0.byteCount) },
+          "Authoring history part references are invalid.")
+        let total = location.parts.reduce(candidate.authoringClosure?.byteCount ?? 0) { $0 + $1.byteCount }
+        try require(total <= FlowAuthoringHistory.maximumRehydrationBytes, "Authoring history closure exceeds its read bound.")
+      }
       if let title = candidate.title { try require(!title.isEmpty && title.utf8.count <= 1024, "Drawing name is invalid.") }
     }
     for choice in state.choices {

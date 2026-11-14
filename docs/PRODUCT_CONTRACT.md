@@ -1870,14 +1870,20 @@ child page immediately and progressively contracts the effective neighborhood to
 nonzero floor. Broad sample resets depth and radius; Back and branch-history
 navigation generate no drawings or feedback. A count/byte-bounded RAM hot tier
 rehydrates exact candidate Drawing/producer/units/links, complete prepared input,
-raster and preview from a private immutable disk spool across multi-level branches,
-source/region navigation and cold reopen. The spool is bounded to 512 entries,
-2 GiB total logical file bytes and 64 MiB per closure, including staging and
-complete orphans; it refuses new admission rather than silently evicting promised
-history. An exact-size refusal after round admission settles the round through the
-existing generation owner, without creating an uncertain-save recovery loop.
+raster and preview from immutable Library CAS assets across multi-level branches,
+source/region navigation and cold reopen. Durable authored history grows with use;
+there is no lifetime entry or aggregate-byte generation quota. Candidate metadata,
+manifest and all part references publish atomically through the existing Library
+journal. Exact original Photo/input bytes are deduplicated, and bounded verified
+filesystem proofs avoid restaging or repeatedly hashing unchanged reused assets.
+Each closure remains bounded to 64 MiB/32 parts; RAM and selected-read materialization
+remain bounded independently of accumulated history. An exact-size refusal after
+round admission settles through the existing generation owner, without creating an
+uncertain-save recovery loop. Existing private-v1 history has a selected-only reader,
+with no global old-directory scan, automatic deletion or corruption fallback from
+marked CAS entries.
 Actual I/O failure retains normal persistence recovery. Private history adds no
-gallery Drawing or human judgment. Legacy missing material remains visibly
+gallery Drawing, prepared-input browser entry or human judgment. Legacy missing material remains visibly
 unavailable and cannot cast a choice or open a nonfunctional editor.
 Automatic suggestion entry is neutral
 and may display a transient starting anchor without inventing a refinement parent.

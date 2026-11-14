@@ -10,6 +10,7 @@ package actor FlowPortfolioStore {
   package nonisolated let library: DrawingLibrary
   let storage: FlowAuthoringArtifacts
   let history: FlowAuthoringHistory
+  var historyFault: (@Sendable (FlowAuthoringHistoryBoundary) throws -> Void)?
   var state: FlowPortfolioSnapshot
   var committedRecords = Set<DrawingLibraryRecordKey>()
   var inFlightCandidates: [UUID: Int] = [:]
@@ -51,7 +52,7 @@ package actor FlowPortfolioStore {
     try await finishPendingGraphWrite(); try await finishPendingRetainedWrite(); try await loadRecords()
     trimTransientCaches()
   }
-  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil, selectionOwner: UUID? = nil) async throws {
+  func commit(_ next: FlowPortfolioSnapshot, operation: String, subjectID: UUID? = nil, photoMetadata: [DrawingLibraryPhotoMetadataUpdate] = [], feedback: FlowPreparedFeedback? = nil, selectionOwner: UUID? = nil, additionalAssets: [DrawingLibraryClosureAsset] = []) async throws {
     guard next.revision == state.revision else { throw FlowPortfolioError.conflict("The authoring session changed while this action was being prepared.") }
     guard !writeAdmissionActive, pendingGraphWrite == nil, pendingRetainedWrite == nil else {
       throw FlowPortfolioError.conflict("Recover the pending Library action before accepting another action.")
@@ -64,7 +65,7 @@ package actor FlowPortfolioStore {
     do {
       var next = next; next.revision = state.revision + 1
       try FlowPortfolioValidation.validate(next)
-      state = try await publishRecords(next, photoMetadata: photoMetadata, feedbackOverride: feedback)
+      state = try await publishRecords(next, photoMetadata: photoMetadata, feedbackOverride: feedback, additionalAssets: additionalAssets)
       trimTransientCaches()
     } catch {
       // An exact pending publication owns this token through reconciliation.
@@ -227,8 +228,6 @@ package actor FlowPortfolioStore {
         throw FlowPortfolioError.invalid("The refinement parent belongs to a different source region.")
       }
     }
-    let outstanding = state.rounds.filter { $0.status == .generating }.reduce(0) { $0 + $1.recipes.count - $1.candidateIDs.count - $1.failures.count }
-    try history.requireRoundCapacity(recipes.count + outstanding)
     let round = FlowPortfolioRound(id: UUID(), createdAt: Date(), sourceID: sourceID,
       parentCandidateID: parentCandidateID, recipes: recipes, analysisOptions: analysisOptions, seed: seed, modelID: modelID,
       status: .generating, candidateIDs: [], displayedCandidateIDs: [], recommendedCandidateID: nil, failures: [], explorationDepth: explorationDepth,
@@ -261,13 +260,16 @@ package actor FlowPortfolioStore {
       raster: try storage.retain(rasterBytes, mediaType: "application/json"),
       preview: try storage.retain(previewPNG, mediaType: "image/png"),
       programHash: program.contentHash.description, strokeCount: program.strokes.count)
-    result.authoringClosure = try history.write(candidate: result, source: source(round.sourceID), round: round,
+    try historyFault?(.beforeWrite)
+    let preparedHistory = try history.prepare(candidate: result, source: source(round.sourceID), round: round,
       drawing: production.drawing, input: production.artifacts.drawingInput, raster: rasterBytes, preview: previewPNG, issuer: state.id)
+    try historyFault?(.afterParts); try historyFault?(.beforePublish)
+    result.authoringClosure = preparedHistory.reference; result.authoringClosureLocation = preparedHistory.location
     temporaryDrawings[result.id] = production.drawing
     if let input = production.artifacts.drawingInput { drawingInputs[result.id] = input }
     var next = state; next.candidates.append(result)
     next.rounds[next.rounds.firstIndex { $0.id == roundID }!].candidateIDs.append(result.id)
-    try await commit(next, operation: "candidateCompleted", subjectID: result.id)
+    try await commit(next, operation: "candidateCompleted", subjectID: result.id, additionalAssets: preparedHistory.assets)
     return result
   }
 
@@ -640,7 +642,7 @@ package actor FlowPortfolioStore {
     }
     let value = try candidate(id)
     if !storage.isAvailable(value.raster), value.authoringClosure != nil {
-      return try JSONDecoder().decode(PortraitRaster.self, from: history.bytes(candidate: value, source: source(value.sourceID), round: round(value.roundID), preview: false))
+      return try JSONDecoder().decode(PortraitRaster.self, from: await history.bytes(candidate: value, source: source(value.sourceID), round: round(value.roundID), preview: false, library: library))
     }
     return try JSONDecoder().decode(PortraitRaster.self, from: await storage.read(value.raster))
   }
@@ -648,7 +650,7 @@ package actor FlowPortfolioStore {
     if let historical = try await historicalCandidate(id) { return try await historicalBytes(historical.preview) }
     let value = try candidate(id)
     if !storage.isAvailable(value.preview), value.authoringClosure != nil {
-      return try history.bytes(candidate: value, source: source(value.sourceID), round: round(value.roundID), preview: true)
+      return try await history.bytes(candidate: value, source: source(value.sourceID), round: round(value.roundID), preview: true, library: library)
     }
     return try await storage.read(value.preview)
   }

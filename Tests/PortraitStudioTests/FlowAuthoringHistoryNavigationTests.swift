@@ -103,53 +103,113 @@ struct FlowAuthoringHistoryNavigationTests {
     #expect(await cold.shutdown())
   }
 
-  @Test("A full history spool refuses a new round locally while previous siblings remain editable")
-  func modelHistoryCapacity() async throws {
+  @Test("Neutral generation grows through repeated reopen without lifetime quota or browser promotion")
+  func sustainableGenerationAndReopen() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let model = FlowAuthoringModel(directory: root, purpose: .validationFixture,
-      render: HistoryNavigationFixture.render, historyPolicy: .init(maximumEntries: 3))
-    model.count = 3
-    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(5), title: "Bounded history")
+    let renders = HistoryNavigationRenderCounter()
+    let render: @Sendable (Data, FlowArtistRecipe, StrokeStyle) async throws -> PortraitRenderResult = { data, recipe, style in
+      await renders.record()
+      return try await HistoryNavigationFixture.render(data, recipe, style)
+    }
+    var model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: render)
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(5), title: "Sustainable history")
     try await configureSource(model)
-    await model.generate(refining: false)
-    let panel = try await freezePanel(model), before = model.document
-    await model.generate(refining: false)
-    #expect(model.error?.contains("history") == true && !model.needsRecovery && !model.isBusy)
-    #expect(model.document == before && model.round?.status == .completed)
-    #expect(try await model.store?.historyStatistics().entryCount == 3)
-    await model.browseCandidate(panel.candidates[2].candidate.id, prune: true)
-    try await assertExact(panel.candidates[2], model: model)
-    #expect(model.error == nil && model.canEdit && model.canSendToPlotter && model.canRefineCandidate(panel.candidates[2].candidate))
-    let id = try #require(model.program?.strokes.first?.id)
-    await model.edit(.remove, ids: [id])
-    #expect(model.removedIDs == [id] && !model.needsRecovery && model.canSendToPlotter)
+    let photo = try #require(model.currentPhotoRef)
+    var first: Panel?, latest: Panel?
+    for cycle in 0..<4 {
+      model.count = 3
+      for _ in 0..<2 {
+        await model.generate(refining: false)
+        let panel = try await freezePanel(model)
+        if first == nil { first = panel }
+        latest = panel
+      }
+      let original = try #require(first).candidates[2], store = try #require(model.store)
+      await model.selectRound(original.candidate.roundID)
+      await model.browseCandidate(original.candidate.id, prune: true)
+      try await assertExact(original, model: model)
+      let statistics = try await store.historyStatistics()
+      #expect(statistics.entryCount == (cycle + 1) * 6 && statistics.libraryEntryCount == statistics.entryCount)
+      #expect(statistics.legacyEntryCount == 0)
+      #expect(model.document?.candidates.allSatisfy { $0.authoringClosureLocation?.storage == "library-assets/1" } == true)
+      #expect(judgmentIdentity(model).isEmpty)
+      let library = try #require(model.drawingLibrary)
+      #expect(try await library.drawings().entries.isEmpty)
+      #expect(try await library.inputs(for: photo).entries.isEmpty)
+      #expect(await renders.calls == (cycle + 1) * 6)
+      #expect(await model.shutdown())
+      model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: render)
+      await model.open()
+      try await assertExact(original, model: model)
+      #expect(await renders.calls == (cycle + 1) * 6)
+    }
+    let last = try #require(latest).candidates[2]
+    await model.selectRound(last.candidate.roundID); await model.browseCandidate(last.candidate.id, prune: true)
+    try await assertExact(last, model: model)
+    #expect(model.document?.rounds.count == 8 && model.document?.candidates.count == 24)
+    #expect(judgmentIdentity(model).isEmpty && model.error == nil && !model.needsRecovery)
+    let library = try #require(model.drawingLibrary)
+    #expect(try await library.drawings().entries.isEmpty)
+    #expect(try await library.inputs(for: photo).entries.isEmpty)
     #expect(await model.shutdown())
   }
 
-  @Test("A mid-round byte refusal settles the model and durable round while preserving old exact history")
-  func modelMidRoundByteCapacity() async throws {
+  @Test("Candidate I/O failure recovers one atomic result and keeps older exact panels usable", arguments: [LibraryExchangeCatalogBoundary.beforeSQLPublication, .afterSQLCommit])
+  func candidateStorageFailureRecovery(boundary: LibraryExchangeCatalogBoundary) async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let first = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: HistoryNavigationFixture.render)
-    first.count = 3
-    await first.open(); await first.addPhoto(data: FlowAuthoringFixture.image(6), title: "Byte-bound history")
-    try await configureSource(first)
-    await first.generate(refining: false)
-    let panel = try await freezePanel(first), usage = try #require(try await first.store?.historyStatistics())
-    #expect(await first.shutdown())
-    let model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: HistoryNavigationFixture.render,
-      historyPolicy: .init(maximumBytes: usage.byteCount + 1))
-    await model.open(); await model.generate(refining: false)
-    #expect(model.error?.contains("history") == true && !model.needsRecovery && !model.isBusy)
-    #expect(model.round?.status == .cancelled && model.roundCandidates.isEmpty && model.round?.failures.count == 1)
-    #expect(model.document == (await model.store?.snapshot()))
-    #expect(!model.isPreparingGeneration && !model.isRenderingGeneration && !model.canSendToPlotter)
-    #expect(try await model.store?.historyStatistics().entryCount == usage.entryCount)
-    await model.selectRound(panel.round.id); await model.browseCandidate(panel.candidates[1].candidate.id, prune: true)
-    try await assertExact(panel.candidates[1], model: model)
-    #expect(model.error == nil && model.canEdit && model.canSendToPlotter)
+    let model = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: HistoryNavigationFixture.render)
+    model.count = 3
+    await model.open(); await model.addPhoto(data: FlowAuthoringFixture.image(6), title: "Recoverable history")
+    try await configureSource(model)
+    await model.generate(refining: false)
+    let original = try await freezePanel(model), selected = original.candidates[1]
+    await model.browseCandidate(selected.candidate.id, prune: true)
+    try await assertExact(selected, model: model)
+    #expect(model.canSendToPlotter)
+    let library = try #require(model.drawingLibrary), store = try #require(model.store)
+    let photo = try #require(model.currentPhotoRef)
+    var faultInstalled = false
+    model.publicationBarrier = { phase in
+      if !faultInstalled, case .roundBegan = phase {
+        faultInstalled = true
+        try? await library.failHistoryCandidatePublication(boundary)
+      }
+    }
+    await model.generate(refining: false)
+    #expect(faultInstalled && model.needsRecovery && model.error != nil && !model.isBusy)
+    #expect(!model.canEdit && !model.canSendToPlotter)
+    let interrupted = try #require(model.round?.id)
+    await library.clearHistoryCandidatePublicationFault()
+    model.publicationBarrier = nil
+    await model.recoverAutosave()
+    #expect(!model.needsRecovery && model.error == nil && !model.isBusy)
+    #expect(!model.isPreparingGeneration && !model.isRenderingGeneration)
+    let durable = await store.snapshot(), settled = try #require(durable.rounds.first { $0.id == interrupted })
+    #expect(settled.status == .interrupted && settled.candidateIDs.count == 1)
+    #expect(durable.candidates.count == 4 && Set(durable.candidates.map(\.id)).count == 4)
+    #expect(model.document == durable && !model.canSendToPlotter)
+    #expect(judgmentIdentity(model).isEmpty)
+    #expect(try await library.drawings().entries.isEmpty)
+    #expect(try await library.inputs(for: photo).entries.isEmpty)
+    await model.selectRound(original.round.id); await model.browseCandidate(selected.candidate.id, prune: true)
+    try await assertExact(selected, model: model)
+    #expect(model.canEdit && model.canSendToPlotter)
+    // The recovered exact drawing remains editable, while a new uncommitted
+    // region draft must still revoke Send until the operator discards it.
+    model.invalidateRegionPreview()
+    #expect(model.regionPreviewPending && !model.canSendToPlotter && model.program == selected.drawing.program)
+    model.discardRegionPreview()
+    #expect(!model.regionPreviewPending && model.canSendToPlotter)
+    #expect(try await library.drawings().entries.isEmpty)
+    #expect(try await library.inputs(for: photo).entries.isEmpty)
     #expect(await model.shutdown())
+    let cold = FlowAuthoringModel(directory: root, purpose: .validationFixture, render: HistoryNavigationFixture.render)
+    await cold.open(); await cold.selectRound(original.round.id); await cold.browseCandidate(selected.candidate.id, prune: true)
+    try await assertExact(selected, model: cold)
+    #expect(cold.document?.candidates.count == 4 && !cold.needsRecovery && cold.error == nil)
+    #expect(await cold.shutdown())
   }
 
   private func configureSource(_ model: FlowAuthoringModel) async throws {
@@ -226,4 +286,18 @@ private enum HistoryNavigationFixture {
     let raster = try PortraitImageAnalyzer.analyze(data: data, options: options, maximumDimension: 24)
     return .init(raster: raster, program: drawing.program)
   }
+}
+
+private actor HistoryNavigationRenderCounter {
+  private(set) var calls = 0
+  func record() { calls += 1 }
+}
+private extension DrawingLibrary {
+  func failHistoryCandidatePublication(_ selected: LibraryExchangeCatalogBoundary) throws {
+    let catalog = try commonCatalog()
+    catalog.injectFault = { boundary in
+      if boundary == selected { throw CocoaError(.fileWriteOutOfSpace) }
+    }
+  }
+  func clearHistoryCandidatePublicationFault() { cachedExchangeCatalog?.injectFault = nil }
 }

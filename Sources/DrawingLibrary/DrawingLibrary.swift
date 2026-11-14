@@ -54,6 +54,9 @@ public actor DrawingLibrary {
   // Least recently used first. Eviction releases only this owner's cached value;
   // callers keep their selected Drawing, and a later miss verifies it afresh.
   package var selectedDrawingCacheRecency: [DrawingRef] = []
+  var existingAssetProofs: [ExchangeDigest: VerifiedExchangeFiles] = [:]
+  var existingAssetRecency: [ExchangeDigest] = []
+  var existingAssetDiagnostics = DrawingLibraryAssetReuseStatistics()
   package let ownerID = UUID()
   package var pendingRetentions: [UUID: DrawingLibraryPendingRetention] = [:]
   package var committedGeneration: DrawingLibraryGeneration?
@@ -133,7 +136,8 @@ public actor DrawingLibrary {
     for value in pendingRetentions.values { if let root=value.temporaryRoot { try? FileManager.default.removeItem(at:root) } }
     pendingRetentions.removeAll()
     selectedDrawingCacheRecency.removeAll()
-    selectedDrawingCache.removeAll(); cachedExchangeCatalog = nil; database = nil
+    selectedDrawingCache.removeAll(); existingAssetProofs.removeAll(); existingAssetRecency.removeAll()
+    cachedExchangeCatalog = nil; database = nil
   }
   package func assignedLibraryIdentity(_ db: DrawingLibraryDatabase) throws -> UUID? {
     guard let value = try db.scalar("SELECT value FROM state WHERE key='library_uuid'") else { return nil }

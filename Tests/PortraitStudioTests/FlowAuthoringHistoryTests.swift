@@ -6,7 +6,7 @@ import PortraitCore
 @testable import PortraitLibrary
 import Testing
 
-@Suite("Exact bounded private authoring history", .serialized)
+@Suite("Exact durable authoring history with bounded reads", .serialized)
 struct FlowAuthoringHistoryTests {
   private func temporary() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("flow-history-" + UUID().uuidString) }
   private func open(_ root: URL, policy: FlowAuthoringHistoryPolicy = .init()) async throws -> FlowPortfolioStore {
@@ -149,7 +149,7 @@ struct FlowAuthoringHistoryTests {
     await reopened.closeLibrary()
   }
   /// Valid PNG ancillary text chunk; tiny decoded pixels, large immutable original.
-  private static func paddedPNG(_ original: Data, payloadBytes: Int) -> Data {
+  static func paddedPNG(_ original: Data, payloadBytes: Int) -> Data {
     precondition(original.count >= 12)
     var chunk = Data("tEXtHistory fixture\0".utf8)
     chunk.append(Data(repeating: 120, count: payloadBytes))
@@ -170,31 +170,41 @@ struct FlowAuthoringHistoryTests {
     withUnsafeBytes(of: &checksum) { result.append(contentsOf: $0) }
     result.append(original.suffix(12)); return result
   }
-  @Test("Quota rejects new work without deleting incumbent history and counts complete orphans while removing incomplete staging")
-  func quotaAndOrphans() async throws {
+  @Test("Selected private-v1 history remains exact while unrelated old directories never gate new generation")
+  func legacyPrivateHistory() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
-    let store = try await open(root, policy: .init(maximumEntries: 2))
+    let store = try await open(root)
     let source = try await store.addSource(data: FlowPortfolioTests.photo, title: "Source")
     let produced = try await production(store, source: source)
     let candidate = try #require(try await panel(store, source: source.id, count: 1, production: produced).first)
-    let before = await store.snapshot()
+    try await writeLegacyCopy(store, candidate: candidate, root: root)
+    try await store.markLegacyPrivateHistoryFixture(candidate.id)
     await store.closeLibrary()
-    let spool = root.appendingPathComponent("flow-authoring-history-v1")
-    try FileManager.default.copyItem(at: spool.appendingPathComponent(candidate.id.uuidString.lowercased()),
-      to: spool.appendingPathComponent(UUID().uuidString.lowercased()))
-    let partial = spool.appendingPathComponent(".partial-" + UUID().uuidString.lowercased())
-    try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: false)
-    try Data([1,2,3]).write(to: partial.appendingPathComponent("incomplete.part"))
-    let reopened = try await open(root, policy: .init(maximumEntries: 2))
-    #expect(!FileManager.default.fileExists(atPath: partial.path))
-    #expect(try await reopened.historyStatistics().entryCount == 2)
-    await #expect(throws: FlowPortfolioError.self) { try await reopened.beginRound(sourceID: source.id, recipes: [.standard]) }
-    #expect(await reopened.snapshot() == before)
+    let orphan = root.appendingPathComponent("flow-authoring-history-v1/unrelated-orphan")
+    try FileManager.default.createSymbolicLink(at: orphan, withDestinationURL: root.appendingPathComponent("does-not-exist"))
+    let reopened = try await open(root)
+    #expect(try await reopened.historyStatistics().legacyEntryCount == 1)
     #expect(try await reopened.candidateDrawing(candidate.id).producer == produced.drawing.producer)
+    equalInput(try #require(try await reopened.candidateInput(candidate.id)), try #require(produced.artifacts.drawingInput))
+    let newer = try await panel(reopened, source: source.id, count: 2, production: produced)
+    #expect(newer.allSatisfy { $0.authoringClosureLocation?.storage == "library-assets/1" })
+    #expect(try await reopened.historyStatistics().libraryEntryCount == 2)
+    #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("flow-authoring-history-v1/" + candidate.id.uuidString.lowercased() + "/manifest.json").path))
     #expect(try await reopened.library.drawings().entries.isEmpty)
     await reopened.closeLibrary()
   }
-  @Test("Atomic write failure keeps incumbent entries and retry publishes one complete exact candidate", arguments: [FlowAuthoringHistoryBoundary.afterParts, .beforePublish])
+  private func writeLegacyCopy(_ store: FlowPortfolioStore, candidate: FlowPortfolioCandidate, root: URL) async throws {
+    let manifest = try #require(candidate.authoringClosure)
+    let location = try #require(candidate.authoringClosureLocation)
+    let folder = root.appendingPathComponent("flow-authoring-history-v1/" + candidate.id.uuidString.lowercased())
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try await store.library.asset(ExchangeDigest(manifest.sha256), maximumBytes: 128 * 1024).write(to: folder.appendingPathComponent("manifest.json"))
+    for part in location.parts {
+      try await store.library.asset(ExchangeDigest(part.sha256), maximumBytes: 64 * 1024 * 1024)
+        .write(to: folder.appendingPathComponent(part.sha256 + ".part"))
+    }
+  }
+  @Test("Rejected preparation publishes no independent history files and leaves incumbent candidates intact", arguments: [FlowAuthoringHistoryBoundary.afterParts, .beforePublish])
   func writeFailure(_ boundary: FlowAuthoringHistoryBoundary) async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let store = try await open(root)
@@ -219,7 +229,7 @@ struct FlowAuthoringHistoryTests {
     #expect(try await store.historyStatistics().entryCount == 2)
     await store.closeLibrary()
   }
-  @Test("Pending graph publication recovers the already durable spool entry exactly once")
+  @Test("Candidate and exact history assets recover in the same pending Library publication exactly once")
   func pendingPublication() async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let store = try await open(root)
@@ -232,7 +242,8 @@ struct FlowAuthoringHistoryTests {
       try await store.completeCandidate(roundID: round.id, slot: 0, production: produced, previewPNG: PortraitDrawingPreview.png(produced.drawing.program))
     }
     #expect(await store.pendingGraphWrite != nil)
-    #expect(try await store.historyStatistics().entryCount == 1)
+    #expect(await store.snapshot().candidates.isEmpty)
+    #expect(await store.pendingGraphWrite?.next.candidates.count == 1)
     try await store.library.feedbackFault(nil)
     try await store.reloadCommittedState()
     let candidate = try #require(await store.snapshot().candidates.first)
@@ -242,19 +253,32 @@ struct FlowAuthoringHistoryTests {
     try await store.finishRound(round.id)
     await store.closeLibrary()
   }
-  @Test("Missing, changed and malformed private material refuses action without feedback or stale geometry", arguments: [0,1,2])
+  @Test("Missing, changed and malformed CAS history refuses action without feedback, stale geometry or private fallback", arguments: [0,1,2])
   func corruptClosure(_ fault: Int) async throws {
     let root = temporary(); defer { try? FileManager.default.removeItem(at: root) }
     let store = try await open(root)
     let source = try await store.addSource(data: FlowPortfolioTests.photo, title: "Source")
     let produced = try await production(store, source: source)
     let candidates = try await panel(store, source: source.id, count: 2, production: produced)
+    // A valid old-directory copy must not rescue a marked corrupt CAS candidate.
+    try await writeLegacyCopy(store, candidate: candidates[0], root: root)
+    let manifest = try #require(candidates[0].authoringClosure)
+    let manifestBytes = try await store.library.asset(ExchangeDigest(manifest.sha256), maximumBytes: 128 * 1024)
+    let object = try #require(JSONSerialization.jsonObject(with: manifestBytes) as? [String: Any])
+    let parts = try #require(object["parts"] as? [[String: Any]])
+    let drawingPart = try #require(parts.first { ($0["path"] as? String)?.hasPrefix("data/drawings/") == true })
+    let digest = try #require(drawingPart["digest"] as? String)
     await store.closeLibrary()
-    let folder = root.appendingPathComponent("flow-authoring-history-v1/" + candidates[0].id.uuidString.lowercased())
-    let part = try #require(try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).first { $0.pathExtension == "part" })
+    let part = root.appendingPathComponent("objects/sha256/" + digest)
     if fault == 0 { try FileManager.default.removeItem(at: part) }
-    else if fault == 1 { var data = try Data(contentsOf: part); data[0] ^= 1; try data.write(to: part) }
-    else { try Data("{}".utf8).write(to: folder.appendingPathComponent("manifest.json")) }
+    else if fault == 1 {
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: part.path)
+      var data = try Data(contentsOf: part); data[0] ^= 1; try data.write(to: part)
+    } else {
+      let manifestURL = root.appendingPathComponent("objects/sha256/" + manifest.sha256)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
+      try Data("{}".utf8).write(to: manifestURL)
+    }
     let reopened = try await open(root)
     let before = await reopened.snapshot()
     #expect(try await reopened.candidateUnavailableReason(candidates[0].id) != nil)
@@ -264,5 +288,13 @@ struct FlowAuthoringHistoryTests {
     #expect(try await reopened.candidateDrawing(candidates[1].id).producer == produced.drawing.producer)
     #expect(try await reopened.library.drawings().entries.isEmpty)
     await reopened.closeLibrary()
+  }
+}
+
+private extension FlowPortfolioStore {
+  func markLegacyPrivateHistoryFixture(_ id: UUID) async throws {
+    guard let index = state.candidates.firstIndex(where: { $0.id == id }) else { throw FlowPortfolioError.invalid("Missing legacy fixture") }
+    var next = state; next.candidates[index].authoringClosureLocation = nil
+    try await commit(next, operation: "legacyPrivateHistoryFixtureInstalled")
   }
 }

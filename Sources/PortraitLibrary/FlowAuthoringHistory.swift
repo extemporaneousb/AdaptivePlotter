@@ -1,33 +1,43 @@
-import Darwin
 import Foundation
 import DrawingLibrary
 import PlotterModel
 import PortraitArtists
 import PortraitCore
 
-/// Private authoring material, not a retained Drawing or a preference. Existing
-/// entries are never evicted to admit new work: a full spool refuses admission.
+/// Lifetime authored history is stored in Library CAS. Only one closure/read is
+/// bounded here; durable history has no generation-count or aggregate-byte cap.
 package struct FlowAuthoringHistoryPolicy: Sendable {
-  package let maximumEntries: Int
-  package let maximumBytes: Int
   package let maximumEntryBytes: Int
-  package init(maximumEntries: Int = 512, maximumBytes: Int = 2 * 1024 * 1024 * 1024,
-    maximumEntryBytes: Int = 64 * 1024 * 1024) {
-    self.maximumEntries = maximumEntries; self.maximumBytes = maximumBytes
-    self.maximumEntryBytes = maximumEntryBytes
-  }
+  package init(maximumEntryBytes: Int = 64 * 1024 * 1024) { self.maximumEntryBytes = maximumEntryBytes }
 }
 package struct FlowAuthoringHistoryStatistics: Sendable {
   package let entryCount: Int
+  /// Unique committed CAS history bytes; selected legacy private bytes are not scanned.
   package let byteCount: Int
+  package let libraryEntryCount: Int
+  package let legacyEntryCount: Int
 }
+
+/// Explicit storage marker. Absence is the original private-v1 reader, never a
+/// fallback from a corrupt Library-backed candidate.
+package struct FlowPortfolioHistoryLocation: Codable, Equatable, Sendable {
+  package let storage: String
+  package let parts: [FlowPortfolioBlob]
+  init(parts: [FlowPortfolioBlob]) { storage = "library-assets/1"; self.parts = parts }
+}
+struct FlowPreparedHistory: Sendable {
+  let reference: FlowPortfolioBlob
+  let location: FlowPortfolioHistoryLocation
+  let assets: [DrawingLibraryClosureAsset]
+}
+
 package enum FlowAuthoringHistoryBoundary: Sendable, Equatable { case beforeWrite, afterParts, beforePublish }
 package enum FlowAuthoringHistoryAdmissionError: Error, Sendable {
   case limit(String)
   package var reason: String { switch self { case .limit(let reason): return reason } }
 }
 
-private struct FlowHistoryIdentity: Codable, Equatable {
+private struct FlowHistoryIdentity: Codable, Equatable, Sendable {
   let id: UUID
   let createdAt: Date
   let sourceID: UUID
@@ -47,16 +57,16 @@ private struct FlowHistoryIdentity: Codable, Equatable {
     preview = value.preview; programHash = value.programHash; strokeCount = value.strokeCount
   }
 }
-private struct FlowHistoryPart: Codable {
+private struct FlowHistoryPart: Codable, Sendable {
   let path: String
   let digest: ExchangeDigest
   let byteCount: Int
   var storagePath: String { digest.description + ".part" }
 }
-private struct FlowHistoryDrawingWire: Decodable {
-  struct Producer: Decodable { let id: String; let version: String; let record: ExchangeDigest }
-  struct Historical: Decodable { let state: String; let units: String?; let producerReceipt: ExchangeDigest? }
-  struct Representation: Decodable {
+private struct FlowHistoryDrawingWire: Decodable, Sendable {
+  struct Producer: Decodable, Sendable { let id: String; let version: String; let record: ExchangeDigest }
+  struct Historical: Decodable, Sendable { let state: String; let units: String?; let producerReceipt: ExchangeDigest? }
+  struct Representation: Decodable, Sendable {
     let kind: String; let object: ExchangeDigest; let programHash: ExchangeDigest?
     let nominalPenWidthMillimeters: Double?
     let intendedPhysicalFieldMillimeters: Size2<FieldSpace>?
@@ -67,7 +77,7 @@ private struct FlowHistoryDrawingWire: Decodable {
   let input: SourceLink<ImageInputRef>; let parent: SourceLink<DrawingRef>
   let producer: Producer
 }
-private struct FlowHistoryUnits: Codable, Equatable {
+private struct FlowHistoryUnits: Codable, Equatable, Sendable {
   let nominal: Double?
   let field: Size2<FieldSpace>?
   let historical: String?
@@ -77,7 +87,7 @@ private struct FlowHistoryUnits: Codable, Equatable {
     historical = value.historical; historicalReceipt = value.historicalReceipt
   }
 }
-private struct FlowHistoryManifest: Codable {
+private struct FlowHistoryManifest: Codable, Sendable {
   let profile: String
   let identity: FlowHistoryIdentity
   let photo: PhotoRef?
@@ -95,7 +105,7 @@ private struct FlowHistoryManifest: Codable {
   let producerVerified: Bool
   let parts: [FlowHistoryPart]
 }
-struct FlowHistoryMaterial {
+struct FlowHistoryMaterial: Sendable {
   let drawing: Drawing
   let input: FrozenImageInputRecord?
   let originalReference: DrawingRef?
@@ -103,102 +113,69 @@ struct FlowHistoryMaterial {
   let preview: Data
 }
 
-/// The actor owns this single writer after DrawingLibrary has acquired its lease.
-/// Manifest hashes live in candidate graph records; files cannot relabel a candidate.
-final class FlowAuthoringHistory {
+/// Pure bounded preparation plus selected readers. New bytes use the common
+/// Library transaction; the old directory is never scanned, grown or quota-gated.
+final class FlowAuthoringHistory: Sendable {
   let root: URL
   let policy: FlowAuthoringHistoryPolicy
-  var fault: (@Sendable (FlowAuthoringHistoryBoundary) throws -> Void)?
-  private var opened = false
-  private var accounted: FlowAuthoringHistoryStatistics?
   init(directory: URL, policy: FlowAuthoringHistoryPolicy) {
     root = directory.appendingPathComponent("flow-authoring-history-v1", isDirectory: true)
     self.policy = policy
   }
   func open() throws {
-    guard !opened else { return }
-    guard policy.maximumEntries > 0, policy.maximumBytes > 0,
-      policy.maximumEntryBytes > 0, policy.maximumEntryBytes <= Self.maximumRehydrationBytes else {
-      throw FlowPortfolioError.invalid("Invalid authoring history storage policy.")
+    guard policy.maximumEntryBytes > 0, policy.maximumEntryBytes <= Self.maximumRehydrationBytes else {
+      throw FlowPortfolioError.invalid("Invalid authoring history read policy.")
     }
-    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
-      attributes: [.posixPermissions: 0o700])
-    try regularDirectory(root)
-    for item in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-      where item.lastPathComponent.hasPrefix(".partial-") {
-      // Only unpublished staging is disposable. Complete orphans stay counted.
-      try regularDirectory(item); try FileManager.default.removeItem(at: item)
-    }
-    opened = true
-    do { accounted = try scanStatistics() } catch { opened = false; throw error }
   }
   static let maximumRehydrationBytes = 64 * 1024 * 1024
-  func statistics() throws -> FlowAuthoringHistoryStatistics {
-    try open(); return accounted!
-  }
-  func auditStatistics() throws -> FlowAuthoringHistoryStatistics { try open(); return try scanStatistics() }
-  private func scanStatistics() throws -> FlowAuthoringHistoryStatistics {
-    let entries = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isSymbolicLinkKey])
-    var total = 0
-    for entry in entries {
-      let values = try entry.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey, .fileSizeKey])
-      guard values.isSymbolicLink != true else { throw FlowPortfolioError.invalid("Authoring history contains a symbolic link.") }
-      if values.isRegularFile == true { total = try adding(total, values.fileSize ?? 0); continue }
-      try regularDirectory(entry)
-      guard let files = FileManager.default.enumerator(at: entry, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]) else {
-        throw FlowPortfolioError.unavailable("Authoring history cannot be enumerated.")
-      }
-      for case let file as URL in files {
-        let info = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey, .fileSizeKey])
-        guard info.isSymbolicLink != true else { throw FlowPortfolioError.invalid("Authoring history contains a symbolic link.") }
-        if info.isRegularFile == true { total = try adding(total, info.fileSize ?? 0) }
-        else if info.isDirectory != true { throw FlowPortfolioError.invalid("Authoring history contains an unsupported file.") }
-      }
-    }
-    return .init(entryCount: entries.count, byteCount: total)
-  }
-  func requireRoundCapacity(_ count: Int) throws {
-    let usage = try statistics()
-    guard count <= policy.maximumEntries - usage.entryCount, usage.byteCount < policy.maximumBytes else {
-      throw FlowPortfolioError.invalid("Authoring history storage is full. Existing drawing branches are preserved; new generation was not admitted.")
-    }
-  }
-  func write(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound,
-    drawing: Drawing, input: FrozenImageInputRecord?, raster: Data, preview: Data, issuer: UUID) throws -> FlowPortfolioBlob {
-    try open(); try fault?(.beforeWrite)
+
+  func prepare(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound,
+    drawing: Drawing, input: FrozenImageInputRecord?, raster: Data, preview: Data, issuer: UUID) throws -> FlowPreparedHistory {
+    try open()
     guard drawing.requiredFeatures.isEmpty else { throw FlowPortfolioError.invalid("This drawing requires unsupported authoring history features.") }
     let frozen = try DrawingExchangeCodec.freeze(drawing, identity: .init(issuer: issuer, revision: candidate.id), createdAt: candidate.createdAt)
     guard let reference = frozen.drawing.reference else { throw DrawingExchangeError.mismatchedParent }
-    var values: [String: Data] = [:]
+    var values: [String: DrawingLibraryClosureAsset] = [:]
     var descriptors: [ExchangeDigest: ExchangeAssetDescriptor] = [:]
-    func add(_ path: String, _ bytes: Data) throws {
-      if let old = values[path], old != bytes { throw FlowPortfolioError.invalid("Conflicting authoring history content.") }
-      values[path] = bytes
+    // Known digests below come only from immutable owner-admitted image assets
+    // and frozen records. Their factories already verified the bytes. Rebuilding
+    // the private inventory must not hash a 31MiB original for every candidate.
+    func knownAsset(_ bytes: Data, digest: ExchangeDigest, opaque: Bool = false) throws -> ExchangeAssetDescriptor {
+      let header: [String: Any] = ["object": digest.description, "byteLength": bytes.count,
+        "mediaType": opaque ? "application/octet-stream" : "application/json", "encoding": opaque ? "opaque" : "utf8-json"]
+      let asset = try JSONDecoder().decode(ExchangeAsset.self, from: JSONSerialization.data(withJSONObject: header))
+      return .init(asset: asset)
     }
-    func asset(_ value: DrawingLibraryClosureAsset) throws {
-      try value.descriptor.asset.validate(value.bytes, maximumBytes: Self.maximumRehydrationBytes)
+    func add(_ path: String, _ bytes: Data, descriptor supplied: ExchangeAssetDescriptor? = nil) throws {
+      let descriptor: ExchangeAssetDescriptor
+      if let supplied { descriptor = supplied }
+      else { descriptor = .init(asset: try ExchangeAsset(bytes: bytes, mediaType: "application/json", encoding: "utf8-json")) }
+      guard descriptor.asset.byteLength == UInt64(bytes.count), bytes.count <= Self.maximumRehydrationBytes else {
+        throw FlowAuthoringHistoryAdmissionError.limit("This exact authoring closure exceeds its read limit.")
+      }
+      if let old = values[path], old.descriptor != descriptor { throw FlowPortfolioError.invalid("Conflicting authoring history content.") }
+      values[path] = .init(descriptor: descriptor, bytes: bytes)
+    }
+    func asset(_ value: DrawingImageAsset) throws {
       if let old = descriptors[value.descriptor.asset.object], old != value.descriptor {
         throw FlowPortfolioError.invalid("Conflicting authoring history asset descriptors.")
       }
       descriptors[value.descriptor.asset.object] = value.descriptor
-      try add("data/objects/sha256/" + value.descriptor.asset.object.description, value.bytes)
+      try add("data/objects/sha256/" + value.descriptor.asset.object.description, value.bytes, descriptor: value.descriptor)
     }
     let programAsset = try ExchangeAsset(bytes: frozen.originalProgramJSON, mediaType: "application/json", encoding: "utf8-json")
     let producerAsset = try ExchangeAsset(bytes: drawing.producer.originalJSON, mediaType: "application/json", encoding: "utf8-json")
-    try asset(.init(descriptor: .init(asset: programAsset), bytes: frozen.originalProgramJSON))
-    try asset(.init(descriptor: .init(asset: producerAsset), bytes: drawing.producer.originalJSON))
-    try add(Self.drawingPath(reference), frozen.originalJSON)
+    try add("data/objects/sha256/" + programAsset.object.description, frozen.originalProgramJSON, descriptor: .init(asset: programAsset))
+    try add("data/objects/sha256/" + producerAsset.object.description, drawing.producer.originalJSON, descriptor: .init(asset: producerAsset))
+    descriptors[programAsset.object] = .init(asset: programAsset); descriptors[producerAsset.object] = .init(asset: producerAsset)
+    try add(Self.drawingPath(reference), frozen.originalJSON, descriptor: knownAsset(frozen.originalJSON, digest: reference.digest))
     if let input {
       guard drawing.input == .present(input.reference), input.photo.reference == source.photo else { throw DrawingExchangeError.mismatchedParent }
-      let closure = DrawingLibraryRetainedClosure(input: input)
-      for value in closure.assets { try asset(value) }
-      for record in closure.records {
-        switch record.reference {
-        case .photo(let ref): try add(Self.photoPath(ref), record.originalJSON)
-        case .input(let ref): try add(Self.inputPath(ref), record.originalJSON)
-        case .drawing: throw FlowPortfolioError.invalid("Unexpected drawing in frozen input closure.")
-        }
-      }
+      for value in input.assets + input.photo.assets { try asset(value) }
+      try add(Self.photoPath(input.photo.reference), input.photo.record.originalJSON,
+        descriptor: knownAsset(input.photo.record.originalJSON, digest: input.photo.reference.digest))
+      try add(Self.inputPath(input.reference), input.record.originalJSON,
+        descriptor: knownAsset(input.record.originalJSON, digest: input.reference.digest))
     } else if case .present = drawing.input {
       throw FlowPortfolioError.invalid("Authoring history requires the complete original image-input closure.")
     }
@@ -209,8 +186,9 @@ final class FlowAuthoringHistory {
       "assets": try JSONSerialization.jsonObject(with: encoder.encode(descriptors.values.sorted { $0.asset.object.description < $1.asset.object.description })),
       "attempts": [String](), "assessments": [String]()]
     try add("data/exchange.json", JSONSerialization.data(withJSONObject: index, options: [.sortedKeys, .withoutEscapingSlashes]))
-    try add("history/raster.json", raster); try add("history/preview.png", preview)
-    let parts = values.keys.sorted().map { FlowHistoryPart(path: $0, digest: .hash(values[$0]!), byteCount: values[$0]!.count) }
+    try add("history/raster.json", raster)
+    try add("history/preview.png", preview, descriptor: .init(asset: ExchangeAsset(bytes: preview, mediaType: "image/png", encoding: "png")))
+    let parts = values.keys.sorted().map { FlowHistoryPart(path: $0, digest: values[$0]!.descriptor.asset.object, byteCount: values[$0]!.bytes.count) }
     let manifest = FlowHistoryManifest(profile: "adaptiveplotter.flow-authoring-history/1", identity: .init(candidate),
       photo: source.photo, sourceImage: source.image, options: round.analysisOptions, drawing: reference,
       originalReference: drawing.reference, inputLink: drawing.input, parentLink: drawing.parent,
@@ -218,41 +196,34 @@ final class FlowAuthoringHistory {
       producerVersion: drawing.producer.version, producerObject: drawing.producer.record,
       producerVerified: drawing.capabilities.producerVerified, parts: parts)
     let bytes = try encoder.encode(manifest)
-    let unique = Dictionary(grouping: parts, by: \.digest).values.map { $0[0] }
-    let size = try unique.reduce(bytes.count) { try adding($0, $1.byteCount) }
-    let usage = try statistics()
-    guard parts.count <= 32, bytes.count <= 128 * 1024, size <= policy.maximumEntryBytes,
-      usage.entryCount < policy.maximumEntries, size <= policy.maximumBytes - usage.byteCount else {
-      throw FlowAuthoringHistoryAdmissionError.limit("Authoring history storage cannot fit this exact drawing closure. Existing branches are preserved.")
+    var unique: [ExchangeDigest: DrawingLibraryClosureAsset] = [:]
+    for value in values.values {
+      // Physical CAS parts are opaque. The exact typed descriptors remain in
+      // the frozen virtual exchange index for input admission, not in browse roots.
+      let descriptor = try knownAsset(value.bytes, digest: value.descriptor.asset.object, opaque: true)
+      unique[value.descriptor.asset.object] = .init(descriptor: descriptor, bytes: value.bytes)
     }
-    let target = entry(candidate.id)
-    guard !FileManager.default.fileExists(atPath: target.path) else { throw FlowPortfolioError.conflict("Authoring history identity already exists.") }
-    let stage = root.appendingPathComponent(".partial-" + UUID().uuidString.lowercased(), isDirectory: true)
-    try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-    accounted = .init(entryCount: usage.entryCount + 1, byteCount: usage.byteCount + size)
-    var published = false
-    defer {
-      if !published {
-        do { try FileManager.default.removeItem(at: stage); accounted = usage }
-        catch { /* The reserved upper bound includes incomplete staging until reopen. */ }
-      }
+    let size = try unique.values.reduce(bytes.count) { try adding($0, $1.bytes.count) }
+    guard parts.count <= 32, bytes.count <= 128 * 1024, size <= policy.maximumEntryBytes else {
+      throw FlowAuthoringHistoryAdmissionError.limit("This exact authoring closure exceeds its per-drawing read limit.")
     }
-    for part in unique { try durableFile(values[part.path]!, at: stage.appendingPathComponent(part.storagePath)) }
-    try fault?(.afterParts)
-    try durableFile(bytes, at: stage.appendingPathComponent("manifest.json"))
-    try syncDirectory(stage); try fault?(.beforePublish)
-    try FileManager.default.moveItem(at: stage, to: target)
-    published = true; try syncDirectory(root)
-    return .init(sha256: ExchangeDigest.hash(bytes).description, byteCount: bytes.count, mediaType: "application/json")
+    let manifestAsset = try ExchangeAsset(bytes: bytes, mediaType: "application/json", encoding: "utf8-json")
+    let manifestReference = FlowPortfolioBlob(sha256: manifestAsset.object.description, byteCount: bytes.count, mediaType: "application/json")
+    let location = FlowPortfolioHistoryLocation(parts: unique.values.map {
+      .init(sha256: $0.descriptor.asset.object.description, byteCount: $0.bytes.count, mediaType: $0.descriptor.asset.mediaType)
+    }.sorted { $0.sha256 < $1.sha256 })
+    let assets = unique.values.sorted { $0.descriptor.asset.object.description < $1.descriptor.asset.object.description }
+      + [.init(descriptor: .init(asset: manifestAsset), bytes: bytes)]
+    return .init(reference: manifestReference, location: location, assets: assets)
   }
-  func availability(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound) throws {
-    let (_, files) = try verified(candidate: candidate, source: source, round: round)
+  func availability(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound, library: DrawingLibrary) async throws {
+    let (_, files) = try await verified(candidate: candidate, source: source, round: round, library: library)
     // Streaming hashes establish closure integrity without decoding/materializing geometry.
     try files.verifyInventory()
   }
   func read(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound,
-    sourceBytes: Data) throws -> FlowHistoryMaterial {
-    let (manifest, files) = try verified(candidate: candidate, source: source, round: round)
+    sourceBytes: Data, library: DrawingLibrary) async throws -> FlowHistoryMaterial {
+    let (manifest, files) = try await verified(candidate: candidate, source: source, round: round, library: library)
     try files.verifyInventory()
     let rasterBytes = try files.record(at: "history/raster.json", maximumBytes: policy.maximumEntryBytes)
     let preview = try files.record(at: "history/preview.png", maximumBytes: policy.maximumEntryBytes)
@@ -314,20 +285,31 @@ final class FlowAuthoringHistory {
     guard drawing.capabilities.producerVerified == manifest.producerVerified else { throw DrawingExchangeError.mismatchedParent }
     return .init(drawing: drawing, input: input, originalReference: manifest.originalReference, rasterBytes: rasterBytes, preview: preview)
   }
-  func bytes(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound, preview: Bool) throws -> Data {
-    let (_, files) = try verified(candidate: candidate, source: source, round: round)
+  func bytes(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource, round: FlowPortfolioRound, preview: Bool, library: DrawingLibrary) async throws -> Data {
+    let (_, files) = try await verified(candidate: candidate, source: source, round: round, library: library)
     return try files.record(at: preview ? "history/preview.png" : "history/raster.json", maximumBytes: policy.maximumEntryBytes)
   }
   private func verified(candidate: FlowPortfolioCandidate, source: FlowPortfolioSource,
-    round: FlowPortfolioRound) throws -> (FlowHistoryManifest, VerifiedExchangeFiles) {
+    round: FlowPortfolioRound, library: DrawingLibrary) async throws -> (FlowHistoryManifest, VerifiedExchangeFiles) {
     try open()
-    guard let reference = candidate.authoringClosure else { throw FlowPortfolioError.unavailable("This legacy drawing has no durable authoring history closure.") }
-    let folder = entry(candidate.id); try regularDirectory(folder)
-    let url = folder.appendingPathComponent("manifest.json")
-    let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-    guard info.isRegularFile == true, info.isSymbolicLink != true, info.fileSize == reference.byteCount,
-      reference.byteCount <= 128 * 1024 else { throw FlowPortfolioError.invalid("Authoring history manifest is missing or has changed size.") }
-    let bytes = try Data(contentsOf: url)
+    guard let reference = candidate.authoringClosure, (1...128 * 1024).contains(reference.byteCount) else {
+      throw FlowPortfolioError.unavailable("This legacy drawing has no durable authoring history closure.")
+    }
+    let bytes: Data
+    if let location = candidate.authoringClosureLocation {
+      guard location.storage == "library-assets/1" else { throw FlowPortfolioError.invalid("Unknown authoring history storage.") }
+      // A marked Library closure never falls back to the old directory on error.
+      bytes = try await library.asset(ExchangeDigest(reference.sha256), maximumBytes: 128 * 1024)
+    } else {
+      let folder = entry(candidate.id); try regularDirectory(folder)
+      let url = folder.appendingPathComponent("manifest.json")
+      let info = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+      guard info.isRegularFile == true, info.isSymbolicLink != true, info.fileSize == reference.byteCount else {
+        throw FlowPortfolioError.invalid("Authoring history manifest is missing or has changed size.")
+      }
+      bytes = try Data(contentsOf: url)
+    }
+    guard bytes.count == reference.byteCount else { throw DrawingExchangeError.mismatchedParent }
     guard ExchangeDigest.hash(bytes).description == reference.sha256 else { throw FlowPortfolioError.invalid("Authoring history manifest digest differs from its candidate.") }
     let manifest = try JSONDecoder().decode(FlowHistoryManifest.self, from: bytes)
     guard manifest.profile == "adaptiveplotter.flow-authoring-history/1", manifest.identity == FlowHistoryIdentity(candidate),
@@ -344,9 +326,23 @@ final class FlowAuthoringHistory {
     var limits = ExchangeCarrierLimits(); limits.maximumEntries = 32
     limits.maximumEntryBytes = UInt64(policy.maximumEntryBytes); limits.maximumExpandedBytes = UInt64(policy.maximumEntryBytes) * 2
     limits.maximumMaterializedBytes = UInt64(policy.maximumEntryBytes) * 4
-    let files = try VerifiedExchangeFiles(catalogRoot: folder, inventory: manifest.parts.map {
-      .init(path: $0.path, storagePath: $0.storagePath, digest: $0.digest, byteLength: UInt64($0.byteCount))
-    }, limits: limits)
+    let inventory = manifest.parts.map {
+      ExchangeCatalogFile(path: $0.path, storagePath: $0.storagePath, digest: $0.digest, byteLength: UInt64($0.byteCount))
+    }
+    let files: VerifiedExchangeFiles
+    if let location = candidate.authoringClosureLocation {
+      let expected = Dictionary(grouping: manifest.parts, by: \.digest).mapValues { $0[0].byteCount }
+      var declared: [ExchangeDigest: Int] = [:]
+      for part in location.parts {
+        let digest = try ExchangeDigest(part.sha256)
+        guard declared[digest] == nil else { throw FlowPortfolioError.invalid("Duplicate Library history part reference.") }
+        declared[digest] = part.byteCount
+      }
+      guard declared == expected else { throw FlowPortfolioError.invalid("Library history part references differ from the manifest.") }
+      files = try await library.assetFiles(inventory, limits: limits)
+    } else {
+      files = try VerifiedExchangeFiles(catalogRoot: entry(candidate.id), inventory: inventory, limits: limits)
+    }
     return (manifest, files)
   }
   private func entry(_ id: UUID) -> URL { root.appendingPathComponent(id.uuidString.lowercased(), isDirectory: true) }
@@ -359,26 +355,5 @@ final class FlowAuthoringHistory {
   private func regularDirectory(_ url: URL) throws {
     let info = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
     guard info.isDirectory == true, info.isSymbolicLink != true else { throw FlowPortfolioError.unavailable("Authoring history directory is missing or unsafe.") }
-  }
-  private func durableFile(_ bytes: Data, at url: URL) throws {
-    let fd = Darwin.open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-    guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    defer { Darwin.close(fd) }
-    try bytes.withUnsafeBytes { buffer in
-      var offset = 0
-      while offset < buffer.count {
-        let count = Darwin.write(fd, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
-        if count < 0 && errno == EINTR { continue }
-        guard count > 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        offset += count
-      }
-    }
-    guard fsync(fd) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-  }
-  private func syncDirectory(_ url: URL) throws {
-    let fd = Darwin.open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-    guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    defer { Darwin.close(fd) }
-    guard fsync(fd) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
   }
 }

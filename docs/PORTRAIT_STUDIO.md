@@ -178,13 +178,14 @@ process/log/XML/refusal artifacts and scope are in
    **Broad sample** starts a fresh wide root; **Back** and branch history restore
    saved sets without rendering or recording preference. New branches and unchosen
    siblings remain exactly usable through multiple levels, photo/region switches
-   and reopening while their private disk closures remain within the history bound.
-   The RAM hot tier remains count/byte limited and rehydrates verified material
-   without rendering. The private disk spool permits at most 512 entries, 2 GiB
-   of logical file bytes in total and 64 MiB per exact closure, including staging
-   and complete orphan entries. It never silently evicts an older promised branch
-   to admit new work: quota refusal stops new generation locally and preserves
-   existing history. Legacy pre-spool drawings with genuinely missing artifacts
+   and reopening. Selected closure materialization and the RAM hot tier remain
+   count/byte limited; older branches rehydrate verified material without rendering. Durable authored history can grow with use; there is no
+   lifetime candidate count or aggregate-byte generation quota. Immutable manifests
+   and private closure parts share the Library's content-addressed objects, so the
+   same original Photo or prepared input is not copied per candidate. One exact
+   closure remains bounded to 64 MiB and 32 parts; an oversized result is refused
+   locally. Actual filesystem failures use the normal persistence recovery path.
+   Older branches are never silently evicted to admit new work. Legacy pre-spool drawings with genuinely missing artifacts
    may remain **Preview only**, with the reason and unavailable actions explicit. Completed tiles and history
    remain navigable during generation; replacing a request cancels stale publication.
    **Edit drawing** opens line editing separately from the tile's direction choice.
@@ -416,7 +417,7 @@ The concrete `DrawingLibrary` actor owns the selected directory:
 ```text
 drawing-library.sqlite   strict local schema 10, profile adaptiveplotter.drawing-library/1
 objects/sha256/<digest>   immutable content-addressed records and assets
-flow-authoring-history-v1/ private bounded exact candidate closure spool
+flow-authoring-history-v1/ optional pre-CAS private history, selected reads only
 ```
 
 SQLite owns transactional catalog and authoring metadata. Sources, prepared inputs,
@@ -429,11 +430,16 @@ owner before retrying an uncertain commit. No separate portfolio head or delta
 publisher remains.
 
 New generated candidates have hash-anchored immutable private history closures,
-with a bounded RAM hot tier. This history is separate from retained gallery Drawings
-and learning judgments. Photo/region navigation and reopening do not delete or
-regenerate within-bound alternatives. The single store writer publishes each
-complete closure atomically before its candidate metadata, accounts staging and
-complete orphans against quota, and refuses new admission when full. Missing or
+with a bounded RAM hot tier. This history is separate from retained gallery Drawings,
+prepared-input browser entries and learning judgments. Photo/region navigation and
+reopening do not delete or regenerate alternatives. The single store writer commits
+candidate metadata and every manifest/part reference together through the common
+Library journal, reusing verified existing CAS objects without restaging their bytes.
+The bounded reuse cache stores filesystem proofs, not asset data; changed files are
+reverified, and raw reads always verify their content. Durable history has no lifetime
+entry or aggregate-byte quota; each closure/read remains bounded. Existing private-v1
+entries are read only when selected and are not scanned or counted to admit new work.
+A corrupt marked CAS closure never falls back to a private directory. Missing or
 corrupt material fails visibly; legacy missing closures are not invented.
 Selection, committed pruning and explicit Plot handoff retain exact immutable
 revisions in the common Library; pruning creates a child reference and preserves

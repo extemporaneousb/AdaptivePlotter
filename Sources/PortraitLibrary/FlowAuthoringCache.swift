@@ -68,7 +68,7 @@ extension FlowPortfolioStore {
     if value.authoringClosure != nil {
       guard let source = state.sources.first(where: { $0.id == value.sourceID }),
         let round = state.rounds.first(where: { $0.id == value.roundID }) else { return "History source or round is unavailable." }
-      do { try history.availability(candidate: value, source: source, round: round); return nil }
+      do { try await history.availability(candidate: value, source: source, round: round, library: library); return nil }
       catch { return "History unavailable: " + error.localizedDescription }
     }
     if try await historicalCandidate(id) != nil { return nil }

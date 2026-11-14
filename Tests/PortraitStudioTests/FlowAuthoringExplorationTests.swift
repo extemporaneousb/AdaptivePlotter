@@ -122,11 +122,11 @@ struct FlowAuthoringExplorationTests {
     #expect(Set(unretained.map(\.id)) == Set(candidates.dropFirst().map(\.id)))
     #expect(await first.shutdown())
     // Cold reopening normally rehydrates exact siblings. Remove only their
-    // unretained private closures to exercise a genuinely unavailable history.
+    // unretained private manifests to exercise a genuinely unavailable history.
     for candidate in unretained {
-      try FileManager.default.removeItem(at: privateHistoryEntry(root, candidate: candidate.id))
+      try FileManager.default.removeItem(at: privateHistoryEntry(root, candidate: candidate))
     }
-    #expect(FileManager.default.fileExists(atPath: privateHistoryEntry(root, candidate: selected.id).path))
+    #expect(FileManager.default.fileExists(atPath: privateHistoryEntry(root, candidate: selected).path))
     let model = FlowAuthoringModel(directory: root, render: FlowAuthoringFixture.render)
     await model.open()
     #expect(model.previews[expired.id] != nil && model.candidateUnavailableReason(expired) != nil)
@@ -354,7 +354,7 @@ struct FlowAuthoringExplorationTests {
     let first = try #require(model.roundCandidates.first), store = try #require(model.store)
     await model.browseCandidate(first.id)
     let exact = try await store.candidateProgram(first.id)
-    let closure = privateHistoryEntry(root, candidate: first.id)
+    let closure = privateHistoryEntry(root, candidate: first)
     let held = root.appendingPathComponent("held-private-" + first.id.uuidString.lowercased(), isDirectory: true)
     try FileManager.default.moveItem(at: closure, to: held)
     defer {
@@ -495,9 +495,14 @@ private actor ExplorationRenderGate {
   func release() { releaseWaiter?.resume(); releaseWaiter = nil; paused = false }
 }
 
-private func privateHistoryEntry(_ root: URL, candidate: UUID) -> URL {
-  root.appendingPathComponent("flow-authoring-history-v1", isDirectory: true)
-    .appendingPathComponent(candidate.uuidString.lowercased(), isDirectory: true)
+private func privateHistoryEntry(_ root: URL, candidate: FlowPortfolioCandidate) -> URL {
+  if candidate.authoringClosureLocation?.storage == "library-assets/1", let closure = candidate.authoringClosure {
+    // The identity-bound manifest is unique; source/input parts may be shared
+    // with other candidates and must never be removed to simulate this fault.
+    return root.appendingPathComponent("objects/sha256/" + closure.sha256)
+  }
+  return root.appendingPathComponent("flow-authoring-history-v1", isDirectory: true)
+    .appendingPathComponent(candidate.id.uuidString.lowercased(), isDirectory: true)
 }
 private actor ExplorationRenderCounter {
   private(set) var calls = 0
