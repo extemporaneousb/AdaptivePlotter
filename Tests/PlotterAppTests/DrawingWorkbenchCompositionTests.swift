@@ -56,7 +56,7 @@ struct DrawingWorkbenchCompositionTests {
     let blocked = app.testPlotterUIProjection()
     let blockedDiagnostics = WorkbenchDebugSnapshot(application: app, projection: blocked.semantic)
     #expect(blockedDiagnostics.diagnostics.contains {
-      $0.contains("Drawing run:") && $0.contains("Confirm that the current sheet covers the drawing area.")
+      $0.contains("Drawing run:") && $0.contains("Open Paper… and confirm that the current sheet covers the highlighted drawing area.")
     })
     try await f.submit(.assertPaperCoverage)
     #expect(app.drawingDraftSnapshot.paperCoverageObservation?.frame.frameID == paperFrame.frame.id)
@@ -405,6 +405,7 @@ struct DrawingWorkbenchApplicationFixture {
     receivedDrawings: ReceivedDrawingStore? = nil,
     drawingMaterials: DrawingMaterialLibrary? = nil,
     verifyPhysicalPose: Bool = true,
+    restoreSavedLearning: Bool = true,
     legacyTemplate: Bool = false,
     checkpointSaveFails: Bool = false,
     holdsManualJog: Bool = false,
@@ -455,10 +456,12 @@ struct DrawingWorkbenchApplicationFixture {
     await app.establishMachineSession(machine.descriptor)
     await submitControllerSession(app, .requestPassiveProbe)
     await submitObservationConfigurationForTest(app, .selectSource(.live, camera.device.id))
-    try await applyCompleteSavedLearning(app)
-    #expect(app.interactiveLearningIsComplete)
-    #expect(app.tipCameraRegistration == accepted.registration)
-    if verifyPhysicalPose {
+    if restoreSavedLearning {
+      try await applyCompleteSavedLearning(app)
+      #expect(app.interactiveLearningIsComplete)
+      #expect(app.tipCameraRegistration == accepted.registration)
+    }
+    if verifyPhysicalPose && restoreSavedLearning {
       // Establish current physical authority through the rendered production
       // request and coherent synthetic camera/controller evidence. A fixture
       // must never turn Saved Learning itself into current-pose authority.

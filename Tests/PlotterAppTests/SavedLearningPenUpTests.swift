@@ -697,7 +697,7 @@ private struct SavedCameraCalibrationFixture {
       let domain = try #require(checkpoint.machineCamera).registration.applicabilityRectangle
       try await machine.setPosition(x: domain.maxX + 10, y: (domain.minY + domain.maxY) / 2)
     }
-    await machine.setPenState(penState)
+    await machine.setPenState(verifyPhysicalPose ? penState : .unknown)
     let clock = ComputationTestClock()
     clock.set(max(clock.read(), accepted.frame.frame.captureNanoseconds))
     let capAnchor = try #require(checkpoint.machineCamera).registration.fit.cameraPoint(
@@ -749,6 +749,11 @@ private struct SavedCameraCalibrationFixture {
       await machine.setPenState(.up)
       _ = await app.refreshControllerSessionSnapshot()
       try await reestablishPhysicalPositionForTest(app)
+      await machine.setPenState(penState)
+      _ = await app.refreshControllerSessionSnapshot()
+    } else if !verifyPhysicalPose {
+      // This fixture explicitly asks for no position proof. Establish the
+      // requested pen state after restore so automatic recovery cannot supply it.
       await machine.setPenState(penState)
       _ = await app.refreshControllerSessionSnapshot()
     }

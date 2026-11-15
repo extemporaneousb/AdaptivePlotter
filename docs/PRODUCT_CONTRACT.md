@@ -1671,8 +1671,13 @@ Learning hidden or Learning switched off. Its toolbar availability requires LIVE
 a selected connected controller, and Motion enabled, followed by the existing
 saved-package and reset-owner admission checks. It dispatches the same canonical
 saved-package request as the Learning panel. The panel retains its nonmotion
-preconnection acceptance path. Applying Saved Learning neither moves hardware nor
-establishes current physical position; camera position recovery remains required.
+preconnection acceptance path. After Saved Learning acceptance settles, the existing
+capture-only camera recovery runs automatically when its prerequisites are present.
+Loading settings itself never proves position. Failed or unavailable camera recovery
+retains calibration and leaves position unverified with its reason visible. Recovery
+never raises the pen or travels implicitly. Its button remains visible with precise
+prerequisites and supports fresh checks and retries with Learning off. Connect and
+Enable Motion keep their existing semantics and controls.
 
 The session toolbar owns controller selection, amber Connect/Disconnect and
 Enable/Disable Motion actions, the diagnostic export tool, and the red Achtung! control. Existing typed Stop requests and Escape routing are
@@ -1760,14 +1765,16 @@ artwork or inset calibration outline. New sheet confirmation requires that full
 extent to be visible; hiding it does not revoke an existing assertion. A reopened
 Exercise 1.4 preparation view cannot confirm new coverage against retained older
 tip calibration before the current calibration finishes.
-Video drags pan by default. **Position Drawing** remains visible with a concise
+Video drags pan by default. **Move Drawing** remains visible with a concise
 reason when editing is unavailable. For ordinary artwork it retains the displayed
 exact video frame, labels it **Artwork positioning · frozen video**, and temporarily
 replaces the working-extent outline with the artwork rectangle and four resize
 handles. Dragging its
 body preserves the grab offset; dragging a corner resizes about its fixed center
-with authored aspect ratio and rotation preserved. **Apply Drawing Placement**
-commits the staged placement through the Draft owner; cancelling discards it.
+with authored aspect ratio and rotation preserved. Small **Accept** and **Cancel** buttons beside **Move Drawing** commit the staged
+placement through the Draft owner or discard it. No second placement button is
+shown at the bottom of the video. An accepted placement change durably clears
+paper confirmation; a failed clear refuses the edit and preserves the old placement.
 Both restore the admitted working-extent outline with the independently placed
 artwork strokes. Paper confirmation cannot occur during this temporary edit view.
 Draw remains unavailable while a frame edit is pending or staged, including a
@@ -1792,7 +1799,18 @@ prepares that exact reference when the operator clicks, because ambient analysis
 does not refresh the cached controls. A context change during preparation still
 refuses confirmation. Creative authoring, previews, ratings, galleries and training
 precede projection. When the plotter camera is selected, placement and material
-setup follow, then paper confirmation and Draw at the bottom. Active drawing, evidence-processing and retained terminal status remain outside
+setup follow, then paper confirmation and Draw at the bottom. One **Paper…** panel
+combines same/new sheet selection and confirmation of the highlighted area.
+**Confirm paper** records a declared replacement first, then submits the existing
+exact-frame coverage or calibration-placement assertion. New-sheet history and
+coverage remain distinct facts: a later assertion failure cannot undo a committed
+replacement or confirm changed geometry. Same-sheet confirmation never rotates
+paper identity. Calibration-placement confirmation does not establish drawing
+readiness. **Contact Plane Changed** remains under the panel's additional options.
+Draw stays visible in every state, with current blockers directly below it and
+**Ready to draw** when admitted. Blocking explanations and enabled state consume
+the same readiness result; independent prerequisites are reported together. Other
+disabled controls explain their blocker through help/accessibility or inline text. Active drawing, evidence-processing and retained terminal status remain outside
 the scroll area alongside the global Stop path. Failed and interrupted outcomes
 retain their exact execution reason behind the existing question-mark help. The
 existing RunID-bound **Prepare Next Drawing** handoff acknowledges the result;

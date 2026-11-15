@@ -187,7 +187,7 @@ struct WorkbenchToolbar: ToolbarContent {
     .buttonStyle(.borderless)
     .disabled(!saved.isAvailable)
     .accessibilityIdentifier("workbench.savedLearning")
-    .help(saved.unavailableReason ?? "Restore compatible accepted Learning without motion")
+    .help(saved.unavailableReason ?? "Restore Saved Learning, then verify current position from the camera without movement")
   }
 
   private func submit(_ actionID: PlotterUIActionID) {

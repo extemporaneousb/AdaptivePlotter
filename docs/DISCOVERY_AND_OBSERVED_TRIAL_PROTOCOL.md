@@ -51,9 +51,14 @@ For toolbar restoration, select the LIVE controller, choose **Connect**, then
 visible with Guided Learning hidden and Learning switched off, and identifies its
 missing prerequisite when unavailable. It reuses the canonical saved-package
 request and existing reset-owner admission. The Learning panel still permits
-nonmotion saved-package acceptance before connection. Neither acceptance path
-verifies current physical position: **Re-establish Position from Camera** still
-requires current exact-frame cap evidence and settled Pen Up before Drawing.
+nonmotion saved-package acceptance before connection. After acceptance settles,
+either path automatically attempts **Re-establish
+Position from Camera** using the existing capture-only owner. It requires the
+current Plotter camera, compatible cap map, unambiguous Idle controller and
+settled Pen Up. It never raises the pen or travels implicitly. Missing prerequisites
+or failed evidence retain Saved Learning while position stays unverified, with
+the reason displayed. The camera action remains visible for explicit retry,
+including with Learning off. Connect and Enable Motion retain their existing behavior.
 
 Before Learning Path motion, **Connect** performs only the complete passive
 controller probe. A returned alarm or fault remains visible as typed current
@@ -539,11 +544,12 @@ Before tip calibration is accepted, place paper using the selected working exten
 and visible canonical four-circle frame, centers and paths. These calibration guides remain visible when
 artwork is hidden and never substitute for its exact preview frame or geometry.
 The machine-camera/cap-map guide explicitly
-has unknown tip offset and may extrapolate. **Accept Sheet Placement** records
-only this qualified placement assertion for the current sheet and displayed
-context. It does not complete calibration or enable calibrated Drawing. Start the
+has unknown tip offset and may extrapolate. **Paper… → Confirm paper** records
+only this qualified placement assertion when calibration marks are highlighted,
+for the current sheet and displayed context. It does not complete calibration or
+enable calibrated Drawing. Start the
 next admissible Learning action explicitly. Once compatible tip calibration exists,
-use **Sheet Covers Target** for explicit coverage of the retained working extent.
+use **Paper… → Confirm paper** for explicit coverage of the retained working extent.
 This never claims that the sheet covers the full machine Boundary. Historical
 calibrations without a selected extent retain their prior Boundary target.
 A disabled action explains
@@ -551,8 +557,11 @@ which current frame, Boundary or compatible calibration is missing.
 
 After a new sheet on the explicitly unchanged contact plane:
 
-1. Wait for the current run and evidence publication to settle; then record
-   **New Sheet — Same Contact Plane**. Persistence precedes publication of the
+1. Wait for the current run and evidence publication to settle. Open **Paper…**,
+   select **I installed a new sheet**, check that it covers the highlighted area,
+   and choose **Confirm paper**. The one action first records the replacement and
+   then confirms coverage through the existing owners. Persistence precedes
+   publication of the
    new paper instance. A failed or partially completed checkpoint save restores
    the exact predecessor. Once committed, final coverage/run handoff and
    projection settle even if shutdown begins.
@@ -570,10 +579,12 @@ After a new sheet on the explicitly unchanged contact plane:
    The existing no-redraw owner indexes the new current sheet; a previous
    sheet's completed plan does not prohibit the next sheet, and same-sheet
    possible ink still prohibits replay.
-3. Inspect the calibrated outline on the current compatible camera view, then
-   **Sheet Covers Target**. Before tip acceptance, use the qualified guide and
-   **Accept Sheet Placement** instead; that assertion does not satisfy Drawing
-   readiness. The action seals the frame actually visible on
+3. For an existing sheet, open **Paper…**, keep **Same sheet**, check coverage
+   and choose **Confirm paper**. Before tip acceptance the same control confirms
+   coverage of the highlighted calibration marks; that assertion does not satisfy
+   Drawing readiness. A replacement that commits but cannot confirm coverage
+   remains a new sheet with unconfirmed coverage; review the current area and retry.
+   The action seals the frame actually visible on
    the canvas and binds it to the relevant coverage or qualified placement assertion;
    passive video does no hashing. A late older analysis cannot substitute another
    frame. Draft and Run retain a coherent selected frame. Neither assertion
@@ -675,7 +686,7 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    the box entirely; it does not leave another Review notification on the canvas.
 2. Enable **Drawing Region** in Video Settings and confirm its full admitted
    working-extent outline is visible. Place the current physical sheet over it
-   and choose **Sheet Covers Target**. New confirmation is unavailable while the
+   and choose **Paper… → Confirm paper**. New confirmation is unavailable while the
    region is hidden, an artwork-frame edit temporarily replaces it, or reopened
    Exercise 1.4 preparation has not finished calibration. Historical
    calibration without a selected extent retains the Boundary outline. The assertion
@@ -687,27 +698,33 @@ separate facts; completion does not assert general adaptive-drawing readiness.
    scale or rotation. The frame derives from the authored field extent, including
    intentional margins. The plan remains deterministic. Active Learning separately
    supplies sealed coverage-experiment programs.
-4. Choose **Position Drawing** on the video; its disabled reason identifies
+4. Choose **Move Drawing** on the video; its disabled reason identifies
    missing prerequisites. The displayed exact frame is retained for this edit
    with **Artwork positioning · frozen video** visible. The artwork frame temporarily
    replaces the paper-extent outline. Drag the artwork
    rectangle to move it; drag any corner handle to
    resize uniformly about its center while preserving rotation. The complete
-   rectangle stays inside the current working extent and machine Boundary. **Apply Drawing
-   Placement** commits the staged placement; cancelling discards it. Both restore
+   rectangle stays inside the current working extent and machine Boundary. The small
+   **Accept** button beside **Move Drawing** commits the staged placement;
+   **Cancel** beside it discards the edit. Both restore
    the full working-extent outline with the independently placed artwork strokes.
    Size and Rotation controls use the same containment; Fit and Size retain no
    implicit 90% margin. Each applied edit creates an
    immutable placement and content-addressed plan without moving hardware,
-   changing the Boundary or repeating Learning or unchanged sheet coverage.
+   changing the Boundary or repeating Learning. Accepted placement changes clear
+   paper confirmation; confirm the highlighted area again in **Paper…**.
    **Draw frame** optionally inks this placed rectangle before the artwork in
    that same plan. The fixed Learning Drawing Border remains unchanged.
 5. Review the exact plan in Drawing and on advancing compatible plotter frames.
    The Drawing image remains visible above scrolling controls. Ordinary portrait
    drawing has no pre-run learning-role selector. Active Learning assigns its
    predeclared experimental roles internally.
-6. Press **Draw** only when LIVE controller admission, Motion, current
-   paper coverage, and the exact plan are all current. The existing Run owner
+6. **Draw** remains visible. Its current blocking reasons are written directly
+   beneath it; independent prerequisites are listed together by the same readiness
+   check that admits drawing. When enabled it says **Ready to draw**. Other blocked
+   controls expose their reason in help/accessibility text or inline. Press **Draw**
+   only when LIVE controller admission, Motion, position, current paper coverage,
+   and the exact plan are all current. The existing Run owner
    immediately exposes pending Stop, preserves the original request and reviewed
    plan, and commits its exact raw attempt and accepted job/Run link before effects.
    Retrying a request or recovering publication never starts another drawing.

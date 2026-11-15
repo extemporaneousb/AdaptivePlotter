@@ -768,6 +768,7 @@ public actor PlotterDrawingDraftRuntime {
     let environment = facts.revisions.environment
     var state = states[environment] ?? SourceState()
     let projectionMatches: Bool
+    let precedingState = state
     switch submission.intent {
     case .placeAtCameraPoint, .assertPaperCoverage:
       projectionMatches = submission.projection == current.projection
@@ -1136,6 +1137,22 @@ public actor PlotterDrawingDraftRuntime {
       }
     case .selectResidualRecord, .analyzeSelectedResiduals:
       break // Handled above without changing execution identity.
+    }
+
+    if state.placementID != precedingState.placementID,
+      state.paperCoverageObservation != nil || state.sheetPlacementAssertion != nil {
+      do {
+        if environment == .live { try await paperPersistence.clear() }
+        state.paperCoverageObservation = nil
+        state.sheetPlacementAssertion = nil
+      } catch {
+        // Keep the preceding placement if its coverage cannot be invalidated
+        // durably. A restart must not resurrect approval for the new placement.
+        state = precedingState
+        return refuse(submission, state: &state, facts: facts, owner: Authority.paper,
+          reason: .paperPersistenceFailed(String(describing: error)),
+          remedy: "Paper confirmation could not be cleared. Resolve the save error before moving the drawing.")
+      }
     }
 
     state.revision = PlotterDrawingDraftRevision(rawValue: state.revision.rawValue &+ 1)

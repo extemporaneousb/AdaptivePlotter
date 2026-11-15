@@ -48,9 +48,9 @@ selection/proposal state; Restart/Redo explicitly prepare a new attempt. Neither
 replays marks. Completed or possibly contacted locations stay excluded on the same
 sheet. Record a new sheet on the same contact plane, inspect the persistent planned
 frame/circles, accept placement and explicitly start another admissible attempt.
-Before accepted tip registration the button is **Accept Sheet Placement**, with
-unknown tip-offset/extrapolation qualification; after calibration it is **Sheet
-Covers Target**. Both refuse stale displayed context. Placement acceptance is
+Before accepted tip registration **Paper… → Confirm paper** confirms calibration-mark coverage, with
+unknown tip-offset/extrapolation qualification; after calibration the same control
+confirms coverage of the drawing region. Both refuse stale displayed context. Placement acceptance is
 separate from tip acceptance and calibrated drawing readiness. Shutdown remains
 terminal after every cancellation, reset and paper transition.
 
@@ -275,15 +275,18 @@ Dependency behavior is intentionally asymmetric:
   It remains visible with Guided Learning hidden and Learning off; its disabled
   reason identifies the missing prerequisite. The Learning panel preserves its
   existing nonmotion preconnection acceptance path.
-- **New Sheet — Same Contact Plane** preserves completed Learning/calibration,
-  clears prior-sheet transients after persistence, and requires current exact-frame
-  **Confirm sheet coverage**. **Contact Plane Changed** invalidates the dependent
+- **Paper…** combines **Same sheet** / **I installed a new sheet**, the highlighted-area
+  coverage checkbox and **Confirm paper**. A new sheet preserves completed Learning,
+  clears prior-sheet transients after persistence, then confirms current exact-frame
+  coverage. A coverage failure retains the committed new sheet and explains the retry. **Contact Plane Changed** invalidates the dependent
   tip calibration. Compatible **Use Saved Learning** recovery remains available
   after its original startup application when only active calibration was lost.
-- **Use Saved Learning** retains finished milestones while current
-  physical position remains unverified. **Re-establish Position from Camera**
-  uses the existing tip-checkpoint recovery action with current exact-frame cap
-  evidence and settled Pen Up; it performs no motion or new marks. Draw remains
+- **Use Saved Learning** retains finished milestones, then automatically requests
+  **Re-establish Position from Camera** after acceptance settles. The existing
+  capture-only owner requires current exact-frame cap evidence and settled Pen Up;
+  it performs no movement, pen actuation or new marks. Missing prerequisites or
+  failed evidence leave position unverified with a visible reason. The recovery
+  button remains available for explicit checks and retry, including with Learning off. Draw remains
   blocked until that recovery succeeds. A restored cap-map prefix also requires
   recovery before calibration marking. Controller continuity loss requires a
   fresh observation even when MPos is unchanged.

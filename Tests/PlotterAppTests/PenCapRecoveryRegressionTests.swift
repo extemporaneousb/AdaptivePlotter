@@ -454,6 +454,9 @@ struct PenCapRecoveryRegressionTests {
     try await stores.save(accepted)
     let machine = try LowerMachineSessionFixture(log: EventLog(),
       relativeJogSettlementOffset: Vector2(dx: 0, dy: 0))
+    // Keep this manual-recovery fixture unverified through Saved Learning.
+    // The requested fresh observation happens below, after explicit Pen Up.
+    await machine.setPenState(.unknown)
     let checkpoint = try #require(accepted.checkpoint.machineArtifacts)
     let map = try #require(accepted.checkpoint.machineCamera).registration
     let center = try #require(checkpoint.centerArrivalPosition)

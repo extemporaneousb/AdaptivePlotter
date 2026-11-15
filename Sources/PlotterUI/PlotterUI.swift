@@ -51,6 +51,7 @@ public enum PlotterUIRetainedComparisonIntent: String, Codable, Hashable, Sendab
 
 public enum PlotterUIPaperRequest: Hashable, Sendable {
   case newSheetOnCurrentPlane
+  case confirmCoverage(replacingSheet: Bool)
   case contactPlaneChanged
 }
 

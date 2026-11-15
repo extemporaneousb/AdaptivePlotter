@@ -267,7 +267,14 @@ extension SavedLearningCompletionTests {
             await app.shutdown()
             return
           }
-          #expect(issue.reason == .planMayAlreadyContainInk)
+          #expect(issue.reason == .paperCoverageNotCurrent)
+          // A new placement first needs fresh coverage. Confirming it still
+          // cannot erase the same-sheet ink record or authorize a replay.
+          try await f.submit(.assertPaperCoverage)
+          try await waitUntil {
+            guard case .unavailable(let current) = app.drawingRunSnapshot?.readiness else { return false }
+            return current.reason == .planMayAlreadyContainInk
+          }
           #expect(app.currentPaperRevisionContext == originalPaper)
           #expect(app.drawingDraftSnapshot.plan?.contentHash == terminal.record.plan.contentHash)
         }

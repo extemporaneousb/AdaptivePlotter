@@ -178,6 +178,12 @@ struct OperatorRequestButton: View {
   var showsUnavailableReason = true
   @State private var feedback = OperatorRequestFeedback()
 
+  var disabledReason: String? {
+    if feedback.isPending { return "Request sent; waiting for completion." }
+    guard request == nil else { return nil }
+    return unavailableReason ?? "Refresh this control to obtain its current request."
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
       Button {
@@ -204,16 +210,18 @@ struct OperatorRequestButton: View {
       }
       .operatorButton(role, isEnabled: request != nil && !feedback.isPending)
       .onChange(of: request?.id) { _, _ in feedback.presentationChanged() }
-      .help(feedback.isPending ? "Request sent; waiting for completion" : unavailableReason ?? title)
-      .accessibilityValue(feedback.isPending ? "In progress" : feedback.result ?? unavailableReason ?? "Ready")
+      .help(disabledReason ?? title)
+      .accessibilityHint(disabledReason ?? title)
+      .accessibilityValue(feedback.isPending ? "In progress" : feedback.result ?? disabledReason ?? "Ready")
       if let startedAt = feedback.startedAt {
         OperatorRequestElapsedTime(startedAt: startedAt)
       } else if let detail = feedback.result, !feedback.wasAccepted {
         Text(detail).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-      } else if let unavailableReason, showsUnavailableReason, !feedback.isPending {
-        Text(unavailableReason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+      } else if let disabledReason, showsUnavailableReason, !feedback.isPending {
+        Text(disabledReason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
       }
     }
+    .help(disabledReason ?? title)
   }
 }
 

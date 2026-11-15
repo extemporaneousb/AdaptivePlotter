@@ -709,6 +709,7 @@ struct ActionSurface: View {
   @State private var capReferenceRegion: AxisAlignedBounds<CameraPixelSpace>?
   @State private var drawsCapReference = true
   @State private var movesDrawing = false
+  @State private var appliesDrawingPlacement = false
   @State private var frameEditID: UUID?
   @State private var frameEditProjection: PlotterDrawingDraftProjectionReference?
   @State private var drawingDrag: DrawingFrameDrag?
@@ -799,9 +800,6 @@ struct ActionSurface: View {
       presentation: presentation,
       projection: plotterUIProjection
     )
-    let drawingPlacementRequest = pendingDrawingPlacement.flatMap { placement in
-      plotterUIProjection.request(matching: .drawingDraft(.placeAtCameraPoint(placement)))
-    }
     return GeometryReader { proxy in
       let transform = presentation.displayedFrame.flatMap { displayed in
         CameraPixelToViewTransform(
@@ -900,17 +898,6 @@ struct ActionSurface: View {
               .foregroundStyle(.orange)
               .padding(6)
               .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 6))
-          }
-          if pendingDrawingPlacement != nil {
-            Button("Apply Drawing Placement") {
-              submitPendingDrawingPlacement()
-            }
-            .operatorButton(.affirmative, isEnabled: drawingPlacementRequest != nil)
-            .help(
-              drawingPlacementRequest == nil
-                ? "Refresh the exact Drawing placement before applying it."
-                : "Apply the exact staged camera-frame placement."
-            )
           }
         }
         .padding(8)
@@ -1088,18 +1075,20 @@ struct ActionSurface: View {
             pendingPointSelection = nil
           }
           .disabled(drawsCapReference)
+          .help(drawsCapReference ? "Reference selection is active; drag its bounds on the video." : "Select the tracking surface.")
           Button("Pan Video") {
             drawsCapReference = false
             pendingPointSelection = nil
           }
           .disabled(!drawsCapReference || presentation.analysisRegionIsLocked)
+          .help(presentation.analysisRegionIsLocked ? "The active observation owns the video region." : !drawsCapReference ? "Video panning is already active." : "Pan the video.")
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
       } else {
-        Button {
-          if frameEditID != nil { cancelFrameEdit() }
-          else if let frame = presentation.displayedFrame, let beginFrameEdit {
+        HStack(spacing: 6) {
+          Button("Move Drawing") {
+            guard frameEditID == nil, let frame = presentation.displayedFrame, let beginFrameEdit else { return }
             let id = UUID()
             frameEditID = id
             frameEditProjection = presentation.drawingStudioCanvas?.draftProjection
@@ -1116,24 +1105,32 @@ struct ActionSurface: View {
               }
             }
           }
-        } label: {
-          Label(frameEditID != nil ? "Cancel Moving" : "Move Drawing",
-            systemImage: frameEditID != nil ? "xmark" : "hand.draw")
+          .disabled(frameEditID != nil || positioningReason != nil || beginFrameEdit == nil)
+          .accessibilityIdentifier("drawing.editFrame")
+          .help(frameEditID != nil ? "Drawing movement is active. Accept or Cancel this placement."
+            : positioningReason ?? (beginFrameEdit == nil ? "Drawing placement is unavailable in this view."
+              : "Drag to move; drag a corner to resize. Accept keeps the placement."))
+          Button("Accept") { submitPendingDrawingPlacement() }
+            .disabled(drawingPlacementUnavailableReason != nil)
+            .accessibilityIdentifier("drawing.acceptPlacement")
+            .help(drawingPlacementUnavailableReason ?? "Keep this drawing placement.")
+          if frameEditID != nil {
+            Button("Cancel") { cancelFrameEdit() }
+              .disabled(appliesDrawingPlacement)
+              .accessibilityIdentifier("drawing.cancelPlacement")
+              .help(appliesDrawingPlacement ? "Wait for placement acceptance to finish." : "Discard the staged placement.")
+          }
         }
-        .disabled(frameEditID == nil && (positioningReason != nil || beginFrameEdit == nil))
-        .accessibilityIdentifier("drawing.editFrame")
-        .accessibilityLabel(frameEditID != nil ? "Cancel Moving" : "Move Drawing")
-        .help("Drag the frame body to move. Drag a corner to resize about the center. Apply to update the drawing.")
-        .buttonStyle(.borderedProminent)
-        .controlSize(.regular)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
         if frameEditID == nil, let reason = positioningReason {
           Text(reason).font(.caption).foregroundStyle(.white)
             .padding(6).background(.black.opacity(0.78))
         }
       }
       if movesDrawing {
-        Text("Drag drawing to move · corners to resize · Apply to keep")
-          .font(.caption.bold()).foregroundStyle(.yellow)
+        Text(appliesDrawingPlacement ? "Accepting placement…" : "Drag to move · corners to resize · Accept to keep")
+          .font(.caption).foregroundStyle(.white)
           .padding(6).background(.black.opacity(0.78))
       }
       if let sourceBadgeLabel = presentation.sourceBadgeLabel {
@@ -1203,6 +1200,7 @@ struct ActionSurface: View {
             }
           }
           .disabled(workingRegion.unavailableReason != nil)
+          .help(workingRegion.unavailableReason ?? "Edit the paper working region.")
           .accessibilityIdentifier("learning.editWorkingRegion")
         } else {
           Button("Default") { stagedWorkingRegion = workingRegion.context.boundary }
@@ -1283,7 +1281,17 @@ struct ActionSurface: View {
     drawingPlacementRefusal = nil
   }
 
+  private var drawingPlacementUnavailableReason: String? {
+    if appliesDrawingPlacement { return "Wait for placement acceptance to finish." }
+    guard frameEditID != nil else { return "Turn on Move Drawing first." }
+    guard let placement = pendingDrawingPlacement else { return "Move or resize the drawing before accepting." }
+    let action = plotterUIProjection.actions.first { $0.intent == .drawingDraft(.placeAtCameraPoint(placement)) }
+    return action?.unavailableReason
+      ?? (action?.isAvailable == true ? nil : "Refresh the current drawing placement before accepting it.")
+  }
+
   private func submitPendingDrawingPlacement() {
+    guard !appliesDrawingPlacement else { return }
     guard let placement = pendingDrawingPlacement else {
       drawingPlacementRefusal = "Stage a Drawing placement before applying it."
       return
@@ -1293,7 +1301,9 @@ struct ActionSurface: View {
       drawingPlacementRefusal = "Refresh the exact Drawing placement before applying it."
       return
     }
+    appliesDrawingPlacement = true
     Task { @MainActor in
+      defer { appliesDrawingPlacement = false }
       let disposition = await plotterUIIntentSink.submitPlotterUIRequest(request)
       if case .accepted = disposition, pendingDrawingPlacement == placement {
         drawingPlacementRefusal = nil

@@ -78,6 +78,9 @@ enum PlotterAppUIActionID {
   static let observationDiagnostics = PlotterUIActionID(rawValue: "application.observation.diagnostics")
   static let observationRegion = PlotterUIActionID(rawValue: "application.observation.region")
   static let paperNewSheet = PlotterUIActionID(rawValue: "application.paper.new-sheet")
+  static func paperConfirmation(replacingSheet: Bool) -> PlotterUIActionID {
+    .init(rawValue: "application.paper.confirm-" + (replacingSheet ? "new" : "current"))
+  }
   static let paperContactPlane = PlotterUIActionID(rawValue: "application.paper.contact-plane")
 
   static func controllerDevice(_ identifier: String) -> PlotterUIActionID {

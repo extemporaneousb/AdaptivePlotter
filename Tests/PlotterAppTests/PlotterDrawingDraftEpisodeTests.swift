@@ -462,7 +462,8 @@ struct PlotterDrawingDraftEpisodeTests {
     let edited = try applied(await runtime.submit(.init(projection: saved.projection,
       intent: .setRotationDegrees(15)), facts: facts))
     #expect(edited.rotationDegrees == 15)
-    #expect(edited.paperCoverageObservation == saved.paperCoverageObservation)
+    #expect(edited.paperCoverageObservation == nil)
+    #expect(await persistence.storedObservation == nil)
   }
 
   @Test("portrait fit preserves authored orientation and survives camera restart")
@@ -1166,6 +1167,37 @@ struct PlotterDrawingDraftEpisodeTests {
     #expect(await persistence.storedObservation == asserted.paperCoverageObservation)
   }
 
+  @Test("accepting changed placement clears durable paper approval or refuses the edit", arguments: [false, true])
+  func placementRequiresFreshPaperConfirmation(failsClear: Bool) async throws {
+    let fixture = try await DrawingDraftAuthorityFixtureCache.load()
+    let persistence = DraftPaperPersistenceProbe(failsClear: failsClear)
+    let runtime = PlotterDrawingDraftRuntime(paperPersistence: persistence)
+    let facts = fixture.facts(environment: .live)
+    let opened = try await open(runtime, facts: facts)
+    let confirmed = try applied(await runtime.submit(.init(projection: opened.projection,
+      intent: .assertPaperCoverage), facts: facts))
+    #expect(confirmed.paperCoverageIsCurrent)
+    let result = await runtime.submit(.init(projection: confirmed.projection,
+      intent: .setRotationDegrees(15)), facts: facts)
+    if failsClear {
+      guard case .paperPersistenceFailed = try refusal(result).reason else {
+        Issue.record("Expected the failed durable clear to refuse placement"); return
+      }
+      #expect(result.snapshot.placementID == confirmed.placementID)
+      #expect(result.snapshot.rotationDegrees == confirmed.rotationDegrees)
+      #expect(result.snapshot.paperCoverageIsCurrent)
+      #expect(await persistence.storedObservation == confirmed.paperCoverageObservation)
+    } else {
+      let moved = try applied(result)
+      #expect(moved.rotationDegrees == 15)
+      #expect(!moved.paperCoverageIsCurrent)
+      #expect(moved.paperCoverageObservation == nil)
+      #expect(await persistence.storedObservation == nil)
+      let reopened = PlotterDrawingDraftRuntime(paperPersistence: persistence)
+      #expect(!(await reopened.synchronize(facts)).paperCoverageIsCurrent)
+    }
+  }
+
   @Test("paper persistence failure refuses without publishing an assertion")
   func paperPersistenceFailureDoesNotPublish() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
@@ -1584,6 +1616,7 @@ private enum DraftPaperPersistenceError: Error {
 private actor DraftPaperPersistenceProbe: PlotterDrawingDraftPaperPersistence {
   private var blocksSave: Bool
   private let failsSave: Bool
+  private let failsClear: Bool
   private var saveStarted = false
   private var saveStartedWaiters: [CheckedContinuation<Void, Never>] = []
   private var saveRelease: CheckedContinuation<Void, Never>?
@@ -1591,9 +1624,10 @@ private actor DraftPaperPersistenceProbe: PlotterDrawingDraftPaperPersistence {
   private(set) var storedObservation: PaperCoverageObservation?
   private(set) var saveCount = 0
 
-  init(blocksSave: Bool = false, failsSave: Bool = false) {
+  init(blocksSave: Bool = false, failsSave: Bool = false, failsClear: Bool = false) {
     self.blocksSave = blocksSave
     self.failsSave = failsSave
+    self.failsClear = failsClear
   }
 
   func load() -> PaperCoverageObservation? { storedObservation }
@@ -1613,7 +1647,8 @@ private actor DraftPaperPersistenceProbe: PlotterDrawingDraftPaperPersistence {
     storedObservation = observation
   }
 
-  func clear() {
+  func clear() throws {
+    if failsClear { throw DraftPaperPersistenceError.saveFailed }
     storedObservation = nil
   }
 
@@ -1770,7 +1805,7 @@ extension PlotterDrawingDraftEpisodeTests {
 }
 
 extension PlotterDrawingDraftEpisodeTests {
-  @Test("atomic camera frame edits retain Boundary and paper coverage and refuse invalid or stale edits")
+  @Test("atomic camera frame edits retain Boundary, require new paper confirmation, and refuse invalid or stale edits")
   func atomicFramePlacement() async throws {
     let fixture = try await DrawingDraftAuthorityFixtureCache.load()
     let facts = fixture.facts()
@@ -1788,8 +1823,8 @@ extension PlotterDrawingDraftEpisodeTests {
       intent: .placeAtCameraPoint(placement)), facts: facts))
     #expect(edited.uniformScale == staged.geometry.placement.uniformScale)
     #expect(try #require(edited.machineCenter).distance(to: staged.geometry.placement.machineAnchor) < 1e-9)
-    #expect(edited.paperCoverageObservation == covered.paperCoverageObservation)
-    #expect(edited.paperCoverageIsCurrent)
+    #expect(edited.paperCoverageObservation == nil)
+    #expect(!edited.paperCoverageIsCurrent)
     #expect(edited.projection.externalFacts.drawableRegion == covered.projection.externalFacts.drawableRegion)
     #expect(edited.projection.externalFacts.drawingBorderBounds == covered.projection.externalFacts.drawingBorderBounds)
     #expect(edited.projection.externalFacts.registrationRevisionID == covered.projection.externalFacts.registrationRevisionID)
@@ -1952,7 +1987,7 @@ extension PlotterDrawingDraftEpisodeTests {
         throw FrameEditRunExclusionTestError.drawWasNotRefused
       }
       #expect(reason.reason == .unavailableAction)
-      #expect(reason.remedy == "Apply or Cancel Frame Edit before drawing.")
+      #expect(reason.remedy == "Accept or Cancel beside Move Drawing before drawing.")
       let pending = app.testPlotterUIProjection()
       #expect(pending.drawingStudio.runState == .unavailable(reason: reason.remedy))
       #expect(pending.semantic.request(matching: .drawingRun(.start)) == nil)
@@ -1992,13 +2027,16 @@ extension PlotterDrawingDraftEpisodeTests {
       await app.shutdown()
       throw FrameEditRunExclusionTestError.drawWasNotRefused
     }
-    #expect(stagedRefusal.remedy == "Apply or Cancel Frame Edit before drawing.")
+    #expect(stagedRefusal.remedy == "Accept or Cancel beside Move Drawing before drawing.")
     #expect(await fixture.planGate.request == nil)
     let apply = try #require(staged.semantic.request(matching: .drawingDraft(.placeAtCameraPoint(placement))))
     #expect(await app.submitPlotterUIRequest(apply) == .accepted(requestID: apply.id))
     #expect(app.drawingFrameEditSession == nil)
     let applied = try #require(app.drawingDraftSnapshot.plan)
     #expect(applied.placement == resized.geometry.placement)
+    #expect(!app.paperCoverageIsCurrent)
+    #expect(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)) == nil)
+    try await fixture.submit(.assertPaperCoverage)
     try await waitUntil { app.drawingRunSnapshot?.readiness == .ready }
     let draw = try #require(app.testPlotterUIProjection().semantic.request(matching: .drawingRun(.start)))
     let running = Task { await app.submitPlotterUIRequest(draw) }

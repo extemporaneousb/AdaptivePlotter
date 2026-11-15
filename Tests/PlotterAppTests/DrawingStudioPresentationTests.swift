@@ -57,8 +57,8 @@ struct DrawingStudioPresentationTests {
     #expect(await app.submitPlotterUIRequest(recoveryRequest) == .accepted(requestID: recoveryRequest.id))
     #expect(!app.controllerPoseApplicability.requiresPhysicalPositionForTest)
     #expect(app.interactiveLearningIsComplete)
-    #expect(currentView().positionRecoveryButton == nil)
-    #expect(currentView().positionRaisePenButton == nil)
+    #expect(currentView().positionRecoveryButton?.request != nil)
+    #expect(currentView().positionRecoveryButton?.unavailableReason == nil)
     await app.shutdown()
   }
 
@@ -122,14 +122,15 @@ struct DrawingStudioPresentationTests {
       #expect(inProgress.button.unavailableReason != disconnected.button.unavailableReason)
       await gate.release()
       #expect(await recovery.value == .accepted(requestID: request.id))
-      // Successful recovery consumes its availability in the retained owner.
-      // The resolved control disappears; its obsolete blocker must not remain.
+      // Recovery remains visible and can obtain fresh evidence again.
+      // Its obsolete blocker must not remain.
       let settledProjection = app.testPlotterUIProjection(selectedItemID: owner,
         includesLearningPath: true).semantic
       let settledView = DrawingStudioView(presentation: app.drawingStudioPresentation,
         plotterUIProjection: settledProjection, plotterUIIntentSink: app)
-      #expect(settledView.positionRecoveryButton == nil)
-      #expect(!settledProjection.actions.contains {
+      #expect(settledView.positionRecoveryButton?.request != nil)
+      #expect(settledView.positionRecoveryButton?.unavailableReason == nil)
+      #expect(settledProjection.actions.contains {
         if case .learningAction(let request) = $0.intent {
           return request.action == .tipCalibration(.revalidateCheckpoint)
         }

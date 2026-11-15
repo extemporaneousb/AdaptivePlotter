@@ -277,8 +277,14 @@ struct MotionAuthorizationPenPreparationTests {
     try await applyCompleteSavedLearning(app)
     #expect(await machine.requestedPenCommands == commandsBeforeLoad)
     #expect(app.interactiveLearningIsComplete)
-    #expect(app.tipCameraRegistration == accepted.registration)
-    #expect(app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    let automaticallyRecovered = !loadFirst && raisedValue == PenActuationProfile.initialDefaults.raisedSpindleValue
+    if automaticallyRecovered {
+      #expect(app.tipCameraRegistration?.revalidationEvidence != nil)
+      #expect(!app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    } else {
+      #expect(app.tipCameraRegistration == accepted.registration)
+      #expect(app.controllerPoseApplicability.requiresPhysicalPositionForTest)
+    }
     if loadFirst {
       let enable = try enableRequest(app)
       #expect(await app.submitPlotterUIRequest(enable) == .accepted(requestID: enable.id))
@@ -298,7 +304,7 @@ struct MotionAuthorizationPenPreparationTests {
     let recovery = try recoveryAction(app)
     #expect(recovery.isAvailable)
     #expect(recovery.unavailableReason == nil)
-    #expect(await camera.poseCaptureCount == 0)
+    #expect((await camera.poseCaptureCount > 0) == automaticallyRecovered)
     #expect(await machine.requestedFeeds.isEmpty)
     #expect(await machine.requestedDrawingStrokes.isEmpty)
     await app.shutdown()

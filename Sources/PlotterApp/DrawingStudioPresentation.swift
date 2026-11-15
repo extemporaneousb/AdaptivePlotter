@@ -206,6 +206,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
   let editingIsEnabled: Bool
   let runProjection: PlotterDrawingRunProjectionReference?
   let runState: DrawingStudioRunState
+  let positionRecoveryDetail: String?
   let noInkRetryRunID: RunID?
   let noInkRetryIsEnabled: Bool
   let execution: DrawingStudioExecutionPresentation?
@@ -243,6 +244,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     editingIsEnabled: Bool,
     runProjection: PlotterDrawingRunProjectionReference?,
     runState: DrawingStudioRunState,
+    positionRecoveryDetail: String? = nil,
     noInkRetryRunID: RunID? = nil,
     noInkRetryIsEnabled: Bool = true,
     execution: DrawingStudioExecutionPresentation? = nil,
@@ -275,6 +277,7 @@ struct DrawingStudioPresentation: Hashable, Sendable {
     self.noInkRetryRunID = noInkRetryRunID
     self.noInkRetryIsEnabled = noInkRetryIsEnabled
     self.runState = runState
+    self.positionRecoveryDetail = positionRecoveryDetail
     self.execution = execution
     self.coverageExperiment = coverageExperiment
     self.coverageAssessment = coverageAssessment
@@ -510,6 +513,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
           submitDraft(.analyzeSelectedResiduals)
         }
           .disabled(draftRequest(.analyzeSelectedResiduals) == nil)
+          .help(draftUnavailableReason(.analyzeSelectedResiduals) ?? "Analyze selected drawing records")
           .accessibilityIdentifier("learning.analyzeDrawings")
       }
       if let analysis = presentation.residualAnalysis {
@@ -603,6 +607,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
               submitDraft(.selectCatalogItem(id))
             }
             .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
+            .help(draftUnavailableReason(.selectCatalogItem(id)) ?? "Select this geometry")
             .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
           }
           Divider()
@@ -612,11 +617,13 @@ struct DrawingStudioView<BeforeRun: View>: View {
               submitDraft(.selectCatalogItem(id))
             }
             .disabled(!presentation.authoringIsEnabled || draftRequest(.selectCatalogItem(id)) == nil)
+            .help(draftUnavailableReason(.selectCatalogItem(id)) ?? "Select this geometry")
             .accessibilityIdentifier("drawing.testTarget." + id.rawValue)
           }
           Divider()
           Button("Show Target") { submitDraft(.showTarget) }
             .disabled(draftRequest(.showTarget) == nil)
+            .help(draftUnavailableReason(.showTarget) ?? "Show the drawing preview")
             .accessibilityIdentifier("drawing.testTarget.show")
         }
         .accessibilityIdentifier("drawing.testTarget")
@@ -628,7 +635,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
         .disabled(!presentation.authoringIsEnabled
           || draftRequest(.setDrawBorder(!presentation.drawBorder)) == nil)
         .accessibilityIdentifier("drawing.drawBorder")
-        .help("Ink the movable drawing frame before the artwork. The learned machine Boundary and calibration Border stay unchanged.")
+        .help(draftUnavailableReason(.setDrawBorder(!presentation.drawBorder)) ?? "Ink the movable drawing frame before the artwork. The learned machine Boundary and calibration Border stay unchanged.")
       StudioHelpButton("Placement", text: presentation.canvas.placement.locationText)
       HStack {
         Text("Size")
@@ -658,6 +665,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
         !presentation.authoringIsEnabled
           || draftRequest(.setUniformScale(presentation.canvas.placement.allowedScale.lowerBound)) == nil
       )
+      .help(draftUnavailableReason(.setUniformScale(presentation.canvas.placement.allowedScale.lowerBound)) ?? "Resize the drawing")
       HStack {
         Text("Rotation")
         Slider(
@@ -686,6 +694,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
             .setRotationDegrees(presentation.canvas.placement.rotationDegrees)
           ) == nil
       )
+      .help(draftUnavailableReason(.setRotationDegrees(presentation.canvas.placement.rotationDegrees)) ?? "Rotate the drawing")
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 8) { placementActions }
         VStack(alignment: .leading, spacing: 8) { placementActions }
@@ -706,7 +715,9 @@ struct DrawingStudioView<BeforeRun: View>: View {
       || !presentation.canvas.placement.allowedScale.contains(1)
       || draftRequest(.setUniformScale(1)) == nil)
     .accessibilityIdentifier("drawing.scale100")
-    .help("Set the target to its declared dimensions in controller millimeters. Physical accuracy requires measurement.")
+    .help(draftUnavailableReason(.setUniformScale(1))
+      ?? (!presentation.canvas.placement.allowedScale.contains(1) ? "Nominal size does not fit the current drawing area." : nil)
+      ?? "Set the target to its declared dimensions in controller millimeters. Physical accuracy requires measurement.")
   }
 
   @ViewBuilder
@@ -720,11 +731,13 @@ struct DrawingStudioView<BeforeRun: View>: View {
     .disabled(
       !presentation.authoringIsEnabled || draftRequest(.centerInDrawableRegion) == nil
     )
+    .help(draftUnavailableReason(.centerInDrawableRegion) ?? "Center the drawing in the working area")
     Button("Fit to Drawing Area") {
       WorkbenchRequestTelemetry.nativeActionHandled("drawing.fit")
       submitDraft(.fitInDrawableRegion)
     }
     .disabled(draftRequest(.fitInDrawableRegion) == nil)
+    .help(draftUnavailableReason(.fitInDrawableRegion) ?? "Fit the drawing in the working area")
     .accessibilityIdentifier("drawing.fit")
   }
 
@@ -756,7 +769,7 @@ struct DrawingStudioView<BeforeRun: View>: View {
       request: plotterUIProjection.request(for: action.id),
       unavailableReason: action.isAvailable ? nil
         : action.unavailableReason ?? "Refresh position verification availability.",
-      sink: plotterUIIntentSink, showsUnavailableReason: false)
+      sink: plotterUIIntentSink)
   }
 
   private var positionPenPreparation: PositionPenPreparationControls {
@@ -775,6 +788,11 @@ struct DrawingStudioView<BeforeRun: View>: View {
       }
       if let positionRecoveryButton {
         positionRecoveryButton.accessibilityIdentifier("drawing.reestablishPosition")
+        if let detail = presentation.positionRecoveryDetail {
+          Text(detail).font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("drawing.positionStatus")
+        }
       }
       // Keep each request button at one structural identity across resizing;
       // its pending/result feedback must survive a narrow panel.
@@ -784,12 +802,15 @@ struct DrawingStudioView<BeforeRun: View>: View {
 
   @ViewBuilder
   private var runActions: some View {
-    if case .unavailable(let reason) = presentation.runState {
-      OperatorRequestButton(title: "Draw", role: .affirmative, request: nil,
-        unavailableReason: reason, sink: plotterUIIntentSink, showsUnavailableReason: false)
-        .accessibilityIdentifier("drawing.draw")
+    OperatorRequestButton(title: "Draw", role: .affirmative,
+      request: drawRequest, unavailableReason: drawUnavailableReason,
+      sink: plotterUIIntentSink, nativeActionIdentifier: "drawing.draw")
+      .accessibilityIdentifier("drawing.draw")
+    if drawRequest != nil {
+      Text("Ready to draw").font(.caption).foregroundStyle(.secondary)
+        .accessibilityIdentifier("drawing.readiness")
     }
-    ForEach(presentation.controls) { control in
+    ForEach(presentation.controls.filter { $0.intent != .start }) { control in
       let intent = PlotterUIIntent.drawingRun(control.intent)
       let request = plotterUIProjection.request(matching: intent)
       if case .confirmNoInkAndPrepareRetry(let runID) = control.intent {
@@ -818,6 +839,31 @@ struct DrawingStudioView<BeforeRun: View>: View {
         .accessibilityIdentifier(control.intent == .start ? "drawing.draw" : "drawing.\(control.title)")
       }
     }
+  }
+
+  var drawRequest: PlotterUIRequest? {
+    guard presentation.controls.contains(where: { $0.intent == .start && $0.isEnabled }) else { return nil }
+    return plotterUIProjection.request(matching: .drawingRun(.start))
+  }
+
+  var drawUnavailableReason: String? {
+    guard drawRequest == nil else { return nil }
+    if let action = plotterUIProjection.actions.first(where: { $0.intent == .drawingRun(.start) }),
+      let reason = action.unavailableReason { return reason }
+    switch presentation.runState {
+    case .ready: return "Refreshing the current Draw request."
+    case .terminal, .reviewAvailable, .reviewing:
+      return "This attempt has ended. Replace the sheet and confirm it in Paper…."
+        + (presentation.noInkRetryRunID == nil ? "" : " Or confirm no ink below before reusing this sheet.")
+    default: return presentation.runState.detail
+    }
+  }
+
+  private func draftUnavailableReason(_ intent: PlotterDrawingDraftIntent) -> String? {
+    if draftFeedback.isPending { return "Wait for the current drawing change to finish." }
+    if let reason = presentation.authoringUnavailableReason { return reason }
+    return plotterUIProjection.actions.first { $0.intent == .drawingDraft(intent) }?.unavailableReason
+      ?? (draftRequest(intent) == nil ? "Refresh the current drawing control." : nil)
   }
 
   private func commitScale() {

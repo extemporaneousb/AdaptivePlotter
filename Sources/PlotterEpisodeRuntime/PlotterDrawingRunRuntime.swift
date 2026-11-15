@@ -2575,37 +2575,51 @@ public actor PlotterDrawingRunRuntime {
     guard case .available = state.evidenceArchiveAvailability else {
       return unavailable(Authority.evidence, .evidenceArchiveUnavailable, .restoreEvidenceArchive, "The drawing archive could not be loaded. Open Diagnostics for the file error.")
     }
+    // Accumulate independent prerequisites in the same evaluation that admits
+    // Draw. The first typed issue remains the execution refusal authority.
+    var issues: [PlotterDrawingRunReadinessIssue] = []
+    func block(_ owner: EpisodeAuthorityID, _ reason: PlotterDrawingRunRefusalReason,
+               _ remedy: PlotterDrawingRunRemedy, _ detail: String) {
+      issues.append(.init(owner: owner, reason: reason, remedy: remedy, detail: detail))
+    }
     if !facts.interactiveLearningIsComplete {
-      return unavailable(Authority.learning, .learningIncomplete, .restoreLearningAuthority, "Use Saved Learning or complete Guided Learning/Setup before drawing.")
+      block(Authority.learning, .learningIncomplete, .restoreLearningAuthority,
+        "Use Saved Learning or complete Guided Learning/Setup before drawing.")
     }
     if let reason = facts.physicalPositionUnavailableReason {
-      return unavailable(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera, reason)
-    }
-    if facts.acceptedMovementBounds == nil {
-      return unavailable(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera,
+      block(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera, reason)
+    } else if facts.acceptedMovementBounds == nil {
+      block(Authority.learning, .physicalPositionUnverified, .reestablishPositionFromCamera,
         "Accepted machine movement bounds are unavailable for the observation plan.")
     }
     if !facts.paperCoverageIsCurrent {
-      return unavailable(Authority.paper, .paperCoverageNotCurrent, .assertCurrentPaperCoverage, "Confirm that the current sheet covers the drawing area.")
+      block(Authority.paper, .paperCoverageNotCurrent, .assertCurrentPaperCoverage,
+        "Open Paper… and confirm that the current sheet covers the highlighted drawing area.")
     }
-    guard let plan = facts.plan else {
-      return unavailable(Authority.draft, .exactPlanUnavailable, .reviewExactPlan, "Show the portrait on the plotter video and fit its target inside the current drawing area.")
-    }
-    let geometry = plan.registration.applicability.machineGeometry
-    let unmappedMarkedPaper = state.blockedPlanRecords.contains {
-      $0.tipCalibration.applicability.machineGeometry != geometry
-    } || state.blockedPlanIntents.contains {
-      $0.context.registration.applicability.machineGeometry != geometry
-    }
-    if unmappedMarkedPaper {
-      return unavailable(Authority.run, .planMayAlreadyContainInk, .replaceMarkedPaper,
-        "This sheet has possible ink recorded under different machine geometry. Its location cannot be compared after axis calibration. Replace the marked sheet and record New Sheet before drawing; moving the target does not locate that old ink.")
-    }
-    if state.blockedPlanHashes.contains(plan.plan.contentHash) {
-      return unavailable(Authority.run, .planMayAlreadyContainInk, .movePlanAwayFromPossibleInk, "This plan may already contain ink. Replace the sheet and choose Replace Paper, then confirm sheet coverage and Draw.")
+    if let plan = facts.plan {
+      let geometry = plan.registration.applicability.machineGeometry
+      let unmappedMarkedPaper = state.blockedPlanRecords.contains {
+        $0.tipCalibration.applicability.machineGeometry != geometry
+      } || state.blockedPlanIntents.contains {
+        $0.context.registration.applicability.machineGeometry != geometry
+      }
+      if unmappedMarkedPaper {
+        block(Authority.run, .planMayAlreadyContainInk, .replaceMarkedPaper,
+          "This sheet has possible ink under different machine geometry. Replace it and confirm a new sheet in Paper…; moving the drawing does not locate the old ink.")
+      } else if state.blockedPlanHashes.contains(plan.plan.contentHash) {
+        block(Authority.run, .planMayAlreadyContainInk, .movePlanAwayFromPossibleInk,
+          "This plan may already contain ink. Replace the sheet, then choose ‘I installed a new sheet’ in Paper… and confirm coverage.")
+      }
+    } else if facts.interactiveLearningIsComplete && facts.paperCoverageIsCurrent {
+      block(Authority.draft, .exactPlanUnavailable, .reviewExactPlan,
+        "Show the portrait on the plotter video and fit its target inside the current drawing area.")
     }
     if let detail = Self.controllerReadinessDetail(controller, requiresPenUp: false) {
-      return unavailable(Authority.interpreter, .controllerUnavailable, .restoreControllerReadiness, detail)
+      block(Authority.interpreter, .controllerUnavailable, .restoreControllerReadiness, detail)
+    }
+    if let first = issues.first {
+      return unavailable(first.owner, first.reason, first.remedy,
+        issues.map(\.detail).joined(separator: "\n"))
     }
     return .ready
   }

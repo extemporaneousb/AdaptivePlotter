@@ -843,6 +843,8 @@ final class PlotterApplicationRuntime:
     var activeMachineCameraCheckpoint: AcceptedMachineCameraCheckpoint?
     var activeStageFourCheckpoint: AcceptedStageFourCheckpoint?
     var controllerPoseApplicability: ControllerPoseApplicability = .currentSession
+    var positionRecoveryStatus: String?
+    var paperConfirmationFailure: String?
     var learningAuthorityError: String?
     var acceptedAttemptSequence: UInt64 = 0
     var controllerSessionID = UUID()
@@ -1771,7 +1773,10 @@ final class PlotterApplicationRuntime:
   }
   private(set) var controllerPoseApplicability: ControllerPoseApplicability {
     get { currentEnvironmentState.controllerPoseApplicability }
-    set { currentEnvironmentState.controllerPoseApplicability = newValue }
+    set {
+      currentEnvironmentState.controllerPoseApplicability = newValue
+      if newValue == .currentSession { positionRecoveryStatus = nil }
+    }
   }
   private(set) var learningAuthorityError: String? {
     get { currentEnvironmentState.learningAuthorityError }
@@ -2774,7 +2779,17 @@ final class PlotterApplicationRuntime:
     drawingEvidenceArchive = next
   }
 
+  var materialAssessmentUnavailableReason: String? {
+    if drawingFrameEditSession != nil { return "Accept or Cancel beside Move Drawing before checking detail." }
+    if drawingMaterials.activeRecord?.profile == nil { return "Select a pen/material profile first." }
+    if drawingDraftSnapshot.program == nil || drawingDraftSnapshot.plan == nil {
+      return "Project a drawing at a valid size before checking detail."
+    }
+    return nil
+  }
+
   func assessCurrentMaterial() async -> String? {
+    if let reason = materialAssessmentUnavailableReason { return reason }
     guard let profile = drawingMaterials.activeRecord?.profile,
       let program = drawingDraftSnapshot.program, let plan = drawingDraftSnapshot.plan
     else { return "Select a material and project a drawing first." }
@@ -2810,7 +2825,7 @@ final class PlotterApplicationRuntime:
     if tipCalibrationRuntime.workingRegionEdit != nil {
       return "Apply or Cancel the working-region edit before drawing."
     }
-    return drawingFrameEditSession == nil ? nil : "Apply or Cancel Frame Edit before drawing."
+    return drawingFrameEditSession == nil ? nil : "Accept or Cancel beside Move Drawing before drawing."
   }
 
   var drawingDraftExternalFacts: PlotterDrawingDraftExternalFacts {
@@ -3179,6 +3194,7 @@ final class PlotterApplicationRuntime:
       editingIsEnabled: editingIsEnabled && !drawingRunRequiresNewPlan,
       runProjection: run?.projection,
       runState: drawingStudioRunState(run),
+      positionRecoveryDetail: positionRecoveryStatus,
       noInkRetryRunID: run.flatMap { snapshot in
         guard !snapshot.ownsWorkflow, snapshot.jobPublicationRecoveryCapabilityID == nil,
           let terminal = snapshot.terminal, terminal.record.allowsNoInkConfirmation,
@@ -3258,7 +3274,8 @@ final class PlotterApplicationRuntime:
     case .synchronizing:
       return .unavailable(reason: "Checking the current drawing and controller.")
     case .unavailable(let issue):
-      return .unavailable(reason: issue.detail)
+      return .unavailable(reason: issue.reason == .physicalPositionUnverified
+        ? [issue.detail, positionRecoveryStatus].compactMap { $0 }.joined(separator: " ") : issue.detail)
     case .ready:
       if let previewStatus = drawingDraftSnapshot.preview?.status,
         case .diagnosticOnly(let limitation) = previewStatus {
@@ -3659,8 +3676,16 @@ final class PlotterApplicationRuntime:
   }
 
   var paperAcceptanceUnavailableReason: String? {
+    paperConfirmationUnavailableReason(replacingSheet: false)
+  }
+
+  func paperConfirmationUnavailableReason(replacingSheet: Bool) -> String? {
+    if replacingSheet, let reason = paperManagementUnavailableReason { return reason }
+    if drawingRunRequiresNewPlan && !replacingSheet {
+      return "This sheet belongs to a finished attempt. Select ‘I installed a new sheet’ after replacing it, or use the available no-ink confirmation before reusing it."
+    }
     if tipCameraRegistration != nil && isSparseTipRegionContext { return "Finish calibration before confirming sheet coverage." }
-    if drawingFrameEditSession != nil { return "Apply or Cancel drawing positioning before confirming sheet coverage." }
+    if drawingFrameEditSession != nil { return "Accept or Cancel beside Move Drawing before confirming sheet coverage." }
     if tipCalibrationRuntime.workingRegionEdit != nil {
       return "Apply or Cancel the working-region edit before accepting sheet placement."
     }
@@ -3674,18 +3699,20 @@ final class PlotterApplicationRuntime:
       registration: tipCameraRegistration, drawableRegion: currentDrawableMachineRegion,
       placementGuide: frame.flatMap { sparseTipPlacementGuide(on: $0) },
       paper: currentPaperRevisionContext, toolAssemblyRevision: toolAssemblyRevision,
-      runInProgress: drawingRunIsActive, terminalRequiresNewPlan: drawingRunRequiresNewPlan,
+      runInProgress: drawingRunIsActive, terminalRequiresNewPlan: drawingRunRequiresNewPlan && !replacingSheet,
       paperCoverageOutlineIsVisible: paperCoverageOutlineIsVisible)
   }
 
   var sheetAcceptanceTitle: String {
-    if tipCameraRegistration != nil { return paperCoverageIsCurrent ? "Sheet Confirmed" : "Sheet Covers Target" }
-    return drawingDraftSnapshot.sheetPlacementIsCurrent ? "Sheet Placement Accepted" : "Accept Sheet Placement"
+    let confirmed = tipCameraRegistration == nil
+      ? drawingDraftSnapshot.sheetPlacementIsCurrent : paperCoverageIsCurrent
+    return confirmed ? "Paper confirmed for the current area" : "Paper coverage needs confirmation"
   }
 
   var sheetAcceptanceDetail: String {
-    tipCameraRegistration == nil ? PlotterDrawingDraftPlacementGuide.qualification
-      : "Confirm that this current sheet covers the outlined working region. This is an operator assertion, not measured paper edges or permission to replay marks."
+    tipCameraRegistration == nil
+      ? "Confirm paper covers the highlighted calibration marks. " + PlotterDrawingDraftPlacementGuide.qualification
+      : "Confirm paper covers the highlighted drawing region. This confirms coverage, not machine position."
   }
 
   private func learnedDrawingOverlays(
@@ -5300,6 +5327,15 @@ final class PlotterApplicationRuntime:
       unavailableReason: paperManagementUnavailableReason,
       owner: "PlotterApplicationRuntime"
     )
+    for replacingSheet in [false, true] {
+      appendApplicationCandidate(
+        id: PlotterAppUIActionID.paperConfirmation(replacingSheet: replacingSheet),
+        title: "Confirm paper",
+        intent: .paper(.confirmCoverage(replacingSheet: replacingSheet)),
+        unavailableReason: paperConfirmationUnavailableReason(replacingSheet: replacingSheet),
+        owner: "PlotterApplicationRuntime"
+      )
+    }
     appendApplicationCandidate(
       id: PlotterAppUIActionID.paperContactPlane,
       title: "Paper contact plane changed",
@@ -5499,7 +5535,7 @@ final class PlotterApplicationRuntime:
         candidates.append(decision)
       }
     }
-    if recoverableTipCalibrationCheckpoint != nil || tipCalibrationRuntime.positionRecoveryIsAvailable {
+    do {
       let recovery = PlotterUILearningActionDecision(
         itemID: plotterUILearningOwnerID(.humanGuidedDiscovery(.calibratePenContactFromSparseMarks)),
         action: .tipCalibration(.revalidateCheckpoint),
@@ -6064,36 +6100,9 @@ final class PlotterApplicationRuntime:
             remedy: "The drawing or calibration context changed. Cancel and edit the current frame again.")
         }
       }
-      if intent == .assertPaperCoverage {
-        if let reason = paperAcceptanceUnavailableReason {
-          return plotterUIRefusal(request, reason: .retainedOwnerRefused,
-            currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions, remedy: reason)
-        }
-        // Ambient analysis does not recompile the controls. Bind this explicit
-        // operator assertion to the exact frame available at the click, then
-        // retain Draft's full-reference admission through the submission.
-        let referenceAtClick = drawingDraftSnapshot.projection
-        guard let visibleFrame = displayedSheetAcceptanceFrame else {
-          return plotterUIRefusal(request, reason: .retainedOwnerRefused,
-            currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions,
-            remedy: "Show the current Plotter Video frame before confirming sheet coverage.")
-        }
-        // Preview pixels are normally unsealed. Only this explicit evidence
-        // action materializes their identity; passive video does no hashing.
-        displayedFrame = DisplayedFrame(source: visibleFrame.source,
-          frame: visibleFrame.frame.materializingEvidenceContentHash())
-        let factsAtClick = drawingDraftExternalFacts
-        let prepared = await drawingDraftRuntime.synchronize(factsAtClick)
-        guard paperCoverageOutlineIsVisible,
-          prepared.projection.environment == referenceAtClick.environment,
-          prepared.projection.draftRevision == referenceAtClick.draftRevision,
-          factsAtClick.revisions == drawingDraftExternalFacts.revisions else {
-          return plotterUIRefusal(
-            request, reason: .retainedOwnerRefused, currentUIRevision: currentUIRevision,
-            currentRuntimeRevisions: currentRuntimeRevisions,
-            remedy: "The drawing context changed while preparing sheet confirmation. Review the current target and retry.")
-        }
-        installDrawingDraftSnapshot(prepared)
+      if intent == .assertPaperCoverage, let reason = await preparePaperCoverageAssertion() {
+        return plotterUIRefusal(request, reason: .retainedOwnerRefused,
+          currentUIRevision: currentUIRevision, currentRuntimeRevisions: currentRuntimeRevisions, remedy: reason)
       }
       await performDrawingDraftSubmission(PlotterDrawingDraftSubmission(
         projection: drawingDraftSnapshot.projection,
@@ -6282,13 +6291,17 @@ final class PlotterApplicationRuntime:
         )
       }
     case .paper(let declaration):
-      let contactPlaneChanged: Bool = switch declaration {
-      case .newSheetOnCurrentPlane: false
-      case .contactPlaneChanged: true
+      let remedy: String?
+      switch declaration {
+      case .newSheetOnCurrentPlane:
+        remedy = await recordPaperReplacement(contactPlaneChanged: false)
+      case .contactPlaneChanged:
+        remedy = await recordPaperReplacement(contactPlaneChanged: true)
+      case .confirmCoverage(let replacingSheet):
+        remedy = await confirmPaperCoverage(replacingSheet: replacingSheet)
       }
-      if let remedy = await recordPaperReplacement(contactPlaneChanged: contactPlaneChanged) {
-        return plotterUIRefusal(
-          request, reason: .retainedOwnerRefused,
+      if let remedy {
+        return plotterUIRefusal(request, reason: .retainedOwnerRefused,
           currentUIRevision: currentPlotterUIProjection?.revision ?? currentUIRevision,
           currentRuntimeRevisions: currentPlotterUIRuntimeRevisions(), remedy: remedy)
       }
@@ -6847,7 +6860,8 @@ final class PlotterApplicationRuntime:
     let isCapAction = kind == .reidentifyPenCap || kind == .replacePenCapReference
       || (kind == .cancel && capReidentificationAttemptID != nil)
     let isSavedLearningDecision = kind == .applySavedLearning || kind == .startNewLearning
-    guard learningIsEnabled || isCapAction || isSavedLearningDecision else {
+    let isPositionRecovery = kind == .tipCalibration(.revalidateCheckpoint)
+    guard learningIsEnabled || isCapAction || isSavedLearningDecision || isPositionRecovery else {
       return "Enable Learning before retrying."
     }
     guard !learningResetInProgress else { return "Wait for the Learning reset to settle." }
@@ -6918,15 +6932,7 @@ final class PlotterApplicationRuntime:
       }
       let outcome: PlotterTipCalibrationSubmissionOutcome
       if case .revalidateCheckpoint = intent {
-        let target = ContextualStopTarget.positionRecovery(capabilityID: ContextualStopCapabilityID())
-        var result: PlotterTipCalibrationSubmissionOutcome?
-        let task = Task { @MainActor in
-          result = await self.tipCalibrationRuntime.submit(intent)
-        }
-        installStoppableOperation(target: target, owner: .batch(task))
-        await task.value
-        clearStoppableOperation(matching: target)
-        outcome = result ?? .cancelled
+        return await recoverPositionFromCamera()
       } else {
         outcome = await tipCalibrationRuntime.submit(intent)
       }
@@ -7002,6 +7008,15 @@ final class PlotterApplicationRuntime:
         .applySavedLearning,
         facts: artifactResetAdmissionFacts
       ) else { return artifactResetRuntime.snapshot().phase.detail }
+      // The reset owner must settle before the capture owner can start. Saved
+      // calibration is accepted independently of current physical position.
+      if !Task.isCancelled, applicationAdmissionIsOpen {
+        if let reason = positionRevalidationUnavailableReason {
+          positionRecoveryStatus = "Saved Learning restored. Position not verified: " + reason
+        } else {
+          _ = await recoverPositionFromCamera()
+        }
+      }
     case .startNewLearning:
       guard await artifactResetRuntime.submit(
         .retainSavedLearning,
@@ -10330,6 +10345,67 @@ final class PlotterApplicationRuntime:
     await recordPaperReplacement(contactPlaneChanged: true)
   }
 
+  /// Both the legacy assertion and the combined Paper control use the same
+  /// exact-frame preparation and Draft authority.
+  private func preparePaperCoverageAssertion(confirmedFrame: DisplayedFrame? = nil) async -> String? {
+    if let reason = paperAcceptanceUnavailableReason { return reason }
+    let referenceAtClick = drawingDraftSnapshot.projection
+    guard let visibleFrame = confirmedFrame ?? displayedSheetAcceptanceFrame else {
+      return "Show the current Plotter Video frame before confirming sheet coverage."
+    }
+    displayedFrame = DisplayedFrame(source: visibleFrame.source,
+      frame: visibleFrame.frame.materializingEvidenceContentHash())
+    let factsAtClick = drawingDraftExternalFacts
+    let prepared = await drawingDraftRuntime.synchronize(factsAtClick)
+    guard applicationAdmissionIsOpen, !Task.isCancelled, paperCoverageOutlineIsVisible,
+      prepared.projection.environment == referenceAtClick.environment,
+      prepared.projection.draftRevision == referenceAtClick.draftRevision,
+      factsAtClick.revisions == drawingDraftExternalFacts.revisions else {
+      return "The drawing context changed while preparing sheet confirmation. Review the current target and retry."
+    }
+    installDrawingDraftSnapshot(prepared)
+    return nil
+  }
+
+  var paperConfirmationFailure: String? { currentEnvironmentState.paperConfirmationFailure }
+
+  private func confirmPaperCoverage(replacingSheet: Bool) async -> String? {
+    let environment = frameMode
+    currentEnvironmentState.paperConfirmationFailure = nil
+    let reason = await confirmPaperCoverageEffect(replacingSheet: replacingSheet)
+    if frameMode == environment {
+      currentEnvironmentState.paperConfirmationFailure = reason
+      markSemanticPresentationChanged()
+    }
+    return reason
+  }
+
+  private func confirmPaperCoverageEffect(replacingSheet: Bool) async -> String? {
+    if let reason = paperConfirmationUnavailableReason(replacingSheet: replacingSheet) { return reason }
+    guard let confirmedFrame = displayedSheetAcceptanceFrame else {
+      return "Show the current Plotter Video frame before confirming sheet coverage."
+    }
+    let context = PaperConfirmationContext(draft: drawingDraftSnapshot,
+      facts: drawingDraftExternalFacts.revisions)
+    if replacingSheet {
+      if let reason = await recordPaperReplacement(contactPlaneChanged: false) { return reason }
+      // Replacement is durable independently of coverage. Never silently
+      // apply the operator's assertion to a different drawing or calibration.
+      guard context == PaperConfirmationContext(draft: drawingDraftSnapshot,
+        facts: drawingDraftExternalFacts.revisions) else {
+        return "New sheet recorded, but the drawing or calibration changed. Review the highlighted area and confirm paper again."
+      }
+    }
+    guard applicationAdmissionIsOpen, !Task.isCancelled else {
+      return "Paper confirmation was interrupted. Review the current sheet before drawing."
+    }
+    // Retain the frame the operator actually confirmed across persistence.
+    if let reason = await preparePaperCoverageAssertion(confirmedFrame: confirmedFrame) { return reason }
+    await performDrawingDraftSubmission(.init(projection: drawingDraftSnapshot.projection,
+      intent: .assertPaperCoverage))
+    return drawingDraftSnapshot.lastSubmissionRefusal?.remedy
+  }
+
   /// Nil means this declaration applied; otherwise return its own actionable
   /// failure to the existing UI refusal channel, independently of old warnings.
   @discardableResult
@@ -11106,10 +11182,57 @@ final class PlotterApplicationRuntime:
     recoverableTipCalibrationCheckpoint = checkpoint ?? acceptedLearningPathCheckpoint?.tipCalibration
     tipCalibrationRuntime.installPositionRecoveryAvailability(machineCameraRegistration != nil)
     controllerPoseApplicability = .requiresVisualRevalidation(reportedPositionDeltaMM: 0)
+    positionRecoveryStatus = "Position is unverified. Re-establish Position from Camera before drawing."
     markSemanticPresentationChanged()
   }
 
+  private(set) var positionRecoveryStatus: String? {
+    get { currentEnvironmentState.positionRecoveryStatus }
+    set { currentEnvironmentState.positionRecoveryStatus = newValue }
+  }
+
+  private func recoverPositionFromCamera() async -> String? {
+    if let reason = positionRevalidationUnavailableReason {
+      positionRecoveryStatus = reason
+      markSemanticPresentationChanged()
+      return reason
+    }
+    // Repeated checks are explicit fresh observations, even after a previous
+    // success. A failed check cannot retain the old physical-position trust.
+    requireVisualPositionRevalidation()
+    positionRecoveryStatus = "Checking current position from camera…"
+    let target = ContextualStopTarget.positionRecovery(capabilityID: ContextualStopCapabilityID())
+    var outcome: PlotterTipCalibrationSubmissionOutcome?
+    let task = Task { @MainActor in
+      outcome = await self.tipCalibrationRuntime.submit(.revalidateCheckpoint)
+    }
+    installStoppableOperation(target: target, owner: .batch(task))
+    markSemanticPresentationChanged()
+    await task.value
+    clearStoppableOperation(matching: target)
+    let failure: String?
+    switch outcome ?? .cancelled {
+    case .completed: failure = nil
+    case .refused(let reason), .failed(let reason), .possibleInk(let reason): failure = reason
+    case .cancelled: failure = "Position verification was cancelled. Re-establish Position from Camera before drawing."
+    }
+    positionRecoveryStatus = failure.map { "Position not verified: " + $0 }
+      ?? "Position verified from current camera evidence."
+    markSemanticPresentationChanged()
+    return failure
+  }
+
   var positionRevalidationUnavailableReason: String? {
+    if !applicationAdmissionIsOpen { return "The application is shutting down." }
+    if let reason = savedLearningRecoveryUnavailableReason { return reason }
+    if learningResetInProgress { return "Wait for Saved Learning or the current reset to finish." }
+    if drawingFrameEditSession != nil { return "Accept or Cancel beside Move Drawing before verifying position." }
+    if tipCalibrationRuntime.workingRegionEdit != nil { return "Apply or Cancel the drawing-region edit before verifying position." }
+    if let owner = activeExerciseAttemptOwnerID,
+      owner != .humanGuidedDiscovery(.calibratePenContactFromSparseMarks) {
+      return "Finish or cancel the active Learning exercise before verifying position."
+    }
+
     if case .setPen(let request) = manualMotionEpisodeSnapshot?.activeOperation?.intent,
       request.position == .raised {
       return "Raising the pen. Wait for it to finish, then use the camera to find its position."
@@ -11118,8 +11241,16 @@ final class PlotterApplicationRuntime:
       return "Position verification is in progress."
     }
     if drawingRunIsActive { return "Stop or finish the current drawing before re-establishing position." }
-    if frameMode == .simulated { return nil }
-    if !cameraIsLive { return "Show the current Plotter Video camera." }
+    guard machineCameraRegistration != nil else {
+      return "Use Saved Learning with a camera/cap map, or complete Camera Calibration first."
+    }
+    if frameMode == .simulated {
+      return recoverableTipCalibrationCheckpoint != nil || tipCalibrationRuntime.positionRecoveryIsAvailable
+        ? nil : "The simulated position is current; no retained recovery is pending."
+    }
+    if workbenchCameraRole != .plotter || cameraRoleIsTransitioning || !cameraIsLive {
+      return "Show the current Plotter Video camera."
+    }
     // This is capture-only recovery. It may inspect a position whose physical
     // alignment is unknown, but must never start travel or normalize the pen.
     guard let snapshot = machineSnapshot, snapshot.machine.connection == .connected else {
